@@ -103,6 +103,9 @@ export interface FullAiResult {
   overview?: string;
   budgetAdvice?: string;
   campaigns?: FullAiCampaign[];
+  creativePrompt?: string;
+  creativePromptStory?: string;
+  _aanyaBrief?: SeniorDesignerResult;
 }
 
 export interface MetaAdvantageRec {

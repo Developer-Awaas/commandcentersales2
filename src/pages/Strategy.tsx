@@ -802,13 +802,78 @@ export function Strategy() {
       } else if (res.raw) {
         setResult({ type: 'full', inputs: fullInputs, projects, rawText: String(res.raw) });
       } else {
-        setResult({ type: 'full', inputs: fullInputs, projects, aiData: res as FullAiResult });
+        const fullParsed = res as FullAiResult;
+
+        // ── Aanya senior designer creative upgrade (mirrors Meta-path lines 537-605) ──
+        try {
+          console.log('🎨 [AANYA-FULL] Calling Aanya for creative prompt upgrade...');
+
+          const languages = fullInputs.enableOdia ? ['English', 'Odia'] : ['English'];
+          const primaryProjectId = fullInputs.selectedProjectIds[0];
+
+          const briefSummary = [
+            `Generate a high-converting Meta ad creative for a real estate campaign at scale "${fullInputs.scale}".`,
+            `Monthly budget ₹${fullInputs.monthlyBudget}.`,
+            `Targets: ${fullInputs.leadsPerMonth} leads, ${fullInputs.svsPerMonth} site visits, ${fullInputs.bookingsPerMonth} bookings per month.`,
+            fullInputs.includePerSqft && fullInputs.perSqftRate
+              ? `Highlight price per sq.ft: ₹${fullInputs.perSqftRate}/sqft.`
+              : '',
+          ].filter(Boolean).join(' ');
+
+          const { systemPrompt: aanyaSystem, userPrompt: aanyaUser } = await buildQuickGenerateBrief({
+            user_brief: briefSummary,
+            project_id: primaryProjectId,
+            campaign_goal: 'lead_generation',
+            funnel_stage: 'BOFU',
+            placement: 'feed_square',
+            languages,
+            ad_platform: 'Meta Ads Manager',
+          });
+
+          console.log('🎨 [AANYA-FULL] System prompt length:', aanyaSystem.length);
+          console.log('🎨 [AANYA-FULL] Languages:', languages, '| Primary project:', primaryProjectId);
+
+          const aanyaRes = await aiCall(aanyaUser, aanyaSystem, 16000);
+          console.log('🎨 [AANYA-FULL] Response keys:', Object.keys(aanyaRes));
+
+          let aanyaParsed: SeniorDesignerResult;
+          if (aanyaRes.raw) {
+            const s = String(aanyaRes.raw);
+            try { aanyaParsed = JSON.parse(s); }
+            catch {
+              try { aanyaParsed = JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
+              catch {
+                const st = s.indexOf('{'); const en = s.lastIndexOf('}');
+                if (st !== -1 && en !== -1) { aanyaParsed = JSON.parse(s.substring(st, en + 1)); }
+                else { throw new Error('Could not parse Aanya response'); }
+              }
+            }
+          } else if (aanyaRes.error) {
+            throw new Error(String(aanyaRes.error));
+          } else {
+            aanyaParsed = aanyaRes as SeniorDesignerResult;
+          }
+
+          if (aanyaParsed.nanobanana_prompt_main) {
+            fullParsed.creativePrompt = aanyaParsed.nanobanana_prompt_main;
+          }
+          if (aanyaParsed.nanobanana_prompt_story) {
+            fullParsed.creativePromptStory = aanyaParsed.nanobanana_prompt_story;
+          }
+          fullParsed._aanyaBrief = aanyaParsed;
+
+          console.log('✅ [AANYA-FULL] Creative prompts upgraded by Aanya');
+        } catch (aanyaErr) {
+          console.warn('⚠️ [AANYA-FULL] Aanya call failed, keeping Full Strategy output as-is:', aanyaErr);
+        }
+
+        setResult({ type: 'full', inputs: fullInputs, projects, aiData: fullParsed });
         logAiSession(supabase, {
           sessionType: 'full_strategy',
           projectIds: fullInputs.selectedProjectIds,
           inputSummary: `Full strategy: ₹${fullInputs.monthlyBudget}/mo, ${fullInputs.leadsPerMonth} leads, ${selected.length} projects`,
           inputData: { monthlyBudget: fullInputs.monthlyBudget, leadsPerMonth: fullInputs.leadsPerMonth, scale: fullInputs.scale },
-          outputData: res,
+          outputData: fullParsed,
         });
         logActivity(supabase, {
           action: 'generated_strategy',
