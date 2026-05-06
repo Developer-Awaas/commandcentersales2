@@ -46,7 +46,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AanyaDesignerNotes({ brief }: { brief?: SeniorDesignerResult }) {
+export function AanyaDesignerNotes({ brief }: { brief?: SeniorDesignerResult }) {
   const [open, setOpen] = useState(false);
   if (!brief) return null;
 

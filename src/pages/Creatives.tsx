@@ -5,6 +5,9 @@ import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
+import { buildVariantBriefs } from '../lib/senior-designer-prompts';
+import type { SeniorDesignerResult } from './strategy/types';
+import { AanyaDesignerNotes } from './strategy/StrategyResult';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { Card } from '../components/ui/Card';
@@ -37,6 +40,7 @@ interface AiVariant {
   nanoStory?: string;
   hashtags: string[];
   bestTime?: string;
+  _aanyaBrief?: SeniorDesignerResult;
 }
 
 interface AiCreativesResult {
@@ -256,6 +260,8 @@ function VariantCard({ variant, onSave, project, platform }: { variant: AiVarian
             </div>
           </div>
         )}
+
+        {variant._aanyaBrief && <AanyaDesignerNotes brief={variant._aanyaBrief} />}
       </div>
     </Card>
   );
@@ -400,9 +406,146 @@ export function Creatives() {
         return;
       }
 
-      const context = await buildContext({ projectId });
       const project = projects.find((p) => p.id === projectId);
-      const basePromptText = `Generate 3 creative variants for ${funnelStage} real estate ad. Write REAL content.
+      const isNanobanana = creativePlatform.toLowerCase().includes('nanobanana');
+
+      if (isNanobanana) {
+        // ── AANYA 3-VARIANT PATH (Promise.allSettled — partial failures degrade gracefully) ──
+        const userBrief = [
+          `Generate a high-converting real estate ad creative for the ${funnelStage} funnel stage.`,
+          project ? `Project: ${project.name}${project.locality ? ` in ${project.locality}` : ''}${project.city ? `, ${project.city}` : ''}.` : '',
+          image ? 'A reference image has been uploaded — incorporate its visual style.' : '',
+        ].filter(Boolean).join(' ');
+
+        const briefs = await buildVariantBriefs({
+          project_id: projectId,
+          user_brief: userBrief,
+          funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
+          languages: ['English', 'Odia'],
+        });
+
+        const imagePayload = image ? await fileToBase64(image) : null;
+
+        const angleLabels = [
+          'Price-led with Urgency',
+          'Lifestyle / Aspirational',
+          'Trust & Legacy / Amenities',
+        ] as const;
+
+        const settled = await Promise.allSettled(
+          briefs.map(async (brief, i) => {
+            const tag = `[AANYA-VARIANT-${String.fromCharCode(65 + i)}]`;
+            console.log(`🎨 ${tag} system prompt length:`, brief.systemPrompt.length);
+            console.log(`🎨 ${tag} user prompt brand check:`, {
+              has_INVIOLABLE: brief.userPrompt.includes('INVIOLABLE') || brief.systemPrompt.includes('INVIOLABLE'),
+            });
+
+            let aanyaRes: Record<string, unknown>;
+            if (imagePayload) {
+              const messages = [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'image', source: { type: 'base64', media_type: imagePayload.mimeType, data: imagePayload.data } },
+                    { type: 'text', text: brief.userPrompt },
+                  ],
+                },
+              ];
+              aanyaRes = await aiVision(messages, brief.systemPrompt);
+            } else {
+              aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000);
+            }
+
+            console.log(`🎨 ${tag} response keys:`, Object.keys(aanyaRes));
+            if (aanyaRes.error) throw new Error(String(aanyaRes.error));
+
+            let parsed: SeniorDesignerResult;
+            if (aanyaRes.raw) {
+              const s = String(aanyaRes.raw);
+              try { parsed = JSON.parse(s); }
+              catch {
+                try { parsed = JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
+                catch {
+                  const st = s.indexOf('{'); const en = s.lastIndexOf('}');
+                  if (st !== -1 && en !== -1) { parsed = JSON.parse(s.substring(st, en + 1)); }
+                  else { throw new Error(`Could not parse ${tag} response`); }
+                }
+              }
+            } else {
+              parsed = aanyaRes as SeniorDesignerResult;
+            }
+
+            console.log(`✅ ${tag} parsed successfully`);
+            return parsed;
+          })
+        );
+
+        const aiVariants: AiVariant[] = settled.map((s, i) => {
+          const label = String.fromCharCode(65 + i);
+          const angle = angleLabels[i];
+          if (s.status === 'rejected') {
+            console.warn(`⚠️ [AANYA-VARIANT-${label}] failed:`, s.reason);
+            return {
+              variant: label,
+              angle,
+              why: `Variant ${label} generation failed — see console.`,
+              format: 'Single Image',
+              primaryText: '',
+              headline: '',
+              description: '',
+              nanoPrompt: '',
+              hashtags: [],
+            };
+          }
+          const parsed = s.value;
+          const adCopy = parsed.ad_copy ?? {};
+          return {
+            variant: label,
+            angle,
+            why: parsed.designer_rationale ?? parsed.creative_concept ?? '',
+            format: 'Single Image',
+            primaryText: String(adCopy.primary_text_english ?? ''),
+            odiaText: adCopy.primary_text_odia ? String(adCopy.primary_text_odia) : undefined,
+            headline: String(adCopy.headline_english ?? ''),
+            description: String(adCopy.subhead_english ?? ''),
+            cta: String(adCopy.cta ?? 'Send WhatsApp Message'),
+            nanoPrompt: parsed.nanobanana_prompt_main ?? '',
+            nanoStory: parsed.nanobanana_prompt_story,
+            hashtags: [],
+            _aanyaBrief: parsed,
+          };
+        });
+
+        const successCount = settled.filter((s) => s.status === 'fulfilled').length;
+        if (successCount === 0) {
+          setResult({ status: 'error', message: 'All 3 Aanya variant generations failed. See console for details.' });
+        } else {
+          setResult({
+            status: 'ok',
+            data: {
+              strategy: successCount === 3
+                ? 'Aanya generated all 3 variants — designed for Nanobanana (Gemini).'
+                : `Aanya generated ${successCount}/3 variants. Failed variants are shown with empty fields — regenerate to retry.`,
+              variants: aiVariants,
+            },
+          });
+
+          logAiSession(supabase, {
+            sessionType: 'creative',
+            projectIds: [projectId],
+            inputSummary: `Aanya 3-variant creatives for ${project?.name ?? ''} ${funnelStage}`,
+            outputData: { variants: aiVariants } as Record<string, unknown>,
+          });
+          logActivity(supabase, {
+            action: 'generated_creatives',
+            entityType: 'ai_session',
+            details: { project: project?.name ?? '', funnel: funnelStage, hasReferenceImage: !!image, source: 'aanya_3_variant', successCount },
+          });
+        }
+      } else {
+        // ── LEGACY PATH (non-Nanobanana platforms — unchanged) ──
+        const context = await buildContext({ projectId });
+        const basePromptText = `Generate 3 creative variants for ${funnelStage} real estate ad. Write REAL content.
 PROJECT: ${project?.name ?? 'Unknown'} | ${project?.locality ?? ''}, ${project?.city ?? ''} | Price: ${project?.price_range_lacs ?? 'N/A'} Lacs | USPs: ${project?.usps ?? 'N/A'}
 VERNACULAR: Odia enabled
 ${image ? 'REFERENCE IMAGE: Analyze uploaded image style. Match it in prompts.' : ''}
@@ -411,44 +554,44 @@ CRITICAL: primaryText = REAL 150-250 char copy with emojis. headline = REAL 25 c
 
 Return ONLY a JSON object:
 {"strategy":"which variant first and why","variants":[{"variant":"A","angle":"angle name","why":"rationale","format":"Single Image","primaryText":"ACTUAL 150-250 CHAR COPY","odiaText":"ACTUAL ODIA","headline":"ACTUAL 25 CHAR","description":"ACTUAL 30 CHAR","cta":"Send WhatsApp Message","nanoPrompt":"COMPLETE 1080x1080 prompt with visual style, colors hex, text overlay, layout, logo top-left","nanoStory":"COMPLETE 1080x1920 prompt","hashtags":["15 real tags"],"bestTime":"time"}],"shootList":["video shot if needed"],"refresh":"when to refresh"}`;
-      const promptText = context ? basePromptText + '\n\n' + context : basePromptText;
+        const promptText = context ? basePromptText + '\n\n' + context : basePromptText;
 
-      let res: Record<string, unknown>;
+        let res: Record<string, unknown>;
 
-      if (image) {
-        const { data: b64data, mimeType } = await fileToBase64(image);
-        const messages = [
-          {
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mimeType, data: b64data } },
-              { type: 'text', text: promptText },
-            ],
-          },
-        ];
-        res = await aiVision(messages, 'You are a real estate ad creative director. Analyze reference image. Respond ONLY in valid JSON.');
-      } else {
-        res = await aiCall(promptText);
-      }
+        if (image) {
+          const { data: b64data, mimeType } = await fileToBase64(image);
+          const messages = [
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mimeType, data: b64data } },
+                { type: 'text', text: promptText },
+              ],
+            },
+          ];
+          res = await aiVision(messages, 'You are a real estate ad creative director. Analyze reference image. Respond ONLY in valid JSON.');
+        } else {
+          res = await aiCall(promptText);
+        }
 
-      if (res.error) {
-        setResult({ status: 'error', message: String(res.error) });
-      } else if (res.raw) {
-        setResult({ status: 'raw', text: String(res.raw) });
-      } else {
-        setResult({ status: 'ok', data: res as AiCreativesResult });
-        const project = projects.find((p) => p.id === projectId);
-        logAiSession(supabase, {
-          sessionType: 'creative',
-          projectIds: [projectId],
-          inputSummary: `Creatives for ${project?.name ?? ''} ${funnelStage}`,
-          outputData: res,
-        });
-        logActivity(supabase, {
-          action: 'generated_creatives',
-          entityType: 'ai_session',
-          details: { project: project?.name ?? '', funnel: funnelStage, hasReferenceImage: !!image },
-        });
+        if (res.error) {
+          setResult({ status: 'error', message: String(res.error) });
+        } else if (res.raw) {
+          setResult({ status: 'raw', text: String(res.raw) });
+        } else {
+          setResult({ status: 'ok', data: res as AiCreativesResult });
+          logAiSession(supabase, {
+            sessionType: 'creative',
+            projectIds: [projectId],
+            inputSummary: `Creatives for ${project?.name ?? ''} ${funnelStage}`,
+            outputData: res,
+          });
+          logActivity(supabase, {
+            action: 'generated_creatives',
+            entityType: 'ai_session',
+            details: { project: project?.name ?? '', funnel: funnelStage, hasReferenceImage: !!image },
+          });
+        }
       }
     } catch (err: unknown) {
       setResult({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
