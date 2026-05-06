@@ -1202,6 +1202,59 @@ function FullAiOutput({ data, inputs, projects, onSave }: { data: FullAiResult; 
         ))
       )}
 
+      {data._aanyaBrief && (data.creativePrompt || data.creativePromptStory) && (
+        <Card>
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+            <SectionLabel>Creative Prompts — Nanobanana (Gemini)</SectionLabel>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand/10 border border-brand/20">
+              <Sparkles size={11} className="text-brand" />
+              <span className="text-[10px] font-semibold text-brand tracking-wide">
+                Designed by Aanya — Senior Creative Director
+              </span>
+            </div>
+          </div>
+          <div className="px-5 py-4 flex flex-col gap-4">
+            {data.creativePrompt && (
+              <>
+                <div className="p-4 rounded-xl border border-purple-500/30 bg-purple-500/5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-purple-400 uppercase tracking-wide">Feed (1080×1080)</span>
+                    <CopyButton text={data.creativePrompt} />
+                  </div>
+                  <p className="text-sm text-text-primary leading-relaxed italic">{data.creativePrompt}</p>
+                </div>
+                {data._aanyaBrief?.reference_image_manifest && data._aanyaBrief.reference_image_manifest.length > 0 && (
+                  <ReferenceImagePack
+                    manifest={data._aanyaBrief.reference_image_manifest as import('../../components/ReferenceImagePack').ReferenceManifestItem[]}
+                    projectId={inputs.selectedProjectIds[0]}
+                    promptLabel="Feed"
+                  />
+                )}
+              </>
+            )}
+            {data.creativePromptStory && (
+              <>
+                <div className="p-4 rounded-xl border border-purple-500/30 bg-purple-500/5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-purple-400 uppercase tracking-wide">Story (1080×1920)</span>
+                    <CopyButton text={data.creativePromptStory} />
+                  </div>
+                  <p className="text-sm text-text-primary leading-relaxed italic">{data.creativePromptStory}</p>
+                </div>
+                {data._aanyaBrief?.reference_image_manifest && data._aanyaBrief.reference_image_manifest.length > 0 && (
+                  <ReferenceImagePack
+                    manifest={data._aanyaBrief.reference_image_manifest as import('../../components/ReferenceImagePack').ReferenceManifestItem[]}
+                    projectId={inputs.selectedProjectIds[0]}
+                    promptLabel="Story"
+                  />
+                )}
+              </>
+            )}
+            <AanyaDesignerNotes brief={data._aanyaBrief} />
+          </div>
+        </Card>
+      )}
+
       {onSave && campaigns.length > 0 && (
         <button
           onClick={() => onSave(data)}
