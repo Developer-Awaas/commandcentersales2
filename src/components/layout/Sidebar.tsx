@@ -1,0 +1,288 @@
+import { useEffect, useState } from 'react';
+import {
+  LayoutDashboard,
+  FolderKanban,
+  Zap,
+  Target,
+  Palette,
+  Eye,
+  TrendingUp,
+  Megaphone,
+  Bell,
+  BarChart3,
+  Users,
+  Settings,
+  LogOut,
+  Clock,
+  Calendar,
+  CalendarDays,
+  Image,
+  Library,
+  Smartphone,
+  Wand2,
+} from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import type { Profile } from '../../lib/supabase';
+import type { AppSection } from '../../contexts/NavigationContext';
+
+interface SidebarProps {
+  activePage: string;
+  onNavigate: (page: string) => void;
+  profile: Profile | null;
+  onSignOut?: () => void;
+  activeSection: AppSection;
+  onSectionChange: (section: AppSection) => void;
+  wizardActive?: boolean;
+}
+
+type NavItem = { id: string; label: string; icon: React.ElementType };
+
+const DASHBOARD_NAV: NavItem[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'ai-sessions', label: 'AI History', icon: Clock },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'reports', label: 'Reports', icon: BarChart3 },
+];
+
+const LEAD_GEN_NAV: NavItem[] = [
+  { id: 'strategy', label: 'Strategy', icon: Zap },
+  { id: 'campaign-wizard', label: 'Campaign Wizard', icon: Wand2 },
+  { id: 'ad-config', label: 'Ad Config', icon: Target },
+  { id: 'creatives', label: 'Ad Creatives', icon: Palette },
+  { id: 'ad-review', label: 'Ad Review', icon: Eye },
+  { id: 'analyzer', label: 'Lead Analyzer', icon: TrendingUp },
+  { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
+  { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+];
+
+const SMM_NAV: NavItem[] = [
+  { id: 'smm-planner', label: 'SMM Planner', icon: Calendar },
+  { id: 'smm-calendar', label: 'Content Calendar', icon: CalendarDays },
+  { id: 'smm-creatives', label: 'SMM Creatives', icon: Image },
+  { id: 'smm-analyzer', label: 'SMM Analyzer', icon: BarChart3 },
+  { id: 'content-library', label: 'Content Library', icon: Library },
+  { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+];
+
+const BOTTOM_NAV: NavItem[] = [
+  { id: 'brand-kit', label: 'Brand Kit', icon: Palette },
+  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'users', label: 'Users', icon: Users },
+];
+
+const SECTIONS: { id: AppSection; label: string; icon: React.ElementType }[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'lead_gen', label: 'Lead Gen', icon: Target },
+  { id: 'smm', label: 'Social Media', icon: Smartphone },
+];
+
+export function Sidebar({
+  activePage,
+  onNavigate,
+  profile,
+  onSignOut,
+  activeSection,
+  onSectionChange,
+  wizardActive: _wizardActive,
+}: SidebarProps) {
+  const [learningMode, setLearningMode] = useState<boolean>(() => {
+    return localStorage.getItem('learning_mode') !== 'false';
+  });
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function fetchUnreadCount() {
+    const { count } = await supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_read', false);
+    setUnreadCount(count ?? 0);
+  }
+
+  function toggleLearningMode() {
+    const next = !learningMode;
+    setLearningMode(next);
+    localStorage.setItem('learning_mode', next ? 'true' : 'false');
+  }
+
+  async function handleSignOut() {
+    if (onSignOut) {
+      await onSignOut();
+    } else {
+      await supabase.auth.signOut();
+    }
+  }
+
+  const isWizardMode = activePage === 'campaign-wizard';
+  const WIZARD_NAV: NavItem[] = [
+    { id: 'campaign-wizard', label: 'Campaign Wizard', icon: Wand2 },
+    { id: 'projects', label: 'Projects', icon: FolderKanban },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+  ];
+  const rawNavItems =
+    activeSection === 'lead_gen' ? LEAD_GEN_NAV : activeSection === 'smm' ? SMM_NAV : DASHBOARD_NAV;
+  const navItems = isWizardMode && activeSection === 'lead_gen' ? WIZARD_NAV : rawNavItems;
+  const isAdmin = profile?.role === 'admin';
+
+  function renderNavItem(item: NavItem) {
+    const Icon = item.icon;
+    const isActive = activePage === item.id;
+    return (
+      <button
+        key={item.id + '-' + activeSection}
+        onClick={() => onNavigate(item.id)}
+        className={[
+          'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
+          isActive
+            ? 'bg-brand-subtle text-brand-text'
+            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+        ].join(' ')}
+      >
+        <Icon size={18} className="flex-shrink-0" />
+        <span className="flex-1 text-left text-[13px]">{item.label}</span>
+        {item.id === 'notifications' && unreadCount > 0 && (
+          <span className="flex items-center justify-center rounded-full bg-danger text-white text-[10px] font-bold flex-shrink-0 min-w-[18px] h-[18px] px-1">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  const initials =
+    profile?.full_name
+      ?.split(' ')
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() ??
+    profile?.email?.charAt(0)?.toUpperCase() ??
+    'U';
+
+  return (
+    <aside
+      className="fixed top-0 left-0 h-screen flex flex-col bg-surface-elevated border-r border-border z-40"
+      style={{ width: 220 }}
+    >
+      {/* Logo */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-border flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
+          <span className="text-[11px] font-bold text-white leading-none">NH</span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[13px] font-semibold text-text-primary leading-tight">NH Command</span>
+          <span className="text-[10px] text-text-tertiary leading-tight">Marketing HQ</span>
+        </div>
+      </div>
+
+      {/* Section Toggle */}
+      <div className="flex-shrink-0 px-3 py-2 border-b border-border">
+        <p className="px-1 pt-1 pb-1.5 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
+          Workspace
+        </p>
+        <div className="flex flex-col gap-0.5">
+          {SECTIONS.map((sec) => {
+            const Icon = sec.icon;
+            const isActive = activeSection === sec.id;
+            return (
+              <button
+                key={sec.id}
+                onClick={() => onSectionChange(sec.id)}
+                className={[
+                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150',
+                  isActive
+                    ? 'bg-brand text-white shadow-sm'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover',
+                ].join(' ')}
+              >
+                <Icon size={14} className="flex-shrink-0" />
+                {sec.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Nav */}
+      <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-0.5">
+        {isWizardMode && activeSection === 'lead_gen' && (
+          <div className="mx-0 mb-3 mt-1 px-3 py-2.5 rounded-lg bg-brand-subtle border border-brand-border">
+            <p className="text-[10px] font-semibold text-brand-text leading-snug">Wizard mode active</p>
+            <p className="text-[9px] text-text-tertiary leading-snug mt-0.5">
+              Sidebar simplified while wizard is in progress.
+            </p>
+            <button
+              onClick={() => document.dispatchEvent(new CustomEvent('wizard-exit-requested'))}
+              className="text-[10px] text-danger hover:text-danger/80 text-left transition-colors mt-1"
+            >
+              Exit Wizard
+            </button>
+          </div>
+        )}
+        {navItems.map(renderNavItem)}
+      </nav>
+
+      {/* Bottom */}
+      <div className="border-t border-border px-3 pt-2 pb-2 flex-shrink-0 space-y-0.5">
+        <p className="px-1 pt-1 pb-1.5 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
+          Settings
+        </p>
+        {BOTTOM_NAV.filter((item) => item.id !== 'users' || isAdmin).map(renderNavItem)}
+
+        {/* Learning Mode */}
+        <div className="flex items-center justify-between px-3 py-2">
+          <span className="text-[12px] text-text-tertiary font-medium">Learning Mode</span>
+          <button
+            onClick={toggleLearningMode}
+            className={[
+              'relative inline-flex items-center rounded-full transition-colors duration-200 focus:outline-none flex-shrink-0',
+              learningMode ? 'bg-brand' : 'bg-border-strong',
+            ].join(' ')}
+            style={{ width: 32, height: 18 }}
+            aria-label="Toggle learning mode"
+          >
+            <span
+              className="inline-block bg-white rounded-full shadow transition-transform duration-200"
+              style={{
+                width: 12,
+                height: 12,
+                transform: learningMode ? 'translateX(16px)' : 'translateX(3px)',
+              }}
+            />
+          </button>
+        </div>
+
+        {/* User Profile */}
+        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg">
+          <div className="w-7 h-7 rounded-full bg-brand text-white flex items-center justify-center flex-shrink-0">
+            <span className="text-[10px] font-semibold">{initials}</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-medium text-text-primary truncate leading-tight">
+              {profile?.full_name || 'User'}
+            </p>
+            <p className="text-[10px] text-text-tertiary truncate leading-tight capitalize">
+              {profile?.role ?? 'member'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleSignOut}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium text-text-secondary hover:bg-danger-subtle hover:text-danger-text transition-colors duration-150"
+        >
+          <LogOut size={16} />
+          Sign out
+        </button>
+      </div>
+    </aside>
+  );
+}

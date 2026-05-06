@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html, body, #root {
+    background-color: #FAFAFA;
+    color: #18181B;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Default focus styles — visible but clean */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    border-color: #2563EB;
+  }
+
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 {
+    color: #18181B;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  h1 { font-size: 1.875rem; line-height: 2.25rem; letter-spacing: -0.02em; }
+  h2 { font-size: 1.5rem; line-height: 2rem; }
+  h3 { font-size: 1.25rem; line-height: 1.75rem; }
+
+  /* Default text colors via paragraph + spans */
+  p { color: #52525B; }
+
+  /* Form controls — base reset */
+  input, textarea, select {
+    background-color: #FFFFFF;
+    color: #18181B;
+    border: 1px solid #E4E4E7;
+    border-radius: 8px;
+    padding: 8px 12px;
+    transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  input:hover, textarea:hover, select:hover {
+    border-color: #D4D4D8;
+  }
+
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: #A1A1AA;
+  }
+
+  /* Buttons — base reset */
+  button {
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Scrollbar — subtle */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #D4D4D8; border-radius: 5px; border: 2px solid #FAFAFA; }
+  ::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
+
+  /* Selection */
+  ::selection {
+    background-color: #DBEAFE;
+    color: #1E40AF;
+  }
+}
+
+@layer components {
+  .card {
+    background-color: #FFFFFF;
+    border: 1px solid #E4E4E7;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06);
+    transition: box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1), border-color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-interactive {
+    cursor: pointer;
+  }
+
+  .card-interactive:hover {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06), 0 4px 8px rgba(0,0,0,0.08);
+    border-color: #D4D4D8;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background-color: #2563EB;
+    color: #FFFFFF;
+  }
+  .btn-primary:hover { background-color: #1D4ED8; }
+  .btn-primary:active { background-color: #1E40AF; }
+
+  .btn-secondary {
+    background-color: #FFFFFF;
+    color: #18181B;
+    border: 1px solid #E4E4E7;
+  }
+  .btn-secondary:hover { border-color: #D4D4D8; background-color: #FAFAFA; }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: #52525B;
+  }
+  .btn-ghost:hover { background-color: #F4F4F5; color: #18181B; }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #71717A;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+  }
+
+  .badge-brand { background-color: #EFF6FF; color: #1E40AF; }
+  .badge-success { background-color: #ECFDF5; color: #065F46; }
+  .badge-warning { background-color: #FFFBEB; color: #92400E; }
+  .badge-danger { background-color: #FEF2F2; color: #991B1B; }
+  .badge-neutral { background-color: #F4F4F5; color: #52525B; }
+
+  .divider {
+    height: 1px;
+    background-color: #E4E4E7;
+    border: none;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .hover-lift {
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .hover-lift:hover {
+    transform: translateY(-1px);
+  }
+}
