@@ -432,9 +432,15 @@ export function Creatives() {
           'Trust & Legacy / Amenities',
         ] as const;
 
-        const settled = await Promise.allSettled(
-          briefs.map(async (brief, i) => {
-            const tag = `[AANYA-VARIANT-${String.fromCharCode(65 + i)}]`;
+        console.log('🎨 [AANYA-VARIANTS] Generating 3 variants sequentially (avoids Anthropic API rate limits)...');
+        const settled: PromiseSettledResult<SeniorDesignerResult>[] = [];
+        for (let i = 0; i < briefs.length; i++) {
+          if (i > 0) {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          const brief = briefs[i];
+          const tag = `[AANYA-VARIANT-${String.fromCharCode(65 + i)}]`;
+          try {
             console.log(`🎨 ${tag} system prompt length:`, brief.systemPrompt.length);
             console.log(`🎨 ${tag} user prompt brand check:`, {
               has_INVIOLABLE: brief.userPrompt.includes('INVIOLABLE') || brief.systemPrompt.includes('INVIOLABLE'),
@@ -476,9 +482,11 @@ export function Creatives() {
             }
 
             console.log(`✅ ${tag} parsed successfully`);
-            return parsed;
-          })
-        );
+            settled.push({ status: 'fulfilled', value: parsed });
+          } catch (err) {
+            settled.push({ status: 'rejected', reason: err });
+          }
+        }
 
         const aiVariants: AiVariant[] = settled.map((s, i) => {
           const label = String.fromCharCode(65 + i);
