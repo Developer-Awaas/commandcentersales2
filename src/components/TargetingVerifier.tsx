@@ -49,7 +49,7 @@ function KeywordRow({
       <select
         value={item.status}
         onChange={(e) => onChange(e.target.value as KeywordStatus)}
-        className="bg-[#0a0f0d] border border-border rounded-lg text-xs text-text-primary px-2 py-1.5 focus:outline-none focus:border-[#2dd4a8]/50 transition-colors"
+        className="bg-surface-sunken border border-border rounded-lg text-xs text-text-primary px-2 py-1.5 focus:outline-none focus:border-brand transition-colors"
       >
         {STATUS_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
@@ -175,10 +175,10 @@ Return JSON:
   if (items.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-[#111916] overflow-hidden">
+    <div className="rounded-xl border border-border bg-surface-elevated overflow-hidden">
       <div className="px-5 py-4 border-b border-border">
         <div className="flex items-center gap-2 mb-0.5">
-          <ShieldCheck size={15} className="text-[#2dd4a8]" />
+          <ShieldCheck size={15} className="text-brand" />
           <span className="text-sm font-medium text-text-primary">Verify Targeting</span>
         </div>
         <p className="text-xs text-text-tertiary ml-[23px]">
@@ -223,7 +223,7 @@ Return JSON:
           <button
             onClick={handleGenerateReplacements}
             disabled={notFoundItems.length === 0 || loading || !isAiEnabled()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed bg-[#2dd4a8] text-[#0a0f0d] hover:bg-[#25b891]"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed bg-brand text-white hover:bg-brand-hover"
           >
             {loading ? <Spinner size="sm" /> : <RefreshCw size={13} />}
             {loading ? 'Generating…' : 'Generate Replacements'}
@@ -231,14 +231,14 @@ Return JSON:
         </div>
 
         {saved && replacements.length === 0 && (
-          <p className="text-xs text-[#2dd4a8]">Keywords saved. No replacements generated.</p>
+          <p className="text-xs text-brand">Keywords saved. No replacements generated.</p>
         )}
 
         {replacements.length > 0 && (
           <div className="flex flex-col gap-4 pt-2 border-t border-border">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#2dd4a8]">Suggested Replacements</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-brand">Suggested Replacements</p>
             {replacements.map((rep, repIdx) => (
-              <div key={repIdx} className="rounded-lg border border-border bg-[#0a0f0d] p-3">
+              <div key={repIdx} className="rounded-lg border border-border bg-surface-sunken p-3">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs text-red-400 line-through">{rep.original}</span>
                   <span className="text-[10px] text-text-tertiary">→</span>
@@ -251,7 +251,7 @@ Return JSON:
                     <select
                       value={rep.altStatuses[altIdx] ?? 'available'}
                       onChange={(e) => updateAltStatus(repIdx, altIdx, e.target.value as KeywordStatus)}
-                      className="bg-[#111916] border border-border rounded-lg text-xs text-text-primary px-2 py-1.5 focus:outline-none focus:border-[#2dd4a8]/50 transition-colors"
+                      className="bg-surface-sunken border border-border rounded-lg text-xs text-text-primary px-2 py-1.5 focus:outline-none focus:border-brand transition-colors"
                     >
                       {STATUS_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>

@@ -298,10 +298,10 @@ Return ONLY valid JSON:
     <div className="mt-4 rounded-xl border border-border overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-[#0d1610] hover:bg-[#111916] transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 bg-surface-sunken hover:bg-surface-hover transition-colors"
       >
         <div className="flex items-center gap-2">
-          <Eye size={14} className="text-[#2dd4a8]" />
+          <Eye size={14} className="text-brand" />
           <span className="text-sm font-medium text-text-primary">{label}</span>
           {iterations.length > 0 && (
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${scoreBg(latest!.score)} ${scoreColor(latest!.score)}`}>
@@ -327,13 +327,13 @@ Return ONLY valid JSON:
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               onClick={() => fileRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-2 py-6 rounded-lg border-2 border-dashed border-border hover:border-[#2dd4a8]/40 hover:bg-[#2dd4a8]/[0.02] transition-all cursor-pointer"
+              className="flex flex-col items-center justify-center gap-2 py-6 rounded-lg border-2 border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all cursor-pointer"
             >
               <Upload size={18} className="text-text-tertiary" />
               <span className="text-xs text-text-tertiary">Click or drag to upload generated image</span>
             </div>
           ) : (
-            <div className="flex items-center gap-3 bg-[#0a0f0d] border border-border rounded-lg p-3">
+            <div className="flex items-center gap-3 bg-surface-sunken border border-border rounded-lg p-3">
               <img src={imageUrl!} alt="Creative" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
               <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                 <span className="text-xs text-text-primary truncate">{image.name}</span>
@@ -351,7 +351,7 @@ Return ONLY valid JSON:
             <button
               onClick={analyze}
               disabled={!image || analyzing}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-sm text-[#2dd4a8] hover:bg-[#2dd4a8]/15 disabled:opacity-40 transition-all"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-subtle border border-brand-border text-sm text-brand-text hover:bg-brand-subtle-hover disabled:opacity-40 transition-all"
             >
               {analyzing ? <Spinner size="sm" /> : <Eye size={13} />}
               {analyzing ? 'Analyzing…' : iterations.length > 0 ? `Analyze Again (Iteration ${iterations.length + 1})` : 'Analyze Creative'}
@@ -399,12 +399,12 @@ Return ONLY valid JSON:
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
                             issue.severity === 'Critical' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
                             issue.severity === 'Major' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                            'bg-[#1e2e24] text-text-tertiary border-border'
+                            'bg-surface-sunken text-text-tertiary border-border'
                           }`}>{issue.severity}</span>
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#2dd4a8]/10 text-[#2dd4a8] border border-[#2dd4a8]/20">{issue.area}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-brand-subtle text-brand-text border border-brand-border">{issue.area}</span>
                         </div>
                         <p className="text-xs text-text-primary">{issue.issue}</p>
-                        <p className="text-xs text-[#2dd4a8]">Fix: {issue.fix}</p>
+                        <p className="text-xs text-brand">Fix: {issue.fix}</p>
                       </div>
                     ))}
                   </div>

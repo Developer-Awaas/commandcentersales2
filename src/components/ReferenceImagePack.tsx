@@ -265,7 +265,7 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
 
   if (loading) {
     return (
-      <div className="mt-3 flex items-center gap-2 px-4 py-3 rounded-lg bg-[#111916] border border-border">
+      <div className="mt-3 flex items-center gap-2 px-4 py-3 rounded-lg bg-surface-sunken border border-border">
         <RefreshCw size={13} className="text-text-tertiary animate-spin" />
         <span className="text-xs text-text-tertiary">Resolving reference images…</span>
       </div>
@@ -278,7 +278,7 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
   const hasAnyResolved = resolved.some((r) => r.primary.source !== 'unresolved');
 
   return (
-    <div className="mt-3 rounded-xl border border-border bg-[#0d1510] overflow-hidden">
+    <div className="mt-3 rounded-xl border border-border bg-surface-elevated overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2.5">
@@ -297,7 +297,7 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
           <button
             onClick={downloadAsZip}
             disabled={downloadingZip || !hasAnyResolved}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-brand text-xs font-medium hover:bg-[#2dd4a8]/15 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-subtle border border-brand-border text-brand text-xs font-medium hover:bg-brand-subtle-hover disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
             <Package size={12} />
             {downloadingZip ? 'Zipping…' : 'Download ZIP'}
@@ -316,14 +316,14 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
           {/* How to use */}
           <button
             onClick={() => setHowToOpen((o) => !o)}
-            className="w-full flex items-center gap-2 px-4 py-2 text-xs text-brand/80 hover:text-brand hover:bg-[#2dd4a8]/5 border-b border-border transition-colors text-left"
+            className="w-full flex items-center gap-2 px-4 py-2 text-xs text-brand/80 hover:text-brand hover:bg-brand-subtle border-b border-border transition-colors text-left"
           >
             <Info size={11} />
             How to use these in Gemini
             {howToOpen ? <ChevronUp size={11} className="ml-auto" /> : <ChevronDown size={11} className="ml-auto" />}
           </button>
           {howToOpen && (
-            <div className="px-4 py-3 bg-[#2dd4a8]/5 border-b border-border flex flex-col gap-1">
+            <div className="px-4 py-3 bg-brand-subtle border-b border-border flex flex-col gap-1">
               {[
                 <>1. Open <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-brand underline">Gemini</a> (or your Nanobanana access point)</>,
                 '2. Paste the creative prompt shown above',
@@ -378,9 +378,9 @@ function ReferenceCard({ index, ref_, getExt, onDownload, onUpload, onSwapAltern
   const resolved = ref_.primary.source !== 'unresolved' && !!ref_.primary.url;
 
   return (
-    <div className="flex gap-3 p-3 rounded-lg bg-[#111916] border border-border">
+    <div className="flex gap-3 p-3 rounded-lg bg-surface-sunken border border-border">
       {/* Thumbnail */}
-      <div className="relative w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-[#0a0f0d] border border-border">
+      <div className="relative w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-surface-sunken border border-border">
         {resolved ? (
           <img src={ref_.primary.url} alt={ref_.role} className="w-full h-full object-cover" />
         ) : (
@@ -388,7 +388,7 @@ function ReferenceCard({ index, ref_, getExt, onDownload, onUpload, onSwapAltern
             <Upload size={18} />
           </div>
         )}
-        <div className="absolute top-0 left-0 bg-[#2dd4a8] text-[#0a0f0d] text-[9px] font-bold px-1.5 py-0.5 rounded-br-md">
+        <div className="absolute top-0 left-0 bg-brand text-white text-[9px] font-bold px-1.5 py-0.5 rounded-br-md">
           #{index + 1}
         </div>
       </div>
@@ -404,7 +404,7 @@ function ReferenceCard({ index, ref_, getExt, onDownload, onUpload, onSwapAltern
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/20">Brand Kit</span>
           )}
           {ref_.primary.source === 'project_assets' && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2dd4a8]/10 text-brand border border-[#2dd4a8]/20">Project Asset</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-subtle text-brand border border-brand-border">Project Asset</span>
           )}
           {ref_.primary.source === 'quick_reference' && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/20">

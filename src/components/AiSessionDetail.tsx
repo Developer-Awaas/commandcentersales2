@@ -25,7 +25,7 @@ const SESSION_TYPE_STYLES: Record<string, string> = {
   ad_config: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
   creative: 'bg-pink-500/10 text-pink-400 border-pink-500/30',
   ad_review: 'bg-pink-500/10 text-pink-400 border-pink-500/30',
-  analysis: 'bg-[#2dd4a8]/10 text-[#2dd4a8] border-[#2dd4a8]/30',
+  analysis: 'bg-brand-subtle text-brand-text border-brand-border',
   organic: 'bg-success-subtle text-success-text border-success-border',
   research: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
 };
@@ -46,13 +46,13 @@ function SectionHeader({ num, title }: { num?: number; title: string }) {
   return (
     <div className="flex items-center gap-3 mb-4">
       {num != null && (
-        <span className="w-6 h-6 rounded-full bg-[#2dd4a8]/20 border border-[#2dd4a8]/30 text-[#2dd4a8] text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+        <span className="w-6 h-6 rounded-full bg-brand-subtle border border-brand-border text-brand-text text-[10px] font-bold flex items-center justify-center flex-shrink-0">
           {num}
         </span>
       )}
       <div className="flex-1">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#2dd4a8]">{title}</p>
-        <div className="h-px bg-[#1e2e24] mt-1.5" />
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-brand">{title}</p>
+        <div className="h-px bg-border mt-1.5" />
       </div>
     </div>
   );
@@ -71,7 +71,7 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 function TextCard({ text }: { text: string }) {
   return (
     <div className="flex items-start gap-2">
-      <p className="text-sm text-text-primary leading-relaxed bg-[#0a0f0d] rounded-lg p-3 border border-border flex-1">
+      <p className="text-sm text-text-primary leading-relaxed bg-surface-sunken rounded-lg p-3 border border-border flex-1">
         {text}
       </p>
       <CopyButton text={text} />
@@ -87,9 +87,9 @@ function QuickGenerateOutput({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="flex flex-col gap-6">
       {!!data.idea && (
-        <div className="px-4 py-3 rounded-xl bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 flex items-start gap-2">
-          <Sparkles size={14} className="text-[#2dd4a8] flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-[#2dd4a8]">{String(data.idea)}</p>
+        <div className="px-4 py-3 rounded-xl bg-brand-subtle border border-brand-border flex items-start gap-2">
+          <Sparkles size={14} className="text-brand flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-brand">{String(data.idea)}</p>
         </div>
       )}
 
@@ -206,7 +206,7 @@ function QuickGenerateOutput({ data }: { data: Record<string, unknown> }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {hashtags.map((tag, i) => (
-              <span key={i} className="px-2.5 py-1 rounded-full bg-[#111916] border border-border text-xs text-text-tertiary">
+              <span key={i} className="px-2.5 py-1 rounded-full bg-surface-sunken border border-border text-xs text-text-tertiary">
                 {tag}
               </span>
             ))}
@@ -220,7 +220,7 @@ function QuickGenerateOutput({ data }: { data: Record<string, unknown> }) {
           <div className="flex flex-col gap-2">
             {launchChecklist.map((item, i) => (
               <div key={i} className="flex items-center gap-2.5">
-                <CheckCircle size={13} className="text-[#2dd4a8] flex-shrink-0" />
+                <CheckCircle size={13} className="text-brand flex-shrink-0" />
                 <span className="text-sm text-text-primary">{item}</span>
               </div>
             ))}
@@ -237,8 +237,8 @@ function FullStrategyOutput({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="flex flex-col gap-5">
       {!!data.overview && (
-        <div className="px-4 py-3.5 rounded-xl bg-[#2dd4a8]/10 border border-[#2dd4a8]/20">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#2dd4a8] mb-1.5">Strategic Overview</p>
+        <div className="px-4 py-3.5 rounded-xl bg-brand-subtle border border-brand-border">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-brand mb-1.5">Strategic Overview</p>
           <p className="text-sm text-text-primary leading-relaxed">{String(data.overview)}</p>
         </div>
       )}
@@ -258,9 +258,9 @@ function FullStrategyOutput({ data }: { data: Record<string, unknown> }) {
           { title: 'Icebreakers', keys: ['icebreakers'] },
         ];
         return (
-          <div key={idx} className="rounded-xl border border-border bg-[#111916] overflow-hidden">
+          <div key={idx} className="rounded-xl border border-border bg-surface-sunken overflow-hidden">
             <div className="px-5 py-4 border-b border-border flex items-center gap-3">
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#2dd4a8]/10 text-[#2dd4a8] border border-[#2dd4a8]/20">
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-brand-subtle text-brand-text border border-brand-border">
                 Campaign {idx + 1}
               </span>
               <span className="text-sm font-medium text-text-primary">{String(c.project ?? `Campaign ${idx + 1}`)}</span>
@@ -274,7 +274,7 @@ function FullStrategyOutput({ data }: { data: Record<string, unknown> }) {
                 if (!entries.length) return null;
                 return (
                   <div key={sec.title}>
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[#2dd4a8] mb-2 border-b border-border pb-1.5">{sec.title}</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-brand mb-2 border-b border-border pb-1.5">{sec.title}</p>
                     {entries.map(([key, val]) => {
                       const label = key.replace(/([A-Z])/g, ' $1').trim();
                       const displayVal = Array.isArray(val) ? val.join(', ') : String(val ?? '');
@@ -301,18 +301,18 @@ function AdReviewOutput({ data }: { data: Record<string, unknown> }) {
   const categoryScores = data.categoryScores as Record<string, unknown> | undefined;
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-4 p-4 rounded-xl bg-[#0a0f0d] border border-border">
-        <div className="text-4xl font-bold text-[#2dd4a8]">{String(data.overallScore ?? '—')}</div>
+      <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-sunken border border-border">
+        <div className="text-4xl font-bold text-brand">{String(data.overallScore ?? '—')}</div>
         <div>
           <p className="text-sm font-medium text-text-primary">{String(data.verdict ?? '')}</p>
         </div>
       </div>
       {(data.strengths as string[])?.length > 0 && (
         <div>
-          <p className="text-[10px] text-[#2dd4a8] font-semibold uppercase tracking-widest mb-2">Strengths</p>
+          <p className="text-[10px] text-brand font-semibold uppercase tracking-widest mb-2">Strengths</p>
           {(data.strengths as string[]).map((s, i) => (
             <div key={i} className="flex items-start gap-2 mb-1.5">
-              <CheckCircle size={13} className="text-[#2dd4a8] flex-shrink-0 mt-0.5" />
+              <CheckCircle size={13} className="text-brand flex-shrink-0 mt-0.5" />
               <span className="text-sm text-text-primary">{s}</span>
             </div>
           ))}
@@ -344,8 +344,8 @@ function AdReviewOutput({ data }: { data: Record<string, unknown> }) {
 function AnalysisOutput({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-4 p-4 rounded-xl bg-[#0a0f0d] border border-border">
-        <div className="text-4xl font-bold text-[#2dd4a8]">{String(data.healthScore ?? '—')}</div>
+      <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-sunken border border-border">
+        <div className="text-4xl font-bold text-brand">{String(data.healthScore ?? '—')}</div>
         <div>
           <p className="text-xs text-text-tertiary">Health Score</p>
         </div>
@@ -360,10 +360,10 @@ function AnalysisOutput({ data }: { data: Record<string, unknown> }) {
       )}
       {(data.actions as string[])?.length > 0 && (
         <div>
-          <p className="text-[10px] text-[#2dd4a8] font-semibold uppercase tracking-widest mb-2">Actions</p>
+          <p className="text-[10px] text-brand font-semibold uppercase tracking-widest mb-2">Actions</p>
           {(data.actions as string[]).map((a, i) => (
             <div key={i} className="flex items-start gap-2 mb-1.5">
-              <span className="text-[#2dd4a8] text-xs flex-shrink-0">{i + 1}.</span>
+              <span className="text-brand text-xs flex-shrink-0">{i + 1}.</span>
               <span className="text-sm text-text-primary">{a}</span>
             </div>
           ))}
@@ -381,9 +381,9 @@ function OrganicOutput({ data }: { data: Record<string, unknown> }) {
     <div className="flex flex-col gap-4">
       {pillars && pillars.length > 0 && (
         <div>
-          <p className="text-[10px] text-[#2dd4a8] font-semibold uppercase tracking-widest mb-3">Content Pillars</p>
+          <p className="text-[10px] text-brand font-semibold uppercase tracking-widest mb-3">Content Pillars</p>
           {pillars.map((p, i) => (
-            <div key={i} className="mb-2 p-3 rounded-lg bg-[#0a0f0d] border border-border">
+            <div key={i} className="mb-2 p-3 rounded-lg bg-surface-sunken border border-border">
               <p className="text-sm text-text-primary">{JSON.stringify(p)}</p>
             </div>
           ))}
@@ -391,9 +391,9 @@ function OrganicOutput({ data }: { data: Record<string, unknown> }) {
       )}
       {weekly && weekly.length > 0 && (
         <div>
-          <p className="text-[10px] text-[#2dd4a8] font-semibold uppercase tracking-widest mb-3">Weekly Plan</p>
+          <p className="text-[10px] text-brand font-semibold uppercase tracking-widest mb-3">Weekly Plan</p>
           {weekly.map((w, i) => (
-            <div key={i} className="mb-2 p-3 rounded-lg bg-[#0a0f0d] border border-border">
+            <div key={i} className="mb-2 p-3 rounded-lg bg-surface-sunken border border-border">
               <p className="text-sm text-text-primary">{JSON.stringify(w)}</p>
             </div>
           ))}
@@ -408,7 +408,7 @@ function CreativesOutput({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="flex flex-col gap-4">
       {variants?.map((v, i) => (
-        <div key={i} className="p-4 rounded-xl border border-border bg-[#0a0f0d]">
+        <div key={i} className="p-4 rounded-xl border border-border bg-surface-sunken">
           <p className="text-xs text-text-tertiary mb-2">Variant {i + 1}</p>
           {Object.entries(v).map(([k, val]) => (
             <FieldRow key={k} label={k} value={String(val)} />
@@ -421,7 +421,7 @@ function CreativesOutput({ data }: { data: Record<string, unknown> }) {
 
 function GenericOutput({ data }: { data: Record<string, unknown> }) {
   return (
-    <pre className="text-xs text-text-tertiary leading-relaxed bg-[#0a0f0d] rounded-lg p-4 border border-border overflow-x-auto whitespace-pre-wrap">
+    <pre className="text-xs text-text-tertiary leading-relaxed bg-surface-sunken rounded-lg p-4 border border-border overflow-x-auto whitespace-pre-wrap">
       {JSON.stringify(data, null, 2)}
     </pre>
   );
@@ -461,22 +461,22 @@ export function AiSessionDetail({ session, onClose }: Props) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="relative w-full mx-4 rounded-2xl border border-border flex flex-col"
-        style={{ maxWidth: 900, background: '#111916' }}
+        className="relative w-full mx-4 rounded-2xl border border-border flex flex-col bg-surface-elevated"
+        style={{ maxWidth: 900 }}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-border rounded-t-2xl" style={{ background: '#111916' }}>
+        <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 border-b border-border rounded-t-2xl bg-surface-elevated">
           <div className="flex items-center gap-3">
             <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${typeStyle}`}>
               {typeLabel}
             </span>
             <span className="text-xs text-text-tertiary">{dateStr}</span>
             {session.health_score != null && (
-              <span className="text-xs font-semibold text-[#2dd4a8]">Score: {session.health_score}</span>
+              <span className="text-xs font-semibold text-brand">Score: {session.health_score}</span>
             )}
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-[#1e2e24] transition-all"
+            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-surface-hover transition-all"
           >
             <X size={16} />
           </button>
@@ -512,7 +512,7 @@ export function AiSessionDetail({ session, onClose }: Props) {
               <div className="flex flex-col gap-2">
                 {session.recommendations.map((r, i) => (
                   <div key={i} className="flex items-start gap-2">
-                    <span className="text-[#2dd4a8] text-xs flex-shrink-0 mt-0.5">{i + 1}.</span>
+                    <span className="text-brand text-xs flex-shrink-0 mt-0.5">{i + 1}.</span>
                     <span className="text-sm text-text-primary">{r}</span>
                   </div>
                 ))}
@@ -526,7 +526,7 @@ export function AiSessionDetail({ session, onClose }: Props) {
               <div className="flex flex-col gap-2">
                 {session.actions_taken.map((a, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <CheckCircle size={13} className="text-[#2dd4a8] flex-shrink-0" />
+                    <CheckCircle size={13} className="text-brand flex-shrink-0" />
                     <span className="text-sm text-text-primary">{a}</span>
                   </div>
                 ))}

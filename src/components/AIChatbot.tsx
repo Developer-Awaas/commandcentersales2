@@ -225,9 +225,9 @@ export function AIChatbot() {
   return (
     <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-3">
       {open && (
-        <div className="w-[380px] h-[500px] flex flex-col rounded-2xl border border-border bg-[#0d1610] shadow-2xl overflow-hidden">
+        <div className="w-[380px] h-[500px] flex flex-col rounded-2xl border border-border bg-surface-elevated shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[#111916] border-b border-border flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 bg-surface-sunken border-b border-border flex-shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-full bg-brand flex items-center justify-center">
                 <MessageCircle size={14} className="text-surface" />
@@ -281,7 +281,7 @@ export function AIChatbot() {
           </div>
 
           {/* Footer */}
-          <div className="px-3 py-3 border-t border-border bg-[#111916] flex-shrink-0">
+          <div className="px-3 py-3 border-t border-border bg-surface-sunken flex-shrink-0">
             {dailyLimitReached ? (
               <p className="text-xs text-text-tertiary text-center py-1">Daily limit reached. Resets at midnight.</p>
             ) : (
@@ -294,12 +294,12 @@ export function AIChatbot() {
                   onKeyDown={handleKey}
                   disabled={typing}
                   placeholder="Ask anything…"
-                  className="flex-1 bg-[#0a0f0d] border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-[#7a9988] focus:outline-none focus:border-[#2dd4a8] transition-colors disabled:opacity-50"
+                  className="flex-1 bg-surface-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand transition-colors disabled:opacity-50"
                 />
                 <button
                   onClick={handleSend}
                   disabled={!input.trim() || typing}
-                  className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-lg bg-brand text-surface hover:bg-[#25b994] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-lg bg-brand text-surface hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Send size={14} />
                 </button>
