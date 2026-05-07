@@ -3,6 +3,9 @@ import { CheckSquare, ChevronLeft, ChevronRight, Download, Square, Upload, Wand2
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
+import { buildVariantBriefs } from '../lib/senior-designer-prompts';
+import type { SeniorDesignerResult } from './strategy/types';
+import { AanyaDesignerNotes } from './strategy/StrategyResult';
 import { logAiSession } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { generateLeadGenPDF } from '../lib/pdf-generator';
@@ -171,12 +174,18 @@ function StepStrategy({ projects, data, onResult }: {
 interface AiVariant {
   variant: string;
   angle: string;
+  why?: string;
   format: string;
   primaryText: string;
+  odiaText?: string;
   headline: string;
   description?: string;
+  cta?: string;
   nanoPrompt: string;
+  nanoStory?: string;
   hashtags?: string[];
+  bestTime?: string;
+  _aanyaBrief?: SeniorDesignerResult;
 }
 
 function VariantCard({ v }: { v: AiVariant }) {
@@ -212,6 +221,7 @@ function VariantCard({ v }: { v: AiVariant }) {
           </div>
         )}
       </div>
+      {v._aanyaBrief && <AanyaDesignerNotes brief={v._aanyaBrief} />}
     </div>
   );
 }
@@ -227,8 +237,134 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
   async function generate() {
     if (!isAiEnabled()) { showToast('Add Claude API key in Settings.', 'info'); return; }
     setLoading(true);
-    const context = await buildContext({ projectId: data.projectId });
+
+    const isNanobanana = platform.toLowerCase().includes('nanobanana');
     const s = data.strategyResult;
+
+    if (isNanobanana) {
+      // ── AANYA 3-VARIANT PATH (sequential, mirrors Flow 4) ──
+      const userBrief = [
+        `Generate a high-converting real estate ad creative for ${data.projectName}, ${funnel} funnel stage.`,
+        s?.idea ? `Concept: ${String(s.idea)}.` : '',
+        s?.headline ? `Headline direction: ${String(s.headline)}.` : '',
+        s?.primaryText ? `Reference primary text: ${String(s.primaryText)}.` : '',
+      ].filter(Boolean).join(' ');
+
+      const languages = s?.primaryTextOdia ? ['English', 'Odia'] : ['English'];
+
+      const briefs = await buildVariantBriefs({
+        project_id: data.projectId,
+        user_brief: userBrief,
+        funnel_stage: funnel as 'TOFU' | 'MOFU' | 'BOFU',
+        languages,
+      });
+
+      const angleLabels = [
+        'Price-led with Urgency',
+        'Lifestyle / Aspirational',
+        'Trust & Legacy / Amenities',
+      ] as const;
+
+      console.log('🎨 [AANYA-WIZARD-VARIANTS] Generating 3 variants sequentially (avoids Anthropic API rate limits)...');
+      const settled: PromiseSettledResult<SeniorDesignerResult>[] = [];
+      for (let i = 0; i < briefs.length; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 500));
+        const brief = briefs[i];
+        const tag = `[AANYA-WIZARD-VARIANT-${String.fromCharCode(65 + i)}]`;
+        try {
+          console.log(`🎨 ${tag} system prompt length:`, brief.systemPrompt.length);
+          console.log(`🎨 ${tag} user prompt brand check:`, {
+            has_INVIOLABLE: brief.userPrompt.includes('INVIOLABLE') || brief.systemPrompt.includes('INVIOLABLE'),
+          });
+
+          const aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000);
+          console.log(`🎨 ${tag} response keys:`, Object.keys(aanyaRes));
+          if (aanyaRes.error) throw new Error(String(aanyaRes.error));
+
+          let parsed: SeniorDesignerResult;
+          if (aanyaRes.raw) {
+            const ss = String(aanyaRes.raw);
+            try { parsed = JSON.parse(ss); }
+            catch {
+              try { parsed = JSON.parse(ss.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
+              catch {
+                const st = ss.indexOf('{'); const en = ss.lastIndexOf('}');
+                if (st !== -1 && en !== -1) { parsed = JSON.parse(ss.substring(st, en + 1)); }
+                else { throw new Error(`Could not parse ${tag} response`); }
+              }
+            }
+          } else {
+            parsed = aanyaRes as SeniorDesignerResult;
+          }
+
+          console.log(`✅ ${tag} parsed successfully`);
+          settled.push({ status: 'fulfilled', value: parsed });
+        } catch (err) {
+          settled.push({ status: 'rejected', reason: err });
+        }
+      }
+
+      const aiVariants: AiVariant[] = settled.map((res, i) => {
+        const label = String.fromCharCode(65 + i);
+        const angle = angleLabels[i];
+        if (res.status === 'rejected') {
+          console.warn(`⚠️ [AANYA-WIZARD-VARIANT-${label}] failed:`, res.reason);
+          return {
+            variant: label, angle,
+            why: `Variant ${label} generation failed — see console.`,
+            format: 'Single Image',
+            primaryText: '', headline: '', description: '', nanoPrompt: '',
+            hashtags: [],
+          };
+        }
+        const parsed = res.value;
+        const adCopy = parsed.ad_copy ?? {};
+        return {
+          variant: label,
+          angle,
+          why: parsed.designer_rationale ?? parsed.creative_concept ?? '',
+          format: 'Single Image',
+          primaryText: String(adCopy.primary_text_english ?? ''),
+          odiaText: adCopy.primary_text_odia ? String(adCopy.primary_text_odia) : undefined,
+          headline: String(adCopy.headline_english ?? ''),
+          description: String(adCopy.subhead_english ?? ''),
+          cta: String(adCopy.cta ?? 'Send WhatsApp Message'),
+          nanoPrompt: parsed.nanobanana_prompt_main ?? '',
+          nanoStory: parsed.nanobanana_prompt_story,
+          hashtags: [],
+          _aanyaBrief: parsed,
+        };
+      });
+
+      const successCount = settled.filter((r) => r.status === 'fulfilled').length;
+      if (successCount === 0) {
+        showToast('All 3 Aanya variants failed. See console.', 'error');
+        setLoading(false);
+        return;
+      }
+
+      const result = {
+        strategy: successCount === 3
+          ? 'Aanya generated all 3 variants — designed for Nanobanana (Gemini).'
+          : `Aanya generated ${successCount}/3 variants. Failed variants are shown with empty fields — regenerate to retry.`,
+        variants: aiVariants,
+      };
+
+      logAiSession(supabase, {
+        sessionType: 'creative',
+        projectIds: [data.projectId],
+        inputSummary: `Wizard S2 (Aanya): ${data.projectName}`,
+        inputData: { platform, funnel, source: 'aanya_3_variant', successCount },
+        outputData: result as Record<string, unknown>,
+      });
+
+      onResult(result as Record<string, unknown>);
+      setLoading(false);
+      return;
+    }
+
+    // ── LEGACY PATH (non-Nanobanana — unchanged) ──
+    const context = await buildContext({ projectId: data.projectId });
     const prompt = [
       `Generate 3 distinct creative ad variants for ${data.projectName}.`,
       s ? `STRATEGY: Primary text: "${s.primaryText}". Headline: "${s.headline}". Idea: "${s.idea}".` : '',
