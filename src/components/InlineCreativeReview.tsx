@@ -411,7 +411,7 @@ Return ONLY valid JSON:
                 </Card>
               )}
 
-              {latest.followUpPrompt && (
+              {!creativeId && latest.followUpPrompt && (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">Revised Prompt (1080×1080)</p>
                   <div className="rounded-lg border p-3 flex items-start gap-3" style={{ background: '#7c3aed10', borderColor: '#7c3aed30' }}>
@@ -421,7 +421,7 @@ Return ONLY valid JSON:
                 </div>
               )}
 
-              {latest.followUpPromptStory && (
+              {!creativeId && latest.followUpPromptStory && (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">Revised Story Prompt (1080×1920)</p>
                   <div className="rounded-lg border p-3 flex items-start gap-3" style={{ background: '#7c3aed10', borderColor: '#7c3aed30' }}>
@@ -453,7 +453,7 @@ Return ONLY valid JSON:
                 </div>
               )}
 
-              {latest.score < 8 && (
+              {!creativeId && latest.score < 8 && (
                 <p className="text-xs text-text-tertiary px-1">
                   Copy the revised prompt above, regenerate in {context.platform}, then upload the new image here.
                 </p>
