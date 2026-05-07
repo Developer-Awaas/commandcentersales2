@@ -183,7 +183,7 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
               {group.items.map(item => (
                 <div key={item.value} className="relative">
                   <label className="block">
-                    <div className={`p-3 border border-dashed rounded cursor-pointer transition hover:border-emerald-500 hover:bg-emerald-500/5 ${counts[item.value] > 0 ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-gray-700'}`}>
+                    <div className={`p-3 border border-dashed rounded cursor-pointer transition hover:border-brand hover:bg-brand-subtle ${counts[item.value] > 0 ? 'border-brand-border bg-brand-subtle' : 'border-border'}`}>
                       <div className="text-sm font-medium">{item.label}</div>
                       <div className="text-xs text-text-tertiary">
                         {counts[item.value] > 0 ? `${counts[item.value]} uploaded` : 'Click to upload'}
@@ -195,7 +195,7 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
                       disabled={uploading !== null} />
                   </label>
                   {uploading === item.value && (
-                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded text-xs text-emerald-400">
+                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded text-xs text-white">
                       Uploading...
                     </div>
                   )}
@@ -212,7 +212,7 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Uploaded Assets ({filteredAssets.length})</h3>
             <select value={filter} onChange={e => setFilter(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm">
+              className="bg-surface-sunken border border-border rounded px-3 py-1 text-sm">
               <option value="all">All types</option>
               {ASSET_TYPES.flatMap(g => g.items).map(i => (
                 <option key={i.value} value={i.value}>{i.label}</option>
@@ -222,18 +222,18 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredAssets.map(asset => (
-              <div key={asset.id} className="bg-gray-900 border border-gray-800 rounded overflow-hidden group">
-                <div className="aspect-square bg-gray-950 relative">
+              <div key={asset.id} className="bg-surface-elevated border border-border rounded overflow-hidden group">
+                <div className="aspect-square bg-surface-sunken relative">
                   <img src={asset.asset_url} alt={asset.title} className="w-full h-full object-cover" />
                   {asset.is_primary && (
-                    <span className="absolute top-2 left-2 bg-emerald-500 text-black text-xs px-2 py-0.5 rounded font-medium">⭐ PRIMARY</span>
+                    <span className="absolute top-2 left-2 bg-brand text-white text-xs px-2 py-0.5 rounded font-medium">⭐ PRIMARY</span>
                   )}
                   <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-2">
                     <button onClick={() => setEditingAsset(asset)}
                       className="px-3 py-1 bg-blue-500 text-white text-xs rounded">Edit</button>
                     {!asset.is_primary && (
                       <button onClick={() => setPrimary(asset)}
-                        className="px-3 py-1 bg-emerald-500 text-black text-xs rounded">Set Primary</button>
+                        className="px-3 py-1 bg-brand text-white text-xs rounded">Set Primary</button>
                     )}
                     <button onClick={() => deleteAsset(asset)}
                       className="px-3 py-1 bg-red-500 text-white text-xs rounded">Delete</button>
@@ -252,26 +252,26 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
       {/* Edit modal */}
       {editingAsset && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full">
+          <div className="bg-surface-elevated border border-border rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">Edit Asset</h3>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-text-tertiary">Title</label>
                 <input type="text" defaultValue={editingAsset.title}
                   onBlur={e => updateAsset(editingAsset, { title: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm" />
+                  className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="text-xs text-text-tertiary">Description (helps Aanya use the image correctly)</label>
                 <textarea defaultValue={editingAsset.description}
                   onBlur={e => updateAsset(editingAsset, { description: e.target.value })}
                   placeholder="e.g., 'Building seen from the south-east, morning light'"
-                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm h-20" />
+                  className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-sm h-20" />
               </div>
             </div>
             <div className="flex justify-end mt-4">
               <button onClick={() => setEditingAsset(null)}
-                className="px-4 py-2 bg-gray-700 rounded text-sm">Done</button>
+                className="px-4 py-2 bg-surface-sunken text-text-primary border border-border hover:border-border-strong rounded text-sm">Done</button>
             </div>
           </div>
         </div>

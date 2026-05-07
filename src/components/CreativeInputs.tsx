@@ -193,8 +193,8 @@ export function LanguageSelector({
               onClick={() => selected ? moveToFirst(opt.code) : toggle(opt.code)}
               onContextMenu={e => { e.preventDefault(); toggle(opt.code); }}
               className={`px-3 py-2 rounded border text-sm transition ${
-                isPrimary ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300' :
-                selected ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-200' :
+                isPrimary ? 'border-brand bg-brand-subtle text-brand-text' :
+                selected ? 'border-brand-border bg-brand-subtle text-brand' :
                 'border-border text-text-tertiary hover:border-border-strong'
               }`}>
               {isPrimary && '⭐ '}{opt.label}

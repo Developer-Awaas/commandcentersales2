@@ -56,13 +56,13 @@ async function fileToBase64(file: File): Promise<{ data: string; mimeType: strin
 }
 
 function scoreColor(score: number) {
-  if (score >= 8) return 'text-emerald-400';
+  if (score >= 8) return 'text-success-text';
   if (score >= 5) return 'text-amber-400';
   return 'text-red-400';
 }
 
 function scoreBg(score: number) {
-  if (score >= 8) return 'bg-emerald-500/10 border-emerald-500/20';
+  if (score >= 8) return 'bg-success-subtle border-success-border';
   if (score >= 5) return 'bg-amber-500/10 border-amber-500/20';
   return 'bg-red-500/10 border-red-500/20';
 }
@@ -380,7 +380,7 @@ Return ONLY valid JSON:
                   {latest.verdict && <p className={`text-xs font-medium mt-0.5 ${scoreColor(latest.score)}`}>{latest.verdict}</p>}
                 </div>
                 {latest.score >= 8 && (
-                  <div className="flex items-center gap-1 ml-auto text-emerald-400">
+                  <div className="flex items-center gap-1 ml-auto text-success-text">
                     <Check size={14} />
                     <span className="text-xs font-semibold">Ready to use</span>
                   </div>

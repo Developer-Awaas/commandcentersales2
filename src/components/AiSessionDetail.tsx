@@ -26,7 +26,7 @@ const SESSION_TYPE_STYLES: Record<string, string> = {
   creative: 'bg-pink-500/10 text-pink-400 border-pink-500/30',
   ad_review: 'bg-pink-500/10 text-pink-400 border-pink-500/30',
   analysis: 'bg-[#2dd4a8]/10 text-[#2dd4a8] border-[#2dd4a8]/30',
-  organic: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+  organic: 'bg-success-subtle text-success-text border-success-border',
   research: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
 };
 
