@@ -1299,7 +1299,7 @@ function FullStrategyPlaceholder({ inputs, projects }: { inputs: FullStrategyInp
   );
 }
 
-function SeniorDesignerResultPanel({ data, languages, onRetry }: { data: SeniorDesignerResult; languages: string[]; onRetry?: () => void }) {
+function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project }: { data: SeniorDesignerResult; languages: string[]; onRetry?: () => void; savedId?: string; project?: InlineReviewProject | null }) {
   const [promptCopied, setPromptCopied] = useState(false);
 
   function copyPrompt() {
@@ -1434,6 +1434,19 @@ function SeniorDesignerResultPanel({ data, languages, onRetry }: { data: SeniorD
         </div>
       )}
 
+      {savedId && (
+        <InlineCreativeReview
+          project={project ?? null}
+          context={{
+            platform: 'Nanobanana (Gemini)',
+            headline: data.ad_copy?.headline_english,
+            idea: data.creative_concept,
+          }}
+          label="Review Your Generated Creative"
+          creativeId={savedId}
+        />
+      )}
+
       {onRetry && (
         <button onClick={onRetry} className="flex items-center gap-2 text-sm text-text-tertiary hover:text-text-primary transition-colors">
           <RefreshCw size={14} /> Regenerate
@@ -1456,7 +1469,7 @@ export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, 
 
       {result.type === 'quick_senior' && (() => {
         if (result.error) return <ErrorBanner message={result.error} onRetry={onRetry} />;
-        if (result.aiData) return <SeniorDesignerResultPanel data={result.aiData} languages={result.inputs.languages} onRetry={onRetry} />;
+        if (result.aiData) return <SeniorDesignerResultPanel data={result.aiData} languages={result.inputs.languages} onRetry={onRetry} savedId={result.savedId} project={quickProject} />;
         return <ErrorBanner message="No result returned." onRetry={onRetry} />;
       })()}
 

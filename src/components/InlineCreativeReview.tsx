@@ -1,6 +1,10 @@
 import { useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronDown, ChevronUp, Eye, RefreshCw, Upload, X } from 'lucide-react';
-import { aiVision, isAiEnabled } from '../lib/ai-service';
+import { AlertCircle, Check, ChevronDown, ChevronUp, Eye, RefreshCw, Sparkles, Upload, X } from 'lucide-react';
+import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
+import { supabase } from '../lib/supabase';
+import { buildRevisedCreativeBrief } from '../lib/senior-designer-prompts';
+import type { SeniorDesignerResult } from '../pages/strategy/types';
+import AanyaCreativePromptCard from './AanyaCreativePromptCard';
 import { Card } from './ui/Card';
 import { CopyButton } from './ui/CopyButton';
 import { Spinner } from './ui/Spinner';
@@ -76,9 +80,10 @@ interface Props {
   project: InlineReviewProject | null;
   context: InlineReviewContext;
   label?: string;
+  creativeId?: string;
 }
 
-export function InlineCreativeReview({ project, context, label = 'Review Your Creative' }: Props) {
+export function InlineCreativeReview({ project, context, label = 'Review Your Creative', creativeId }: Props) {
   const [open, setOpen] = useState(false);
   const [image, setImage] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -86,6 +91,9 @@ export function InlineCreativeReview({ project, context, label = 'Review Your Cr
   const [error, setError] = useState<string | null>(null);
   const [iterations, setIterations] = useState<IterationRecord[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [revisionResult, setRevisionResult] = useState<SeniorDesignerResult | null>(null);
+  const [revisionError, setRevisionError] = useState<string | null>(null);
 
   function handleFile(file: File) {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -200,6 +208,91 @@ Return ONLY valid JSON:
   }
 
   const latest = iterations[iterations.length - 1] ?? null;
+
+  async function handleRegenerateWithAanya() {
+    if (!creativeId || !latest || regenerating) return;
+    setRegenerating(true);
+    setRevisionError(null);
+
+    try {
+      console.log('🎨 [AANYA-REVISION] Looking up original brief for creative', creativeId);
+      const { data: row, error: lookupError } = await supabase
+        .from('creatives')
+        .select('senior_designer_brief, languages, project_id, revised_briefs')
+        .eq('id', creativeId)
+        .maybeSingle();
+
+      if (lookupError) throw new Error(lookupError.message);
+      if (!row?.senior_designer_brief) {
+        setRevisionError('Regenerate with Aanya not available — original brief not stored. Use the legacy follow-up prompt instead.');
+        setRegenerating(false);
+        return;
+      }
+
+      const issues = latest.issues ?? [];
+      const identified_issues = issues.map((i) => `[${i.area} / ${i.severity}] ${i.issue}`);
+      const fixes_to_apply = issues.map((i) => i.fix).filter(Boolean);
+
+      console.log('🎨 [AANYA-REVISION] Building revised brief —', identified_issues.length, 'issues,', fixes_to_apply.length, 'fixes');
+
+      const { systemPrompt, userPrompt } = await buildRevisedCreativeBrief({
+        original_creative_brief: JSON.stringify(row.senior_designer_brief),
+        identified_issues,
+        fixes_to_apply,
+        project_id: row.project_id ?? undefined,
+        languages: (row.languages as string[]) ?? ['English'],
+      });
+
+      console.log('🎨 [AANYA-REVISION] System prompt length:', systemPrompt.length);
+      const aanyaRes = await aiCall(userPrompt, systemPrompt, 16000);
+      console.log('🎨 [AANYA-REVISION] Response keys:', Object.keys(aanyaRes));
+
+      if (aanyaRes.error) throw new Error(String(aanyaRes.error));
+
+      let parsed: SeniorDesignerResult;
+      if (aanyaRes.raw) {
+        const s = String(aanyaRes.raw);
+        try { parsed = JSON.parse(s); }
+        catch {
+          try { parsed = JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
+          catch {
+            const st = s.indexOf('{'); const en = s.lastIndexOf('}');
+            if (st !== -1 && en !== -1) { parsed = JSON.parse(s.substring(st, en + 1)); }
+            else { throw new Error('Could not parse [AANYA-REVISION] response'); }
+          }
+        }
+      } else {
+        parsed = aanyaRes as SeniorDesignerResult;
+      }
+
+      console.log('✅ [AANYA-REVISION] parsed successfully');
+      setRevisionResult(parsed);
+
+      const existing = (row.revised_briefs as unknown[]) ?? [];
+      const revisionEntry = {
+        iteration: existing.length + 1,
+        brief: parsed,
+        issues_addressed: identified_issues,
+        fixes_applied: fixes_to_apply,
+        created_at: new Date().toISOString(),
+      };
+      const next = [...existing, revisionEntry];
+      const { error: saveError } = await supabase
+        .from('creatives')
+        .update({ revised_briefs: next })
+        .eq('id', creativeId);
+      if (saveError) {
+        console.warn('⚠️ [AANYA-REVISION] Save to revised_briefs failed (non-fatal):', saveError.message);
+      } else {
+        console.log(`✅ [AANYA-REVISION] Saved revision #${revisionEntry.iteration} to revised_briefs`);
+      }
+    } catch (err: unknown) {
+      console.error('❌ [AANYA-REVISION] failed:', err);
+      setRevisionError(err instanceof Error ? err.message : 'Unknown error');
+    }
+
+    setRegenerating(false);
+  }
 
   return (
     <div className="mt-4 rounded-xl border border-border overflow-hidden">
@@ -335,6 +428,28 @@ Return ONLY valid JSON:
                     <p className="text-xs text-text-primary leading-relaxed flex-1 font-mono">{latest.followUpPromptStory}</p>
                     <CopyButton text={latest.followUpPromptStory} />
                   </div>
+                </div>
+              )}
+
+              {creativeId && latest.issues && latest.issues.length > 0 && (
+                <div className="mt-2 pt-3 border-t border-border flex flex-col gap-3">
+                  <button
+                    onClick={handleRegenerateWithAanya}
+                    disabled={regenerating}
+                    className="flex items-center gap-2 self-start px-4 py-2 rounded-lg bg-brand/10 border border-brand/20 text-sm text-brand hover:bg-brand/15 disabled:opacity-50 transition-all"
+                  >
+                    {regenerating ? <Spinner size="sm" /> : <Sparkles size={13} />}
+                    {regenerating ? 'Regenerating with Aanya…' : 'Regenerate with Aanya'}
+                  </button>
+                  {revisionError && (
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                      <AlertCircle size={13} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-amber-300">{revisionError}</p>
+                    </div>
+                  )}
+                  {revisionResult && (
+                    <AanyaCreativePromptCard brief={revisionResult} sectionLabel="Aanya Revised Brief — Nanobanana (Gemini)" />
+                  )}
                 </div>
               )}
 
