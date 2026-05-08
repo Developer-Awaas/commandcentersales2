@@ -5,8 +5,8 @@ import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 
 const C = {
-  bg: '#0a0f0d', card: '#111916', border: '#1e2e24', accent: '#2dd4a8',
-  text: '#e8f0ec', dim: '#7a9988', red: '#ef4444', yellow: '#eab308',
+  bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
+  text: '#18181B', dim: '#71717A', red: '#ef4444', yellow: '#eab308',
   green: '#22c55e', blue: '#3b82f6', purple: '#8b5cf6', pink: '#ec4899'
 };
 

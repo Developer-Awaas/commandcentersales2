@@ -63,13 +63,13 @@ export function ProjectList({ projects, onSelect, onAdd }: ProjectListProps) {
           placeholder="Search by name or locality…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-surface-elevated border border-border rounded-lg pl-9 pr-4 py-2.5 text-sm text-text-primary placeholder-[#7a9988] focus:outline-none focus:border-brand focus:ring-1 focus:ring-[#2dd4a8] transition-colors"
+          className="w-full bg-surface-elevated border border-border rounded-lg pl-9 pr-4 py-2.5 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
         />
       </div>
 
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <FolderKanban size={40} className="text-[#1e2e24] mb-4" />
+          <FolderKanban size={40} className="text-text-disabled mb-4" />
           {search ? (
             <p className="text-text-tertiary text-sm">No projects match "{search}".</p>
           ) : (
@@ -93,8 +93,7 @@ export function ProjectList({ projects, onSelect, onAdd }: ProjectListProps) {
               className="w-full text-left flex items-center gap-4 px-5 py-4 rounded-xl bg-surface-elevated border border-border hover:border-brand/30 hover:bg-surface-elevated/80 transition-all duration-150 group"
             >
               <div
-                className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold"
-                style={{ backgroundColor: '#1a7a62', color: '#2dd4a8' }}
+                className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold bg-brand-subtle text-brand-text"
               >
                 {avatarLetter(p.name)}
               </div>

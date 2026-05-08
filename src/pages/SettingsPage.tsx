@@ -341,7 +341,7 @@ export function SettingsPage() {
                   {competitors.map((c) => (
                     <div
                       key={c.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#111916] border border-border text-sm text-text-primary"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-sunken border border-border text-sm text-text-primary"
                     >
                       {c.name}
                       <button
@@ -365,7 +365,7 @@ export function SettingsPage() {
                 <button
                   onClick={addCompetitor}
                   disabled={addingComp || !newCompName.trim()}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-brand text-sm font-medium hover:bg-[#2dd4a8]/15 disabled:opacity-40 transition-all"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-subtle border border-brand-border text-brand text-sm font-medium hover:bg-brand-subtle-hover disabled:opacity-40 transition-all"
                 >
                   {addingComp ? <Spinner size="sm" /> : <Plus size={13} />}
                   Add
@@ -378,7 +378,7 @@ export function SettingsPage() {
         {!isAdmin() && (
           <Card className="p-5">
             <SectionLabel>AI Usage</SectionLabel>
-            <div className="flex items-start gap-3 px-4 py-3.5 rounded-lg bg-[#111916] border border-border">
+            <div className="flex items-start gap-3 px-4 py-3.5 rounded-lg bg-surface-sunken border border-border">
               <div className="flex-1">
                 <p className="text-sm text-text-primary font-medium mb-1">AI features powered by admin's API key</p>
                 <p className="text-xs text-text-tertiary">Daily usage: <span className="text-brand font-semibold">{getTodayCallsUsed()}</span> / <span className="text-text-primary">{userAiLimit}</span> calls today</p>
@@ -410,7 +410,7 @@ export function SettingsPage() {
               <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">
                 Claude API Key (Anthropic)
               </label>
-              <p className="text-[11px] text-[#4a6558] leading-relaxed -mt-0.5">
+              <p className="text-[11px] text-text-tertiary leading-relaxed -mt-0.5">
                 AI features require an Anthropic API key. Get one at console.anthropic.com — stored locally in this browser only.
               </p>
               <div className="flex items-center gap-2 mt-1">
@@ -420,7 +420,7 @@ export function SettingsPage() {
                     value={claudeKey}
                     onChange={(e) => handleClaudeKeyChange(e.target.value)}
                     placeholder="sk-ant-api03-..."
-                    className="w-full bg-surface border border-border rounded-lg pl-3 pr-9 py-2 text-sm text-text-primary placeholder-[#4a6558] focus:outline-none focus:border-[#2dd4a8] focus:ring-1 focus:ring-[#2dd4a8] transition-colors"
+                    className="w-full bg-surface border border-border rounded-lg pl-3 pr-9 py-2 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                   />
                   <button
                     type="button"
@@ -434,7 +434,7 @@ export function SettingsPage() {
                 <button
                   onClick={saveClaudeKey}
                   disabled={!claudeKey.trim()}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-brand text-sm font-medium hover:bg-[#2dd4a8]/15 disabled:opacity-40 transition-all flex-shrink-0 whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-subtle border border-brand-border text-brand text-sm font-medium hover:bg-brand-subtle-hover disabled:opacity-40 transition-all flex-shrink-0 whitespace-nowrap"
                 >
                   {keySaveStatus === 'saved' ? <CheckCircle size={13} /> : null}
                   {keySaveStatus === 'saved' ? 'Saved' : 'Save API Key'}
@@ -442,7 +442,7 @@ export function SettingsPage() {
                 <button
                   onClick={testConnection}
                   disabled={!claudeKey.trim() || testResult.status === 'testing'}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1e2e24] border border-[#2a3f32] text-sm text-text-primary hover:bg-[#243629] disabled:opacity-40 transition-all flex-shrink-0 whitespace-nowrap"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-surface-sunken border border-border text-sm text-text-primary hover:bg-surface-hover disabled:opacity-40 transition-all flex-shrink-0 whitespace-nowrap"
                 >
                   {testResult.status === 'testing'
                     ? <Spinner size="sm" />
@@ -478,7 +478,7 @@ export function SettingsPage() {
                     readOnly
                     disabled
                     placeholder="Configure in Supabase Edge Function secrets"
-                    className="w-full bg-surface border border-border rounded-lg pl-8 pr-3 py-2 text-sm text-text-tertiary placeholder-[#4a6558] cursor-not-allowed opacity-60"
+                    className="w-full bg-surface border border-border rounded-lg pl-8 pr-3 py-2 text-sm text-text-tertiary cursor-not-allowed opacity-60"
                   />
                 </div>
               </div>

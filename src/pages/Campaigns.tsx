@@ -27,7 +27,7 @@ function formatDate(str: string): string {
 const STATUS_STYLES: Record<string, string> = {
   active: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
   paused: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
-  ended: 'bg-[#7a9988]/10 text-text-tertiary border border-[#7a9988]/20',
+  ended: 'bg-surface-sunken text-text-tertiary border border-border',
   draft: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
 };
 
@@ -51,7 +51,7 @@ export function Campaigns() {
     <div className="p-8 min-h-screen bg-surface">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-brand-subtle border border-brand-border flex items-center justify-center">
             <Megaphone size={20} className="text-brand" />
           </div>
           <div>
@@ -67,25 +67,25 @@ export function Campaigns() {
         </div>
       ) : campaigns.length === 0 ? (
         <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-[#1e2e24] border border-[#2a3f32] flex items-center justify-center">
-            <Megaphone size={28} className="text-[#4a6558]" />
+          <div className="w-16 h-16 rounded-2xl bg-surface-sunken border border-border flex items-center justify-center">
+            <Megaphone size={28} className="text-text-disabled" />
           </div>
           <p className="text-text-primary font-medium">No campaigns yet</p>
           <p className="text-text-tertiary text-sm max-w-xs">Generate a strategy to create your first campaign.</p>
         </div>
       ) : (
-        <div className="bg-[#0d1410] border border-border rounded-xl overflow-hidden">
+        <div className="bg-surface-elevated border border-border rounded-xl overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
                 {['Campaign Name', 'Project', 'Stage', 'Platform', 'Status', 'Budget', 'Created'].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-[#4a6558] uppercase tracking-wider">
+                  <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1e2e24]">
+            <tbody className="divide-y divide-border">
               {campaigns.map((c) => (
                 <tr key={c.id} className="hover:bg-white/[0.02] transition-colors">
                   <td className="px-5 py-4 text-[13px] font-medium text-text-primary">{c.name}</td>

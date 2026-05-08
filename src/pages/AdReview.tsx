@@ -120,7 +120,7 @@ function SeverityBadge({ severity }: { severity: string }) {
   const styles: Record<string, string> = {
     Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
     Major: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    Minor: 'bg-[#1e2e24] text-text-tertiary border-border',
+    Minor: 'bg-surface-sunken text-text-tertiary border-border',
   };
   return (
     <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${styles[severity] ?? styles['Minor']}`}>{severity}</span>
@@ -129,7 +129,7 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 function AreaBadge({ area }: { area: string }) {
   return (
-    <span className="px-2 py-0.5 rounded-md text-[10px] bg-[#2dd4a8]/10 text-brand border border-[#2dd4a8]/20">{area}</span>
+    <span className="px-2 py-0.5 rounded-md text-[10px] bg-brand-subtle text-brand border border-brand-border">{area}</span>
   );
 }
 
@@ -301,7 +301,7 @@ function AiReviewOutput({ data, onRetry }: { data: AiReviewResult; onRetry: () =
                 <p className="text-xs text-text-tertiary font-medium">{String(label)}</p>
                 <span className={`text-lg font-bold ${scoreColor(review!.score)}`}>{review!.score}</span>
               </div>
-              <div className="w-full h-1 rounded-full bg-[#1e2e24]">
+              <div className="w-full h-1 rounded-full bg-border">
                 <div className={`h-1 rounded-full ${scoreBarColor(review!.score)}`} style={{ width: `${review!.score * 10}%` }} />
               </div>
               <div className="flex flex-col gap-0.5">
@@ -572,7 +572,7 @@ Return ONLY a JSON object:
               </div>
             </div>
           ) : (
-            <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-3 py-8 rounded-lg border-2 border-dashed border-border hover:border-[#2dd4a8]/40 hover:bg-[#2dd4a8]/[0.02] transition-all">
+            <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-3 py-8 rounded-lg border-2 border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all">
               <Upload size={22} className="text-text-tertiary" />
               <div className="flex flex-col items-center gap-0.5">
                 <span className="text-sm text-text-primary">Upload image</span>
@@ -605,7 +605,7 @@ Return ONLY a JSON object:
               <AiReviewOutput data={result.data} onRetry={handleAnalyze} />
               <button
                 onClick={() => saveReview(result.data)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[#2dd4a8]/30 text-sm text-brand hover:bg-[#2dd4a8]/10 transition-all self-start"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-brand-border text-sm text-brand hover:bg-brand-subtle transition-all self-start"
               >
                 <Save size={14} />
                 Save Review

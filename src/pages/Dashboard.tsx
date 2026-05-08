@@ -284,7 +284,7 @@ export function Dashboard() {
         <div className="bg-surface-elevated border border-border rounded-xl p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-brand-subtle border border-brand-border flex items-center justify-center">
                 <Smartphone size={15} className="text-brand" />
               </div>
               <span className="text-sm font-semibold text-text-primary">Social Media</span>
@@ -306,7 +306,7 @@ export function Dashboard() {
           </div>
           <button
             onClick={() => setSection('smm')}
-            className="self-start flex items-center gap-1.5 text-[12px] font-medium text-brand hover:text-[#1ab98e] transition-colors"
+            className="self-start flex items-center gap-1.5 text-[12px] font-medium text-brand hover:text-brand-hover transition-colors"
           >
             Go to SMM <ArrowUpRight size={13} />
           </button>
@@ -338,7 +338,7 @@ export function Dashboard() {
                 <p className="text-text-tertiary text-sm">Welcome to NH Command Center! Start by adding your first project.</p>
                 <button
                   onClick={() => navigate('projects')}
-                  className="px-4 py-2 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-sm text-brand hover:bg-[#2dd4a8]/15 transition-all"
+                  className="px-4 py-2 rounded-lg bg-brand-subtle border border-brand-border text-sm text-brand hover:bg-brand-subtle-hover transition-all"
                 >
                   Add Project
                 </button>
@@ -357,7 +357,7 @@ export function Dashboard() {
                     </div>
                   );
                 })()}
-                <div className="divide-y divide-[#1e2e24]">
+                <div className="divide-y divide-border">
                   {data.activeProjects.map((p) => (
                     <button
                       key={p.id}
@@ -430,7 +430,7 @@ export function Dashboard() {
                 </button>
               </div>
             ) : (
-              <div className="divide-y divide-[#1e2e24]">
+              <div className="divide-y divide-border">
                 {data.recentSessions.map((s) => (
                   <button
                     key={s.id}
@@ -479,7 +479,7 @@ export function Dashboard() {
               <button
                 key={action.page}
                 onClick={() => navigate(action.page)}
-                className="flex flex-col items-center gap-3 p-5 rounded-xl bg-surface-elevated border border-border hover:border-[#2dd4a8]/30 hover:brightness-110 transition-all duration-150 group"
+                className="flex flex-col items-center gap-3 p-5 rounded-xl bg-surface-elevated border border-border hover:border-brand-border hover:brightness-110 transition-all duration-150 group"
               >
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center"

@@ -24,7 +24,7 @@ const SESSION_TYPE_STYLES: Record<string, string> = {
   ad_config: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
   creative: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
   ad_review: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
-  analysis: 'bg-[#2dd4a8]/10 text-[#2dd4a8] border-[#2dd4a8]/20',
+  analysis: 'bg-brand-subtle text-brand-text border-brand-border',
   organic: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   research: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
 };
@@ -93,7 +93,7 @@ export function AiSessions() {
   return (
     <div className="p-8 min-h-screen bg-surface">
       <div className="flex items-center gap-3 mb-7">
-        <History size={20} className="text-[#2dd4a8]" />
+        <History size={20} className="text-brand" />
         <div>
           <h1 className="text-xl font-semibold text-text-primary">AI Session History</h1>
           <p className="text-text-tertiary text-xs mt-0.5">Browse and review all past AI-generated outputs</p>
@@ -107,8 +107,8 @@ export function AiSessions() {
             onClick={() => setFilter(tab.id)}
             className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
               filter === tab.id
-                ? 'bg-[#2dd4a8] text-[#0a0f0d]'
-                : 'bg-[#111916] border border-border text-text-tertiary hover:text-text-primary'
+                ? 'bg-brand text-white'
+                : 'bg-surface-sunken border border-border text-text-tertiary hover:text-text-primary'
             }`}
           >
             {tab.label}
@@ -122,12 +122,12 @@ export function AiSessions() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
-          <History size={40} className="text-[#1e2e24]" />
+          <History size={40} className="text-text-disabled" />
           <p className="text-sm text-text-tertiary">No sessions found for this filter.</p>
         </div>
       ) : (
         <Card>
-          <div className="divide-y divide-[#1e2e24]">
+          <div className="divide-y divide-border">
             {filtered.map((s) => {
               const typeStyle = SESSION_TYPE_STYLES[s.session_type] ?? SESSION_TYPE_STYLES['strategy'];
               const typeLabel = SESSION_TYPE_LABEL[s.session_type] ?? s.session_type;
@@ -140,7 +140,7 @@ export function AiSessions() {
                   <span className={`flex-shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-full border ${typeStyle}`}>
                     {typeLabel}
                   </span>
-                  <p className="flex-1 text-sm text-text-primary truncate group-hover:text-[#2dd4a8] transition-colors">
+                  <p className="flex-1 text-sm text-text-primary truncate group-hover:text-brand transition-colors">
                     {s.input_summary
                       ? s.input_summary.length > 120
                         ? s.input_summary.slice(0, 120) + '…'
@@ -148,7 +148,7 @@ export function AiSessions() {
                       : 'No summary'}
                   </p>
                   {s.health_score != null && (
-                    <span className="flex-shrink-0 text-xs font-semibold text-[#2dd4a8]">
+                    <span className="flex-shrink-0 text-xs font-semibold text-brand">
                       {s.health_score}
                     </span>
                   )}

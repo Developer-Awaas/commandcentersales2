@@ -125,9 +125,9 @@ export function Notifications() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <Bell size={20} className="text-[#2dd4a8]" />
+            <Bell size={20} className="text-brand" />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#2dd4a8] text-[8px] font-bold text-[#0a0f0d] flex items-center justify-center leading-none">
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-brand text-[8px] font-bold text-white flex items-center justify-center leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -141,7 +141,7 @@ export function Notifications() {
           <button
             onClick={markAllRead}
             disabled={markingAll}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-[#2dd4a8]/30 text-xs transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-xs transition-all disabled:opacity-50"
           >
             {markingAll ? <Spinner size="sm" /> : null}
             Mark All Read
@@ -149,14 +149,14 @@ export function Notifications() {
         )}
       </div>
 
-      <div className="flex items-center gap-1 mb-6 p-1 bg-[#111916] rounded-lg border border-border w-fit">
+      <div className="flex items-center gap-1 mb-6 p-1 bg-surface-sunken rounded-lg border border-border w-fit">
         {TABS.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${
               activeTab === tab
-                ? 'bg-[#2dd4a8]/10 text-[#2dd4a8] border border-[#2dd4a8]/20'
+                ? 'bg-brand-subtle text-brand-text border border-brand-border'
                 : 'text-text-tertiary hover:text-text-primary'
             }`}
           >
@@ -172,7 +172,7 @@ export function Notifications() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center max-w-md mx-auto">
-          <div className="w-12 h-12 rounded-full bg-[#111916] border border-border flex items-center justify-center mb-4">
+          <div className="w-12 h-12 rounded-full bg-surface-sunken border border-border flex items-center justify-center mb-4">
             <Bell size={20} className="text-text-tertiary" />
           </div>
           <p className="text-sm font-medium text-text-primary mb-2">No notifications yet</p>
@@ -194,7 +194,7 @@ export function Notifications() {
                     onClick={() => !notif.is_read && markRead(notif.id)}
                     className={`w-full text-left rounded-xl border p-4 transition-all ${
                       notif.is_read
-                        ? 'bg-[#111916] border-border opacity-60 hover:opacity-80'
+                        ? 'bg-surface-sunken border-border opacity-60 hover:opacity-80'
                         : `${SeverityRingColor(notif.severity)} border hover:opacity-90`
                     }`}
                   >
@@ -216,7 +216,7 @@ export function Notifications() {
                         </p>
                       </div>
                       {!notif.is_read && (
-                        <div className="w-2 h-2 rounded-full bg-[#2dd4a8] flex-shrink-0 mt-1.5" />
+                        <div className="w-2 h-2 rounded-full bg-brand flex-shrink-0 mt-1.5" />
                       )}
                     </div>
                   </button>

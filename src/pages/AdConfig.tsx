@@ -135,7 +135,7 @@ function AiConfigOutput({ data, onRetry, platform }: { data: AiConfigResult; onR
   return (
     <div className="flex flex-col gap-5">
       {data.platformTip && (
-        <div className="px-4 py-3 rounded-xl border border-[#3b82f6]/30 text-sm text-blue-300" style={{ background: '#3b82f610' }}>
+        <div className="px-4 py-3 rounded-xl border border-brand-border text-sm text-brand-text bg-brand-subtle">
           <span className="font-semibold">Platform Recommendation: </span>{data.platformTip}
         </div>
       )}
@@ -212,7 +212,7 @@ function AiConfigOutput({ data, onRetry, platform }: { data: AiConfigResult; onR
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {behaviorsList.map((tag) => (
-                    <span key={tag} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#3b82f6]/10 text-blue-300 border border-[#3b82f6]/20">{tag}</span>
+                    <span key={tag} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-brand-subtle text-brand-text border border-brand-border">{tag}</span>
                   ))}
                 </div>
               </div>
@@ -272,7 +272,7 @@ function AiConfigOutput({ data, onRetry, platform }: { data: AiConfigResult; onR
           <div className="px-5 py-4 border-b border-border"><SectionLabel>Pixel Events</SectionLabel></div>
           <div className="px-5 py-4 flex flex-wrap gap-2">
             {data.pixelEvents.map((ev) => (
-              <span key={ev} className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#1e2e24] text-text-primary border border-[#2e3e34]">{ev}</span>
+              <span key={ev} className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-surface-sunken text-text-primary border border-border">{ev}</span>
             ))}
           </div>
         </Card>
@@ -409,11 +409,11 @@ Return ONLY a JSON object:
 
       {!projectsLoading && projects.length === 0 && (
         <div className="flex flex-col items-center justify-center py-14 rounded-xl border border-dashed border-border mb-6 text-center gap-3">
-          <FolderKanban size={32} className="text-[#1e2e24]" />
+          <FolderKanban size={32} className="text-text-disabled" />
           <p className="text-sm text-text-tertiary">Add a project first to generate ad configurations.</p>
           <button
             onClick={() => navigate('projects')}
-            className="px-4 py-2 rounded-lg bg-brand-subtle border border-brand/20 text-sm text-brand hover:bg-[#2dd4a8]/15 transition-all"
+            className="px-4 py-2 rounded-lg bg-brand-subtle border border-brand-border text-sm text-brand hover:bg-brand-subtle-hover transition-all"
           >
             Go to Projects
           </button>

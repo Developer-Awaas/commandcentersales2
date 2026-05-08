@@ -96,7 +96,7 @@ function timeAgo(dateStr: string): string {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  draft: 'bg-[#1e2e24] text-text-tertiary border-border',
+  draft: 'bg-surface-sunken text-text-tertiary border-border',
   active: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   retired: 'bg-red-500/10 text-red-400 border-red-500/20',
 };
@@ -171,7 +171,7 @@ function VariantCard({ variant, onSave, project, platform }: { variant: AiVarian
   return (
     <Card>
       <div className="px-5 py-4 border-b border-border flex items-center gap-4">
-        <div className="w-9 h-9 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 flex items-center justify-center flex-shrink-0">
+        <div className="w-9 h-9 rounded-lg bg-brand-subtle border border-brand-border flex items-center justify-center flex-shrink-0">
           <span className="text-lg font-bold text-brand">{variant.variant}</span>
         </div>
         <div className="flex-1">
@@ -182,7 +182,7 @@ function VariantCard({ variant, onSave, project, platform }: { variant: AiVarian
         {onSave && (
           <button
             onClick={() => onSave(variant)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#2dd4a8]/30 text-xs text-brand hover:bg-[#2dd4a8]/10 transition-all flex-shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-border text-xs text-brand hover:bg-brand-subtle transition-all flex-shrink-0"
           >
             <Save size={12} /> Save
           </button>
@@ -292,7 +292,7 @@ function AiCreativesOutput({ data, onRetry, onSaveVariant, project, platform }: 
       )}
 
       {data.refresh && (
-        <div className="px-4 py-3 rounded-xl bg-[#1e2e24] border border-[#2e3e34] text-sm text-text-tertiary">
+        <div className="px-4 py-3 rounded-xl bg-surface-sunken border border-border text-sm text-text-tertiary">
           <span className="font-semibold text-text-primary">Refresh Recommendation: </span>{data.refresh}
         </div>
       )}
@@ -623,11 +623,11 @@ Return ONLY a JSON object:
 
       {!projectsLoading && projects.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-dashed border-border mb-6 text-center gap-3">
-          <Palette size={32} className="text-[#1e2e24]" />
+          <Palette size={32} className="text-text-disabled" />
           <p className="text-sm text-text-tertiary">No projects found. Add a project first to generate creatives.</p>
           <button
             onClick={() => navigate('projects')}
-            className="px-4 py-2 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-sm text-brand hover:bg-[#2dd4a8]/15 transition-all"
+            className="px-4 py-2 rounded-lg bg-brand-subtle border border-brand-border text-sm text-brand hover:bg-brand-subtle-hover transition-all"
           >
             Go to Projects
           </button>
@@ -663,7 +663,7 @@ Return ONLY a JSON object:
                 </div>
               </div>
             ) : (
-              <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 py-6 rounded-lg border border-dashed border-border hover:border-[#2dd4a8]/40 hover:bg-[#2dd4a8]/[0.02] transition-all">
+              <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 py-6 rounded-lg border border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all">
                 <Upload size={18} className="text-text-tertiary" />
                 <span className="text-xs text-text-tertiary">Click to upload image</span>
               </button>
@@ -696,14 +696,14 @@ Return ONLY a JSON object:
 
       <div className="mt-10">
         <div className="flex items-center gap-2 mb-5">
-          <div className="h-px flex-1 bg-[#1e2e24]" />
+          <div className="h-px flex-1 bg-border" />
           <div className="flex items-center gap-2">
             <BookOpen size={14} className="text-text-tertiary" />
             <span className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">
               Creative Library {library.length > 0 ? `(${library.length})` : ''}
             </span>
           </div>
-          <div className="h-px flex-1 bg-[#1e2e24]" />
+          <div className="h-px flex-1 bg-border" />
         </div>
 
         {libraryLoading ? (
@@ -725,7 +725,7 @@ Return ONLY a JSON object:
                 <Card key={c.id} className="flex flex-col">
                   <div className="px-4 py-4 flex items-start gap-3">
                     {c.variant && (
-                      <div className="w-8 h-8 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 flex items-center justify-center flex-shrink-0">
+                      <div className="w-8 h-8 rounded-lg bg-brand-subtle border border-brand-border flex items-center justify-center flex-shrink-0">
                         <span className="text-sm font-bold text-brand">{c.variant}</span>
                       </div>
                     )}
@@ -748,7 +748,7 @@ Return ONLY a JSON object:
                           <span className={`text-[10px] font-semibold ${scoreColor}`}>{c.review_score}/10</span>
                         )}
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border capitalize ${statusCls}`}>{c.status ?? 'draft'}</span>
-                        <span className="text-[10px] text-[#4a6558]">{timeAgo(c.created_at)}</span>
+                        <span className="text-[10px] text-text-tertiary">{timeAgo(c.created_at)}</span>
                       </div>
                     </div>
                     <button

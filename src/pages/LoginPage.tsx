@@ -27,14 +27,14 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-brand mb-4">
-            <span className="text-[18px] font-bold text-[#0a0f0d] leading-none">NH</span>
+            <span className="text-[18px] font-bold text-white leading-none">NH</span>
           </div>
-          <h1 className="text-xl font-semibold text-[#e8f0ec]">NH Command Center</h1>
-          <p className="text-sm text-[#7a9988] mt-1">Marketing HQ</p>
+          <h1 className="text-xl font-semibold text-text-primary">NH Command Center</h1>
+          <p className="text-sm text-text-tertiary mt-1">Marketing HQ</p>
         </div>
 
-        <div className="bg-[#111916] border border-[#1e2e24] rounded-xl p-6">
-          <h2 className="text-base font-medium text-[#e8f0ec] mb-5">Sign in to your account</h2>
+        <div className="bg-surface-elevated border border-border rounded-xl p-6">
+          <h2 className="text-base font-medium text-text-primary mb-5">Sign in to your account</h2>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
@@ -68,7 +68,7 @@ export function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-[11px] text-[#4a6558] mt-6">
+        <p className="text-center text-[11px] text-text-tertiary mt-6">
           Contact admin for login credentials
         </p>
       </div>

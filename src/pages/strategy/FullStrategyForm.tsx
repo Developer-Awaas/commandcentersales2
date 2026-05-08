@@ -102,7 +102,7 @@ export function FullStrategyForm({
             <span className="text-sm text-text-primary">Enable Odia vernacular ads</span>
           </label>
 
-          <div className="pt-2 border-t border-[#1e2e24] flex flex-col gap-3">
+          <div className="pt-2 border-t border-border flex flex-col gap-3">
             <label className="flex items-center gap-3 cursor-pointer group">
               <button
                 type="button"
@@ -136,7 +136,7 @@ export function FullStrategyForm({
             </div>
           ) : projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Target size={28} className="text-[#1e2e24] mb-3" />
+              <Target size={28} className="text-text-disabled mb-3" />
               <p className="text-sm text-text-tertiary">No active projects found.</p>
             </div>
           ) : (
@@ -149,8 +149,8 @@ export function FullStrategyForm({
                     onClick={() => toggleProject(p.id)}
                     className={`w-full text-left rounded-lg border p-3 transition-all duration-150 ${
                       selected
-                        ? 'border-[#2dd4a8]/50 bg-[#2dd4a8]/[0.06]'
-                        : 'border-[#1e2e24] hover:border-[#2dd4a8]/20 hover:bg-white/[0.02]'
+                        ? 'border-brand-border bg-brand-subtle'
+                        : 'border-border hover:border-brand-border hover:bg-surface-hover'
                     }`}
                   >
                     <div className="flex items-start gap-3">

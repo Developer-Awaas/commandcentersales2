@@ -101,7 +101,7 @@ const METRIC_FIELDS: { key: string; label: string; placeholder: string }[] = [
 const PRIORITY_STYLE: Record<number, string> = {
   1: 'bg-red-500/10 text-red-400 border-red-500/20',
   2: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  3: 'bg-[#2dd4a8]/10 text-brand border-[#2dd4a8]/20',
+  3: 'bg-brand-subtle text-brand border-brand-border',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -183,7 +183,7 @@ function AiAnalysisOutput({ data, onRetry }: { data: AiAnalysisResult; onRetry: 
           <div className="px-5 py-2">
             {data.scorecard.map((row) => (
               <div key={row.metric} className="flex items-center gap-4 py-3 border-b border-border last:border-0">
-                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLOR[row.status] ?? 'bg-[#7a9988]'}`} />
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLOR[row.status] ?? 'bg-text-tertiary'}`} />
                 <span className="text-sm text-text-primary flex-1 font-medium">{row.metric}</span>
                 <span className="text-sm text-text-primary min-w-[80px] text-right">{row.value}</span>
                 <span className="text-xs text-text-tertiary min-w-[110px] text-right">Target: {row.target}</span>
@@ -200,7 +200,7 @@ function AiAnalysisOutput({ data, onRetry }: { data: AiAnalysisResult; onRetry: 
           <div className="px-5 py-3 flex flex-col gap-4">
             {data.tacticalActions.map((action, i) => (
               <div key={i} className="flex gap-4">
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#1e2e24] flex items-center justify-center mt-0.5">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-surface-sunken flex items-center justify-center mt-0.5">
                   <span className="text-[11px] font-bold text-text-tertiary">{i + 1}</span>
                 </div>
                 <div className="flex-1">
@@ -264,8 +264,8 @@ function AiAnalysisOutput({ data, onRetry }: { data: AiAnalysisResult; onRetry: 
 }
 
 function cplBarColor(cpl: number): string {
-  if (cpl <= 0) return '#1e2e24';
-  if (cpl < 100) return '#2dd4a8';
+  if (cpl <= 0) return '#E4E4E7';
+  if (cpl < 100) return '#2563EB';
   if (cpl <= 150) return '#f59e0b';
   return '#ef4444';
 }
@@ -295,7 +295,7 @@ function MetricsHistory({ rows }: { rows: MetricRow[] }) {
                     style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, minHeight: r.leads > 0 ? 4 : 2 }}
                   />
                   <div className="absolute bottom-full mb-1.5 hidden group-hover:flex flex-col items-center pointer-events-none z-10">
-                    <div className="bg-[#1a2a1f] border border-[#2e3e34] rounded-lg px-2.5 py-1.5 text-[10px] text-text-primary whitespace-nowrap shadow-xl">
+                    <div className="bg-surface-elevated border border-border rounded-lg px-2.5 py-1.5 text-[10px] text-text-primary whitespace-nowrap shadow-modal">
                       <div className="font-semibold">{fmtShortDate(r.date)}</div>
                       <div>{r.leads} leads</div>
                       {r.cpl > 0 && <div>CPL ₹{Math.round(r.cpl)}</div>}
@@ -306,7 +306,7 @@ function MetricsHistory({ rows }: { rows: MetricRow[] }) {
             })}
           </div>
           <div className="flex items-center gap-4 mt-3">
-            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-[#2dd4a8]" /><span className="text-[10px] text-text-tertiary">CPL &lt; ₹100</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-brand" /><span className="text-[10px] text-text-tertiary">CPL &lt; ₹100</span></div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-amber-400" /><span className="text-[10px] text-text-tertiary">CPL ₹100–150</span></div>
             <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-red-400" /><span className="text-[10px] text-text-tertiary">CPL &gt; ₹150</span></div>
           </div>
@@ -337,7 +337,7 @@ function MetricsHistory({ rows }: { rows: MetricRow[] }) {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-[#111916] transition-colors">
+                  <tr key={r.id} className="hover:bg-surface-hover transition-colors">
                     <td className="px-4 py-3 text-sm text-text-primary border-b border-border">
                       {new Date(r.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </td>
@@ -640,7 +640,7 @@ Return ONLY a JSON object:
         <button
           onClick={handleResearchMetaUpdates}
           disabled={researchSubmitting}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-[#2dd4a8]/30 text-xs transition-all disabled:opacity-50"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-xs transition-all disabled:opacity-50"
         >
           {researchSubmitting ? <Spinner size="sm" /> : <Search size={13} />}
           {researchSubmitting ? 'Searching…' : 'Research Meta Updates'}
@@ -674,7 +674,7 @@ Return ONLY a JSON object:
           <button
             onClick={handleCsvClick}
             disabled={importing}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-[#2dd4a8]/30 text-sm transition-all disabled:opacity-50 whitespace-nowrap"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-sm transition-all disabled:opacity-50 whitespace-nowrap"
           >
             {importing ? <Spinner size="sm" /> : <Upload size={14} />}
             {importing ? importProgress : 'Import CSV'}
@@ -701,7 +701,7 @@ Return ONLY a JSON object:
         <div ref={researchRef} className="flex flex-col gap-4 mb-8">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Meta Research Results</p>
           {research.status === 'loading' && (
-            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#1e2e24] border border-[#2e3e34]">
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-surface-sunken border border-border">
               <Spinner size="sm" />
               <span className="text-sm text-text-tertiary">Searching the web for latest Meta Ads updates…</span>
             </div>

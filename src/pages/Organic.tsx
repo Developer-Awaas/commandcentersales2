@@ -45,7 +45,7 @@ type ResultState =
 const DAY_COLORS: Record<string, string> = {
   Monday: '#3b82f6',
   Tuesday: '#22c55e',
-  Wednesday: '#2dd4a8',
+  Wednesday: '#2563EB',
   Thursday: '#eab308',
   Friday: '#ef4444',
   Saturday: '#ec4899',
@@ -81,7 +81,7 @@ function RawFallback({ text, onRetry }: { text: string; onRetry: () => void }) {
 }
 
 function DayCard({ day }: { day: AiDayPlan }) {
-  const color = DAY_COLORS[day.day] ?? '#7a9988';
+  const color = DAY_COLORS[day.day] ?? '#71717A';
   return (
     <Card className="overflow-hidden">
       <div className="flex">
@@ -123,7 +123,7 @@ function DayCard({ day }: { day: AiDayPlan }) {
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Nanobanana Prompt</p>
                 <CopyButton text={day.nanoPrompt} />
               </div>
-              <div className="rounded-lg border p-3" style={{ background: '#0d4a3810', borderColor: '#2dd4a830' }}>
+              <div className="rounded-lg border p-3 bg-brand-subtle border-brand-border">
                 <p className="text-xs text-text-primary leading-relaxed font-mono">{day.nanoPrompt}</p>
               </div>
             </div>
@@ -135,7 +135,7 @@ function DayCard({ day }: { day: AiDayPlan }) {
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Reel Script</p>
                 <CopyButton text={day.reelScript} />
               </div>
-              <div className="rounded-lg border p-3 bg-[#1e2e2410] border-border">
+              <div className="rounded-lg border p-3 bg-surface-sunken border-border">
                 <p className="text-xs text-text-primary leading-relaxed whitespace-pre-wrap">{day.reelScript}</p>
               </div>
             </div>
@@ -164,7 +164,7 @@ function AiOrganicOutput({ data, onRetry }: { data: AiOrganicResult; onRetry: ()
             {data.pillars.map((pillar, i) => (
               <Card key={i} className="p-4">
                 <p className="text-sm font-semibold text-text-primary mb-1">{pillar.pillar ?? pillar.name}</p>
-                <p className="text-[11px] text-[#2dd4a8] mb-2">{pillar.freq ?? pillar.frequency}</p>
+                <p className="text-[11px] text-brand mb-2">{pillar.freq ?? pillar.frequency}</p>
                 <p className="text-xs text-text-tertiary leading-relaxed">{pillar.purpose}</p>
               </Card>
             ))}
@@ -188,7 +188,7 @@ function AiOrganicOutput({ data, onRetry }: { data: AiOrganicResult; onRetry: ()
             <ul className="flex flex-col gap-2">
               {data.tips.map((tip, i) => (
                 <li key={i} className="flex items-start gap-2 text-xs text-text-primary">
-                  <span className="text-[#2dd4a8] font-bold mt-0.5 flex-shrink-0">{i + 1}.</span>
+                  <span className="text-brand font-bold mt-0.5 flex-shrink-0">{i + 1}.</span>
                   <span className="leading-relaxed">{tip}</span>
                 </li>
               ))}
@@ -198,7 +198,7 @@ function AiOrganicOutput({ data, onRetry }: { data: AiOrganicResult; onRetry: ()
       )}
 
       <div className="flex justify-end">
-        <button onClick={onRetry} className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-[#2dd4a8] transition-colors">
+        <button onClick={onRetry} className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-brand transition-colors">
           <RefreshCw size={12} /> Regenerate
         </button>
       </div>
@@ -291,7 +291,7 @@ Include all 7 days. Make content specific to the projects above.`;
     <div className="p-8 min-h-screen bg-surface">
       <div className="flex items-center justify-between mb-7">
         <div className="flex items-center gap-3">
-          <Megaphone size={20} className="text-[#2dd4a8]" />
+          <Megaphone size={20} className="text-brand" />
           <div>
             <h1 className="text-xl font-semibold text-text-primary">Organic</h1>
             <p className="text-text-tertiary text-xs mt-0.5">Plan your weekly Instagram and Facebook content</p>

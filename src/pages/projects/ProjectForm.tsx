@@ -359,7 +359,7 @@ export function ProjectForm({ project, onCancel, onSaved }: ProjectFormProps) {
             <button
               type="button"
               onClick={addConfig}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-sm text-[#2dd4a8] hover:bg-[#2dd4a8]/15 transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-subtle border border-brand-border text-sm text-brand-text hover:bg-brand-subtle-hover transition-all"
             >
               <Plus size={13} />
               Add Configuration

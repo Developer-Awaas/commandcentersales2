@@ -154,7 +154,7 @@ export function QuickGenerateForm({
                 value={inputs.customProject.usps}
                 onChange={(e) => setCustom('usps', e.target.value)}
                 placeholder="e.g. Rooftop Garden, Premium Clubhouse"
-                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-[#7a9988] focus:outline-none focus:border-[#2dd4a8] focus:ring-1 focus:ring-[#2dd4a8] transition-colors resize-y"
+                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors resize-y"
               />
             </div>
           </div>
@@ -177,7 +177,7 @@ export function QuickGenerateForm({
           value={inputs.prompt}
           onChange={(e) => set('prompt', e.target.value)}
           placeholder="e.g. Launch creative for The Zenith — 8 premium 3BHK units in Nayapalli. Drive WhatsApp inquiries from professionals 30–50 looking for their forever home."
-          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder-[#7a9988] focus:outline-none focus:border-[#2dd4a8] focus:ring-1 focus:ring-[#2dd4a8] transition-colors resize-y min-h-[80px]"
+          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors resize-y min-h-[80px]"
         />
       </Card>
 
@@ -229,7 +229,7 @@ export function QuickGenerateForm({
           ) : (
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full flex flex-col items-center justify-center gap-2 py-5 rounded-lg border border-dashed border-border hover:border-[#2dd4a8]/40 hover:bg-[#2dd4a8]/[0.03] transition-all"
+              className="w-full flex flex-col items-center justify-center gap-2 py-5 rounded-lg border border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all"
             >
               <Upload size={16} className="text-text-tertiary" />
               <span className="text-xs text-text-tertiary">Click to upload image</span>
