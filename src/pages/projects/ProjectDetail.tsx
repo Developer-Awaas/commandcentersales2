@@ -32,7 +32,7 @@ function Pills({ text, accent }: { text: string; accent?: boolean }) {
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
-        <span key={item} className={`text-xs px-3 py-1 rounded-full ${accent ? 'bg-[#2dd4a8]/10 text-brand border border-[#2dd4a8]/20' : 'bg-surface text-text-primary border border-border'}`}>
+        <span key={item} className={`text-xs px-3 py-1 rounded-full ${accent ? 'bg-brand-subtle text-brand border border-brand-border' : 'bg-surface text-text-primary border border-border'}`}>
           {item}
         </span>
       ))}
@@ -176,7 +176,7 @@ function PerformanceTab({ project }: { project: Project }) {
             <tbody>
               {allCampaigns.map((c) => {
                 const statusCls = c.status === 'active' ? 'bg-brand-subtle text-brand border-brand-border'
-                  : c.status === 'draft' ? 'bg-[#7a9988]/10 text-text-tertiary border-[#7a9988]/20'
+                  : c.status === 'draft' ? 'bg-surface-sunken text-text-tertiary border-border'
                   : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
                 return (
                   <tr key={c.id} className={rowCls}>
@@ -227,9 +227,9 @@ function PerformanceTab({ project }: { project: Project }) {
           <div className="grid grid-cols-3 gap-3">
             {creatives.map((c) => (
               <button key={c.id} onClick={() => setExpandedCreative(expandedCreative?.id === c.id ? null : c)}
-                className="text-left p-3 rounded-lg border border-border bg-[#0d1610] hover:border-[#2dd4a8]/30 transition-all">
+                className="text-left p-3 rounded-lg border border-border bg-surface-elevated hover:border-brand-border transition-all">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-[#2dd4a8]/10 text-brand border border-[#2dd4a8]/20 font-semibold">{c.variant || 'V1'}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-brand-subtle text-brand border border-brand-border font-semibold">{c.variant || 'V1'}</span>
                   {c.review_score != null && <ScoreBadge score={c.review_score} />}
                 </div>
                 <p className="text-xs font-medium text-text-primary truncate">{c.angle || '—'}</p>
@@ -301,7 +301,7 @@ export function ProjectDetail({ project: p, onBack, onEdit, onDeleted }: Project
             <ArrowLeft size={16} />
             Back
           </button>
-          <div className="w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0" style={{ backgroundColor: '#1a7a62', color: '#2dd4a8' }}>
+          <div className="w-11 h-11 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0 bg-brand-subtle text-brand-text">
             {p.name.charAt(0).toUpperCase()}
           </div>
           <div>
@@ -335,7 +335,7 @@ export function ProjectDetail({ project: p, onBack, onEdit, onDeleted }: Project
         ] as { id: string; label: string; Icon?: React.ElementType }[]).map(({ id, label, Icon }) => (
           <button key={id} onClick={() => setTab(id as typeof tab)}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-all duration-150 border-b-2 -mb-px ${
-              tab === id ? 'border-[#2dd4a8] text-brand bg-[#2dd4a8]/[0.08]' : 'border-transparent text-text-tertiary hover:text-text-primary'
+              tab === id ? 'border-brand text-brand bg-brand-subtle' : 'border-transparent text-text-tertiary hover:text-text-primary'
             }`}
           >
             {Icon && <Icon size={14} />}
@@ -382,7 +382,7 @@ export function ProjectDetail({ project: p, onBack, onEdit, onDeleted }: Project
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 {configurations.map((cfg, i) => (
-                  <div key={i} className={`rounded-lg border p-4 flex flex-col gap-2 ${cfg.available ? 'border-border bg-[#0d1610]' : 'border-red-900/30 bg-red-950/10'}`}>
+                  <div key={i} className={`rounded-lg border p-4 flex flex-col gap-2 ${cfg.available ? 'border-border bg-surface-elevated' : 'border-danger-border bg-danger-subtle'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-bold text-text-primary">{cfg.type}</span>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.available ? 'bg-brand-subtle text-brand border-brand-border' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>

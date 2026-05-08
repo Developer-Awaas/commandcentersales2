@@ -64,10 +64,10 @@ const TH = 'px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wid
 const TD = 'px-4 py-3 text-sm border-b border-border';
 
 function roleColor(role: string) {
-  if (role === 'admin') return 'text-[#2dd4a8] border-[#2dd4a8]/30 bg-[#2dd4a8]/10';
+  if (role === 'admin') return 'text-brand-text border-brand-border bg-brand-subtle';
   if (role === 'manager') return 'text-blue-400 border-blue-500/30 bg-blue-500/10';
   if (role === 'beta_tester') return 'text-amber-400 border-amber-500/30 bg-amber-500/10';
-  return 'text-text-tertiary border-border bg-[#111916]';
+  return 'text-text-tertiary border-border bg-surface-sunken';
 }
 
 interface ModalState {
@@ -205,7 +205,7 @@ export function UserManagement() {
     <div className="p-8 min-h-screen bg-surface">
       <div className="flex items-center justify-between mb-7">
         <div className="flex items-center gap-3">
-          <Users size={20} className="text-[#2dd4a8]" />
+          <Users size={20} className="text-brand" />
           <div>
             <h1 className="text-xl font-semibold text-text-primary">User Management</h1>
             <p className="text-text-tertiary text-xs mt-0.5">Manage team members and their access</p>
@@ -213,7 +213,7 @@ export function UserManagement() {
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-[#2dd4a8] text-sm font-medium hover:bg-[#2dd4a8]/15 transition-all"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-brand-subtle border border-brand-border text-brand-text text-sm font-medium hover:bg-brand-subtle-hover transition-all"
         >
           <Plus size={13} />
           Add User
@@ -240,11 +240,11 @@ export function UserManagement() {
               </thead>
               <tbody>
                 {users.map(u => (
-                  <tr key={u.id} className="hover:bg-[#111916] transition-colors">
+                  <tr key={u.id} className="hover:bg-surface-hover transition-colors">
                     <td className={`${TD} text-text-primary font-medium`}>
                       <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-[#2dd4a8]/10 border border-[#2dd4a8]/30 flex items-center justify-center flex-shrink-0">
-                          <span className="text-[11px] font-bold text-[#2dd4a8]">{initials(u)}</span>
+                        <div className="w-7 h-7 rounded-full bg-brand-subtle border border-brand-border flex items-center justify-center flex-shrink-0">
+                          <span className="text-[11px] font-bold text-brand-text">{initials(u)}</span>
                         </div>
                         {u.full_name ?? '—'}
                       </div>
@@ -252,7 +252,7 @@ export function UserManagement() {
                     <td className={`${TD} text-text-tertiary`}>{u.email ?? '—'}</td>
                     <td className={TD}>
                       <div className="flex items-center gap-1.5">
-                        {u.role === 'admin' && <ShieldCheck size={13} className="text-[#2dd4a8]" />}
+                        {u.role === 'admin' && <ShieldCheck size={13} className="text-brand" />}
                         <span className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${roleColor(u.role)}`}>
                           {u.role}
                         </span>
@@ -288,7 +288,7 @@ export function UserManagement() {
       {/* Add/Edit Modal */}
       {modal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg bg-[#0e1611] border border-border rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg bg-surface-elevated border border-border rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <h2 className="text-text-primary font-semibold">{modal.mode === 'add' ? 'Add User' : 'Edit User'}</h2>
               <button onClick={closeModal} className="text-text-tertiary hover:text-text-primary transition-colors"><X size={18} /></button>
@@ -306,14 +306,14 @@ export function UserManagement() {
                         type={showPwd ? 'text' : 'password'}
                         value={password}
                         onChange={e => setPassword(e.target.value)}
-                        className="w-full bg-surface border border-border rounded-lg pl-3 pr-9 py-2 text-sm text-text-primary placeholder-[#4a6558] focus:outline-none focus:border-[#2dd4a8] focus:ring-1 focus:ring-[#2dd4a8] transition-colors"
+                        className="w-full bg-surface border border-border rounded-lg pl-3 pr-9 py-2 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                       />
                       <button type="button" onClick={() => setShowPwd(s => !s)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary">
                         {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     </div>
-                    <button onClick={() => { const p = genPassword(); setPassword(p); setShowPwd(true); }} className="p-2 rounded-lg bg-[#1e2e24] border border-[#2a3f32] text-text-tertiary hover:text-text-primary transition-colors" title="Generate new password"><RefreshCw size={14} /></button>
-                    <button onClick={() => { navigator.clipboard.writeText(password); showToast('Password copied!', 'success'); }} className="p-2 rounded-lg bg-[#1e2e24] border border-[#2a3f32] text-text-tertiary hover:text-text-primary transition-colors" title="Copy password"><Copy size={14} /></button>
+                    <button onClick={() => { const p = genPassword(); setPassword(p); setShowPwd(true); }} className="p-2 rounded-lg bg-surface-sunken border border-border text-text-tertiary hover:text-text-primary transition-colors" title="Generate new password"><RefreshCw size={14} /></button>
+                    <button onClick={() => { navigator.clipboard.writeText(password); showToast('Password copied!', 'success'); }} className="p-2 rounded-lg bg-surface-sunken border border-border text-text-tertiary hover:text-text-primary transition-colors" title="Copy password"><Copy size={14} /></button>
                   </div>
                 </div>
               )}
@@ -323,7 +323,7 @@ export function UserManagement() {
                 <select
                   value={role}
                   onChange={e => { setRole(e.target.value); if (e.target.value === 'admin') setAiLimit(999); else if (aiLimit === 999) setAiLimit(30); }}
-                  className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-[#2dd4a8] transition-colors"
+                  className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand transition-colors"
                 >
                   {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
@@ -337,7 +337,7 @@ export function UserManagement() {
                   max={999}
                   value={aiLimit}
                   onChange={e => setAiLimit(Number(e.target.value))}
-                  className="w-32 bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-[#2dd4a8] transition-colors"
+                  className="w-32 bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand transition-colors"
                 />
               </div>
 
@@ -350,9 +350,9 @@ export function UserManagement() {
                         type="checkbox"
                         checked={!!modules[m.key]}
                         onChange={() => toggleModule(m.key)}
-                        className="accent-[#2dd4a8] w-3.5 h-3.5"
+                        className="accent-brand w-3.5 h-3.5"
                       />
-                      <span className="text-xs text-[#c0d4c8] group-hover:text-text-primary transition-colors">{m.label}</span>
+                      <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">{m.label}</span>
                     </label>
                   ))}
                 </div>
@@ -365,7 +365,7 @@ export function UserManagement() {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2dd4a8] text-[#0a0f0d] text-sm font-semibold hover:bg-[#25c49a] disabled:opacity-50 transition-all"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-hover disabled:opacity-50 transition-all"
                 >
                   {saving ? <Spinner size="sm" /> : null}
                   {modal.mode === 'add' ? 'Create User' : 'Save Changes'}
@@ -379,7 +379,7 @@ export function UserManagement() {
       {/* Confirm Delete */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#0e1611] border border-border rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+          <div className="bg-surface-elevated border border-border rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <h3 className="text-text-primary font-semibold mb-2">Deactivate User?</h3>
             <p className="text-sm text-text-tertiary mb-5">The user will be marked inactive and lose access. This can be reversed.</p>
             <div className="flex justify-end gap-2">
@@ -398,7 +398,7 @@ function ActionBtn({ children, onClick, title, className = '' }: { children: Rea
     <button
       onClick={onClick}
       title={title}
-      className={`p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-[#1e2e24] transition-all ${className}`}
+      className={`p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-surface-hover transition-all ${className}`}
     >
       {children}
     </button>

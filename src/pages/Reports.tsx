@@ -76,7 +76,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="flex flex-col gap-1 px-5 py-4 bg-[#111916] rounded-xl border border-border">
+    <div className="flex flex-col gap-1 px-5 py-4 bg-surface-elevated rounded-xl border border-border">
       <p className="text-[11px] font-medium text-text-tertiary uppercase tracking-wide">{label}</p>
       <p className="text-2xl font-bold text-text-primary">{value}</p>
       {sub && <p className="text-xs text-text-tertiary">{sub}</p>}
@@ -89,10 +89,10 @@ const TD = 'px-4 py-3 text-sm text-text-primary border-b border-border last:bord
 
 const STATUS_STYLE: Record<string, string> = {
   active: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  draft: 'bg-[#1e2e24] text-text-tertiary border-border',
+  draft: 'bg-surface-sunken text-text-tertiary border-border',
   paused: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   completed: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  archived: 'bg-[#1e2e24] text-[#4a6558] border-border',
+  archived: 'bg-surface-sunken text-text-tertiary border-border',
 };
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -183,19 +183,19 @@ function ExportDropdown({ onExport }: { onExport: (type: string) => void }) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-[#2dd4a8]/30 text-xs transition-all"
+        className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-xs transition-all"
       >
         <Download size={13} />
         Export
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 w-52 bg-[#111916] border border-border rounded-xl shadow-2xl z-20 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1.5 w-52 bg-surface-elevated border border-border rounded-xl shadow-2xl z-20 overflow-hidden">
           {options.map((opt) => (
             <button
               key={opt.key}
               onClick={() => { onExport(opt.key); setOpen(false); }}
-              className="w-full text-left px-4 py-2.5 text-sm text-text-primary hover:bg-[#1e2e24] transition-colors"
+              className="w-full text-left px-4 py-2.5 text-sm text-text-primary hover:bg-surface-hover transition-colors"
             >
               {opt.label}
             </button>
@@ -437,7 +437,7 @@ export function Reports() {
     <div className="p-8 min-h-screen bg-surface">
       <div className="flex items-center justify-between mb-7">
         <div className="flex items-center gap-3">
-          <BarChart3 size={20} className="text-[#2dd4a8]" />
+          <BarChart3 size={20} className="text-brand" />
           <div>
             <h1 className="text-xl font-semibold text-text-primary">Reports</h1>
             <p className="text-text-tertiary text-xs mt-0.5">Activity overview and performance summary</p>
@@ -506,7 +506,7 @@ export function Reports() {
                   <EmptyRow cols={7} message="No campaigns created yet." />
                 ) : (
                   campaigns.map((c) => (
-                    <tr key={c.id} className="hover:bg-[#111916] transition-colors">
+                    <tr key={c.id} className="hover:bg-surface-hover transition-colors">
                       <td className={TD}>{c.campaign_name}</td>
                       <td className={`${TD} text-text-tertiary`}>{c.project_name}</td>
                       <td className={`${TD} text-text-tertiary`}>{c.funnel_stage ?? '—'}</td>
@@ -516,7 +516,7 @@ export function Reports() {
                       </td>
                       <td className={`${TD} text-text-tertiary`}>
                         {c.source ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] border bg-[#1e2e24] text-text-tertiary border-[#2e3e34] capitalize">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] border bg-surface-sunken text-text-tertiary border-border capitalize">
                             {c.source.replace(/_/g, ' ')}
                           </span>
                         ) : '—'}
@@ -558,10 +558,10 @@ export function Reports() {
                   <EmptyRow cols={4} message="No AI sessions yet." />
                 ) : (
                   aiSessions.map((s) => (
-                    <tr key={s.id} className="hover:bg-[#111916] transition-colors">
+                    <tr key={s.id} className="hover:bg-surface-hover transition-colors">
                       <td className={`${TD} text-text-tertiary`}>{fmtDate(s.created_at)}</td>
                       <td className={TD}>
-                        <span className="px-2 py-0.5 rounded-md text-[11px] border bg-[#2dd4a8]/10 text-[#2dd4a8] border-[#2dd4a8]/20 capitalize">
+                        <span className="px-2 py-0.5 rounded-md text-[11px] border bg-brand-subtle text-brand-text border-brand-border capitalize">
                           {s.session_type.replace(/_/g, ' ')}
                         </span>
                       </td>
@@ -592,11 +592,11 @@ export function Reports() {
               No activity logged yet.
             </p>
           ) : (
-            <div className="divide-y divide-[#1e2e24]">
+            <div className="divide-y divide-border">
               {activity.map((a) => (
-                <div key={a.id} className="flex items-center justify-between px-5 py-3 hover:bg-[#111916] transition-colors">
+                <div key={a.id} className="flex items-center justify-between px-5 py-3 hover:bg-surface-hover transition-colors">
                   <div className="flex items-center gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#2dd4a8] flex-shrink-0" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-brand flex-shrink-0" />
                     <p className="text-sm text-text-primary">{a.action}</p>
                     {a.entity_type && (
                       <span className="text-xs text-text-tertiary border border-border px-1.5 py-0.5 rounded capitalize">
@@ -626,7 +626,7 @@ export function Reports() {
             <button
               onClick={handleGenerateAwaas}
               disabled={awaasBusy}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#2dd4a8]/10 border border-[#2dd4a8]/20 text-[#2dd4a8] text-sm font-medium hover:bg-[#2dd4a8]/15 disabled:opacity-50 transition-all"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-brand-subtle border border-brand-border text-brand-text text-sm font-medium hover:bg-brand-subtle-hover disabled:opacity-50 transition-all"
             >
               {awaasBusy ? <Spinner size="sm" /> : <Database size={14} />}
               {awaasBusy ? 'Generating…' : 'Generate Anonymized Export'}
@@ -634,7 +634,7 @@ export function Reports() {
             <button
               onClick={handleDownloadAwaas}
               disabled={awaasDownloadBusy}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-[#2dd4a8]/30 text-sm transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-sm transition-all disabled:opacity-50"
             >
               {awaasDownloadBusy ? <Spinner size="sm" /> : <Download size={14} />}
               {awaasDownloadBusy ? 'Downloading…' : 'Download AWAAS Export'}

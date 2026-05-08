@@ -91,7 +91,7 @@ function ResultPreview({ data, label }: { data: Record<string, unknown>; label: 
   const [open, setOpen] = useState(false);
   const entries = Object.entries(data).filter(([, v]) => v != null && v !== '');
   return (
-    <div className="rounded-lg border border-[#2dd4a8]/20 bg-[#2dd4a8]/5 p-4">
+    <div className="rounded-lg border border-brand-border bg-brand-subtle p-4">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs font-semibold text-brand uppercase tracking-wide">{label} generated</span>
         <button onClick={() => setOpen((v) => !v)} className="text-[10px] text-text-tertiary hover:text-text-primary transition-colors">{open ? 'collapse' : 'expand'}</button>
@@ -159,10 +159,10 @@ function StepStrategy({ projects, data, onResult }: {
       <div>
         <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide block mb-1.5">Special notes (optional)</label>
         <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Focus on scarcity — only 4 units left. Target NRI buyers."
-          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder-[#7a9988] focus:outline-none focus:border-[#2dd4a8] transition-colors resize-none" />
+          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:border-brand transition-colors resize-none" />
       </div>
       <button onClick={generate} disabled={loading || !projectId}
-        className="w-full py-3 rounded-lg bg-[#2dd4a8] text-[#0a0f0d] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#25b994] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+        className="w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
         {loading ? <Spinner size="sm" /> : <Wand2 size={15} />}
         {loading ? 'Generating Strategy…' : 'Generate Ad Strategy'}
       </button>
@@ -190,9 +190,9 @@ interface AiVariant {
 
 function VariantCard({ v }: { v: AiVariant }) {
   return (
-    <div className="rounded-lg border border-border bg-[#0d1610] p-4 flex flex-col gap-3">
+    <div className="rounded-lg border border-border bg-surface-elevated p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <span className="text-[11px] px-2 py-0.5 rounded bg-[#2dd4a8]/10 text-brand border border-[#2dd4a8]/20 font-bold">Variant {v.variant}</span>
+        <span className="text-[11px] px-2 py-0.5 rounded bg-brand-subtle text-brand border border-brand-border font-bold">Variant {v.variant}</span>
         <span className="text-sm font-semibold text-text-primary">{v.angle}</span>
         <span className="text-[10px] text-text-tertiary ml-auto">{v.format}</span>
       </div>
@@ -389,7 +389,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
         <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnel} onChange={(e) => setFunnel(e.target.value)} />
       </div>
       <button onClick={generate} disabled={loading}
-        className="w-full py-3 rounded-lg bg-[#2dd4a8] text-[#0a0f0d] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#25b994] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+        className="w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
         {loading ? <Spinner size="sm" /> : <Wand2 size={15} />}
         {loading ? 'Generating Variants…' : 'Generate 3 Creative Variants'}
       </button>
@@ -451,7 +451,7 @@ function StepAdReview({ data, onResult, onImageChange }: {
         </div>
       ) : (
         <button onClick={() => fileRef.current?.click()}
-          className="w-full flex flex-col items-center justify-center gap-2 py-10 rounded-lg border border-dashed border-border hover:border-[#2dd4a8]/40 hover:bg-[#2dd4a8]/[0.03] transition-all">
+          className="w-full flex flex-col items-center justify-center gap-2 py-10 rounded-lg border border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all">
           <Upload size={20} className="text-text-tertiary" />
           <span className="text-sm text-text-tertiary">Click to upload creative image</span>
         </button>
@@ -459,7 +459,7 @@ function StepAdReview({ data, onResult, onImageChange }: {
       <input ref={fileRef} type="file" accept="image/*" onChange={(e) => setImageAndNotify(e.target.files?.[0] ?? null)} className="hidden" />
       {image && (
         <button onClick={analyze} disabled={loading}
-          className="w-full py-3 rounded-lg bg-[#2dd4a8] text-[#0a0f0d] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#25b994] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          className="w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           {loading ? <Spinner size="sm" /> : <Wand2 size={15} />}
           {loading ? 'Analyzing…' : 'Analyze Creative'}
         </button>
@@ -503,7 +503,7 @@ function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Reco
         <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnel} onChange={(e) => setFunnel(e.target.value)} />
       </div>
       <button onClick={generate} disabled={loading}
-        className="w-full py-3 rounded-lg bg-[#2dd4a8] text-[#0a0f0d] font-semibold text-sm flex items-center justify-center gap-2 hover:bg-[#25b994] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+        className="w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
         {loading ? <Spinner size="sm" /> : <Wand2 size={15} />}
         {loading ? 'Generating Config…' : 'Generate Ad Config'}
       </button>
@@ -539,7 +539,7 @@ function StepChecklist({ data, onUpdate }: { data: WizardData; onUpdate: (items:
           <div className="flex flex-col gap-2">
             {unique.map((item, i) => (
               <button key={i} onClick={() => toggle(i)}
-                className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${checked.has(i) ? 'border-[#2dd4a8]/30 bg-[#2dd4a8]/5' : 'border-border hover:border-[#2dd4a8]/20'}`}>
+                className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${checked.has(i) ? 'border-brand-border bg-brand-subtle' : 'border-border hover:border-brand-border'}`}>
                 {checked.has(i) ? <CheckSquare size={15} className="text-brand flex-shrink-0 mt-0.5" /> : <Square size={15} className="text-text-tertiary flex-shrink-0 mt-0.5" />}
                 <span className={`text-sm ${checked.has(i) ? 'text-text-tertiary line-through' : 'text-text-primary'}`}>{item}</span>
               </button>
@@ -578,7 +578,7 @@ function StepFinalPlan({ data, onComplete }: { data: WizardData; onComplete: () 
         <p className="text-sm font-semibold text-text-primary mb-2">Campaign Plan Ready — {data.projectName}</p>
         <div className="flex flex-wrap gap-2 mt-3">
           {sections.map((s) => (
-            <span key={s.label} className={`text-[10px] px-2.5 py-1 rounded-full border font-semibold ${s.done ? 'bg-[#2dd4a8]/10 text-brand border-[#2dd4a8]/20' : 'bg-[#1e2e24] text-text-tertiary border-border'}`}>
+            <span key={s.label} className={`text-[10px] px-2.5 py-1 rounded-full border font-semibold ${s.done ? 'bg-brand-subtle text-brand border-brand-border' : 'bg-surface-sunken text-text-tertiary border-border'}`}>
               {s.label} {s.done ? '✓' : '—'}
             </span>
           ))}
@@ -591,13 +591,13 @@ function StepFinalPlan({ data, onComplete }: { data: WizardData; onComplete: () 
       {data.configResult && <ResultPreview data={data.configResult} label="Ad Config" />}
 
       <button onClick={download}
-        className="w-full py-4 rounded-xl bg-[#2dd4a8] text-[#0a0f0d] font-bold text-base flex items-center justify-center gap-3 hover:bg-[#25b994] transition-colors shadow-lg">
+        className="w-full py-4 rounded-xl bg-brand text-white font-bold text-base flex items-center justify-center gap-3 hover:bg-brand-hover transition-colors shadow-lg">
         <Download size={20} />
         Download Campaign Plan PDF
       </button>
 
       <button onClick={onComplete}
-        className="w-full py-2.5 rounded-lg border border-[#2dd4a8]/30 text-sm text-brand hover:bg-[#2dd4a8]/5 transition-colors">
+        className="w-full py-2.5 rounded-lg border border-brand-border text-sm text-brand hover:bg-brand-subtle transition-colors">
         Mark Complete & Start New Wizard
       </button>
     </div>
@@ -743,7 +743,7 @@ export function CampaignWizard({ onWizardEnd, onWizardStart, wizardActive }: { o
     <div className="p-8 min-h-screen bg-surface">
       {/* Resume banner */}
       {resumeBanner && (
-        <div className="mb-6 p-4 rounded-xl border border-[#2dd4a8]/30 bg-[#2dd4a8]/5 flex items-center justify-between">
+        <div className="mb-6 p-4 rounded-xl border border-brand-border bg-brand-subtle flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-text-primary">Resume previous wizard?</p>
             <p className="text-xs text-text-tertiary mt-0.5">In-progress session found at step {resumeBanner.step}.</p>
@@ -789,13 +789,13 @@ export function CampaignWizard({ onWizardEnd, onWizardStart, wizardActive }: { o
             return (
               <div key={s.id} className="flex items-center flex-1">
                 <div className="flex flex-col items-center gap-1.5 flex-1">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${isActive ? 'bg-[#2dd4a8] text-[#0a0f0d] shadow-[0_0_0_4px_rgba(45,212,168,0.15)]' : isDone ? 'bg-[#2dd4a8]/20 text-brand border border-[#2dd4a8]/40' : 'bg-[#1e2e24] text-text-tertiary'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${isActive ? 'bg-brand text-white shadow-[0_0_0_4px_rgba(37,99,235,0.15)]' : isDone ? 'bg-brand-subtle text-brand-text border border-brand-border' : 'bg-surface-sunken text-text-tertiary'}`}>
                     {isDone ? '✓' : s.id}
                   </div>
-                  <span className={`text-[10px] font-medium ${isActive ? 'text-brand' : isDone ? 'text-text-tertiary' : 'text-[#4a6558]'}`}>{s.label}</span>
+                  <span className={`text-[10px] font-medium ${isActive ? 'text-brand' : isDone ? 'text-text-tertiary' : 'text-text-disabled'}`}>{s.label}</span>
                 </div>
                 {i < STEPS.length - 1 && (
-                  <div className={`h-px flex-1 mx-1 mb-5 ${step > s.id ? 'bg-[#2dd4a8]/40' : 'bg-[#1e2e24]'}`} />
+                  <div className={`h-px flex-1 mx-1 mb-5 ${step > s.id ? 'bg-brand-border' : 'bg-border'}`} />
                 )}
               </div>
             );
@@ -844,7 +844,7 @@ export function CampaignWizard({ onWizardEnd, onWizardStart, wizardActive }: { o
           )}
           {step < 6 && (
             <button onClick={step === 3 ? handleStep3Continue : goNext} disabled={!canProceed[step]}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-[#2dd4a8] text-[#0a0f0d] font-semibold text-sm hover:bg-[#25b994] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-brand text-white font-semibold text-sm hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
               Save & Continue <ChevronRight size={15} />
             </button>
           )}
