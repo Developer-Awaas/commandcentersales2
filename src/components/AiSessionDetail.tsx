@@ -708,3 +708,4 @@ import { X, CheckCircle, Sparkles } from 'lucide-react';
       </div>
     );
   }
+
