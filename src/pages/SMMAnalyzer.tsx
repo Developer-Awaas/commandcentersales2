@@ -8,8 +8,8 @@ import { generateSMMReportPDF } from '../lib/pdf-generator';
 import { useToast } from '../contexts/ToastContext';
 
 const C = {
-  bg: '#0a0f0d', card: '#111916', border: '#1e2e24', accent: '#2dd4a8',
-  text: '#e8f0ec', dim: '#7a9988', red: '#ef4444', yellow: '#eab308',
+  bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
+  text: '#18181B', dim: '#71717A', red: '#ef4444', yellow: '#eab308',
   green: '#22c55e', blue: '#3b82f6'
 };
 
@@ -159,7 +159,7 @@ export default function SMMAnalyzer() {
           <p style={{ fontSize: 13, color: C.dim, margin: '4px 0 0' }}>Analyze Instagram and Facebook performance</p>
         </div>
         {analysis && !analysis.raw && (
-          <button onClick={downloadReport} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: C.accent, color: C.bg, border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={downloadReport} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: C.accent, color: '#FFFFFF', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <Download size={14} /> Download Report
           </button>
         )}
@@ -224,7 +224,7 @@ export default function SMMAnalyzer() {
 
       <button onClick={analyze} disabled={loading} style={{
         width: '100%', padding: 14, borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-        background: loading ? C.border : C.accent, color: loading ? C.dim : C.bg, border: 'none',
+        background: loading ? C.border : C.accent, color: loading ? C.dim : '#FFFFFF', border: 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
       }}>
         {loading ? <><RefreshCw size={16} className="animate-spin" /> Analyzing...</> : <><BarChart3 size={16} /> Run Analysis</>}
@@ -251,7 +251,7 @@ export default function SMMAnalyzer() {
             <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 20 }}>
               <h3 style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Scorecard</h3>
               {analysis.scorecard.map((s: any, i: number) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 8, marginBottom: 4, background: C.bg }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 8, marginBottom: 4, background: '#F4F4F5' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ width: 10, height: 10, borderRadius: '50%', background: STATUS_COLORS[s.status] || C.dim }} />
                     <span style={{ fontSize: 13, color: C.text }}>{s.metric}</span>
@@ -298,7 +298,7 @@ export default function SMMAnalyzer() {
               <h3 style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Recommendations</h3>
               {analysis.suggestions.map((s: string, i: number) => (
                 <div key={i} style={{ display: 'flex', gap: 8, padding: '8px 0', borderBottom: i < analysis.suggestions.length - 1 ? '1px solid ' + C.border : 'none' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: C.accent, color: C.bg, height: 'fit-content' }}>{i + 1}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: C.accent, color: '#FFFFFF', height: 'fit-content' }}>{i + 1}</span>
                   <p style={{ fontSize: 13, color: C.text }}>{s}</p>
                 </div>
               ))}
@@ -311,7 +311,7 @@ export default function SMMAnalyzer() {
               <h3 style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Next Period Targets</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 {Object.entries(analysis.kpiTargets).map(([key, val]) => (
-                  <div key={key} style={{ background: C.bg, borderRadius: 8, padding: 12, textAlign: 'center' }}>
+                  <div key={key} style={{ background: '#F4F4F5', borderRadius: 8, padding: 12, textAlign: 'center' }}>
                     <p style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>{val as string}</p>
                     <p style={{ fontSize: 10, color: C.dim }}>{key.replace(/([A-Z])/g, ' $1')}</p>
                   </div>
