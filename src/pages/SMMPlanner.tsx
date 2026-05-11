@@ -14,6 +14,25 @@ import { useToast } from '../contexts/ToastContext';
 // import { Select } from '../components/ui/Select';
 // import { Textarea } from '../components/ui/Textarea';
 
+function toIsoDate(s: string | undefined | null): string | null {
+  if (!s) return null;
+  const trimmed = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const today = new Date();
+  const tryYear = today.getFullYear();
+  let d = new Date(`${trimmed} ${tryYear}`);
+  if (isNaN(d.getTime())) return null;
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  if (d.getTime() < today.getTime() - oneDayMs) {
+    d = new Date(`${trimmed} ${tryYear + 1}`);
+    if (isNaN(d.getTime())) return null;
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const TYPES = ['Company Branding', 'Project Branding', 'Holiday/Event Posts', 'Goal-based Campaign'];
 const GOALS = ['Awareness', 'Engagement', 'Followers Growth', 'Website Traffic', 'Lead Support'];
 const DURATIONS = ['1 week', '2 weeks', '1 month', '2 months', '3 months', 'Custom'];
@@ -180,22 +199,31 @@ export default function SMMPlanner() {
 
         // Save calendar entries
         if (res.calendar) {
-          const entries = res.calendar.map((post: any) => ({
-            org_id: getOrgId(),
-            post_date: post.date,
-            post_time: post.time,
-            platform: post.platform || 'both',
-            post_type: post.type,
-            category: post.category,
-            topic: post.topic,
-            caption_en: post.captionEn,
-            caption_od: post.captionOd,
-            hashtags: post.hashtags || [],
-            nano_prompt: post.nanoPrompt,
-            reel_script: post.reelScript,
-            status: 'planned',
-          }));
-          await supabase.from('smm_calendar').insert(entries);
+          const entries = res.calendar.map((post: any) => {
+            const iso = toIsoDate(post.date);
+            if (!iso) {
+              console.warn(`[SMM] Skipping calendar post with unparseable date "${post.date}" — topic: "${post.topic ?? '(untitled)'}"`);
+              return null;
+            }
+            return {
+              org_id: getOrgId(),
+              post_date: iso,
+              post_time: post.time,
+              platform: post.platform || 'both',
+              post_type: post.type,
+              category: post.category,
+              topic: post.topic,
+              caption_en: post.captionEn,
+              caption_od: post.captionOd,
+              hashtags: post.hashtags || [],
+              nano_prompt: post.nanoPrompt,
+              reel_script: post.reelScript,
+              status: 'planned',
+            };
+          }).filter(Boolean);
+          if (entries.length > 0) {
+            await supabase.from('smm_calendar').insert(entries);
+          }
         }
 
         showToast('Plan generated and saved!', 'success');

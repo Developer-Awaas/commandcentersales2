@@ -358,7 +358,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
         outputData: result as Record<string, unknown>,
       });
 
-      onResult(result as Record<string, unknown>);
+      onResult({ ...result, funnel } as Record<string, unknown>);
       setLoading(false);
       return;
     }
@@ -375,7 +375,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
     const parsed = parseAiJson(res);
     if (!parsed) { showToast('Generation failed. Try again.', 'error'); setLoading(false); return; }
     logAiSession(supabase, { sessionType: 'creative', projectIds: [data.projectId], inputSummary: `Wizard S2: ${data.projectName}`, inputData: { platform, funnel }, outputData: parsed });
-    onResult(parsed);
+    onResult({ ...parsed, funnel });
     setLoading(false);
   }
 
@@ -663,8 +663,6 @@ export function CampaignWizard({ onWizardEnd, onWizardStart, wizardActive }: { o
     const payload = {
       current_step: currentStep,
       status,
-      project_id: updatedData.projectId || null,
-      project_name: updatedData.projectName || null,
       step_data: {
         projectId: updatedData.projectId,
         projectName: updatedData.projectName,
