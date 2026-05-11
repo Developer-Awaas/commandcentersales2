@@ -101,6 +101,12 @@ export default function SMMAnalyzer() {
       showToast('Metrics saved!', 'success');
       fetchHistory();
     } else {
+      console.error('[saveMetrics] smm_metrics INSERT failed', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
       showToast('Failed to save', 'error');
     }
   };
