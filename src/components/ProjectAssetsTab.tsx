@@ -230,13 +230,13 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
                   )}
                   <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-2">
                     <button onClick={() => setEditingAsset(asset)}
-                      className="px-3 py-1 bg-blue-500 text-white text-xs rounded">Edit</button>
+                      className="px-3 py-1 bg-brand text-white text-xs rounded">Edit</button>
                     {!asset.is_primary && (
                       <button onClick={() => setPrimary(asset)}
                         className="px-3 py-1 bg-brand text-white text-xs rounded">Set Primary</button>
                     )}
                     <button onClick={() => deleteAsset(asset)}
-                      className="px-3 py-1 bg-red-500 text-white text-xs rounded">Delete</button>
+                      className="px-3 py-1 bg-danger text-white text-xs rounded">Delete</button>
                   </div>
                 </div>
                 <div className="p-2">

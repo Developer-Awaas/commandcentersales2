@@ -195,7 +195,7 @@ export default function BrandKit() {
           <FontInput label="Secondary Font (headlines)" value={kit.secondary_font} onChange={v => setKit({...kit, secondary_font: v})} hint="e.g., Playfair Display" />
           <FontInput label="Display Font (CTAs)" value={kit.display_font} onChange={v => setKit({...kit, display_font: v})} hint="e.g., Bebas Neue" />
         </div>
-        <p className="text-xs text-gray-500 mt-2">Use Google Fonts names. Nanobanana renders text styles inspired by these — exact font isn't guaranteed but the style direction will be preserved.</p>
+        <p className="text-xs text-text-tertiary mt-2">Use Google Fonts names. Nanobanana renders text styles inspired by these — exact font isn't guaranteed but the style direction will be preserved.</p>
       </section>
 
       {/* SECTION 4: BRAND VOICE */}
@@ -206,19 +206,19 @@ export default function BrandKit() {
             <label className="block text-sm text-text-tertiary mb-1">Tagline</label>
             <input type="text" value={kit.tagline} onChange={e => setKit({...kit, tagline: e.target.value})}
               placeholder="Building Trust, Crafting Homes"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" />
+              className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-text-primary" />
           </div>
           <div>
             <label className="block text-sm text-text-tertiary mb-1">Brand Voice (1-2 sentences)</label>
             <textarea value={kit.brand_voice} onChange={e => setKit({...kit, brand_voice: e.target.value})}
               placeholder="Premium yet approachable, rooted in Odisha heritage, contemporary in execution"
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white h-20" />
+              className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-text-primary h-20" />
           </div>
           <div>
             <label className="block text-sm text-text-tertiary mb-1">Brand Story (optional, 3-5 sentences)</label>
             <textarea value={kit.brand_story} onChange={e => setKit({...kit, brand_story: e.target.value})}
               placeholder="Founded in 2010 in Bhubaneswar, NHCPL has delivered..."
-              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white h-32" />
+              className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-text-primary h-32" />
           </div>
         </div>
       </section>
@@ -228,7 +228,7 @@ export default function BrandKit() {
         <h2 className="text-xl font-semibold mb-4">Design Aesthetic</h2>
         <div className="space-y-2">
           {AESTHETIC_OPTIONS.map(opt => (
-            <label key={opt.value} className={`block p-3 rounded border cursor-pointer transition ${kit.design_aesthetic === opt.value ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 hover:border-gray-600'}`}>
+            <label key={opt.value} className={`block p-3 rounded border cursor-pointer transition ${kit.design_aesthetic === opt.value ? 'border-brand bg-brand-subtle' : 'border-border hover:border-border-strong'}`}>
               <input type="radio" name="aesthetic" value={opt.value} checked={kit.design_aesthetic === opt.value}
                 onChange={e => setKit({...kit, design_aesthetic: e.target.value})} className="mr-3" />
               <span className="font-medium">{opt.label}</span>
@@ -284,7 +284,7 @@ export default function BrandKit() {
         <p className="text-sm text-text-tertiary mb-3">Languages to default to when generating creatives. User can override per-creative.</p>
         <div className="flex gap-3">
           {LANGUAGE_OPTIONS.map(lang => (
-            <label key={lang} className={`px-4 py-2 rounded border cursor-pointer transition ${kit.default_languages.includes(lang) ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700'}`}>
+            <label key={lang} className={`px-4 py-2 rounded border cursor-pointer transition ${kit.default_languages.includes(lang) ? 'border-brand bg-brand-subtle' : 'border-border'}`}>
               <input type="checkbox" checked={kit.default_languages.includes(lang)} className="mr-2"
                 onChange={e => {
                   const langs = e.target.checked
@@ -299,9 +299,9 @@ export default function BrandKit() {
       </section>
 
       {/* SAVE BAR */}
-      <div className="sticky bottom-0 bg-black/95 border-t border-gray-800 p-4 flex justify-end">
+      <div className="sticky bottom-0 bg-surface-elevated border-t border-border shadow-card-hover p-4 flex justify-end">
         <button onClick={save} disabled={saving}
-          className="px-6 py-2 bg-emerald-500 text-black rounded-md font-medium hover:bg-emerald-400 disabled:opacity-50">
+          className="px-6 py-2 bg-brand text-white rounded-md font-medium hover:bg-brand-hover disabled:opacity-50">
           {saving ? 'Saving...' : 'Save Brand Kit'}
         </button>
       </div>
@@ -315,11 +315,11 @@ function LogoUpload({ label, url, onUpload, bg }: { label: string; url?: string;
   return (
     <div>
       <label className="block text-sm text-text-tertiary mb-2">{label}</label>
-      <div className="aspect-square rounded border-2 border-dashed border-gray-700 flex items-center justify-center relative overflow-hidden" style={{ backgroundColor: bg }}>
+      <div className="aspect-square rounded border-2 border-dashed border-border flex items-center justify-center relative overflow-hidden" style={{ backgroundColor: bg }}>
         {url ? (
           <img src={url} alt={label} className="max-w-full max-h-full object-contain" />
         ) : (
-          <span className="text-gray-500 text-xs">No logo</span>
+          <span className="text-text-tertiary text-xs">No logo</span>
         )}
       </div>
       <input type="file" accept="image/png,image/svg+xml,image/jpeg,image/webp" className="mt-2 text-xs"
@@ -335,7 +335,7 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
       <div className="flex gap-2 items-center">
         <input type="color" value={value} onChange={e => onChange(e.target.value)} className="w-12 h-10 rounded cursor-pointer" />
         <input type="text" value={value} onChange={e => onChange(e.target.value)}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs font-mono" />
+          className="flex-1 bg-surface-sunken border border-border rounded px-2 py-2 text-xs font-mono" />
       </div>
     </div>
   );
@@ -346,8 +346,8 @@ function FontInput({ label, value, onChange, hint }: { label: string; value: str
     <div>
       <label className="block text-sm text-text-tertiary mb-1">{label}</label>
       <input type="text" value={value} onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" />
-      {hint && <p className="text-xs text-gray-500 mt-1">{hint}</p>}
+        className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-text-primary" />
+      {hint && <p className="text-xs text-text-tertiary mt-1">{hint}</p>}
     </div>
   );
 }
