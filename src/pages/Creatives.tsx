@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertCircle, BookOpen, ChevronDown, ChevronUp, Palette, RefreshCw, Save, Upload, X } from 'lucide-react';
 import { InlineCreativeReview, type InlineReviewProject } from '../components/InlineCreativeReview';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildVariantBriefs } from '../lib/senior-designer-prompts';
@@ -370,7 +370,7 @@ export function Creatives() {
       .insert({
         org_id: getOrgId(),
         project_id: projectId || null,
-        created_by: 'dev-user-001',
+        created_by: getUserId(),
         variant: variant.variant,
         angle: variant.angle,
         format: variant.format,

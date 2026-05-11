@@ -2,7 +2,7 @@
 // PURPOSE: Extracts full visual DNA from any creative image via Vision API.
 // Stores design_dna in creatives table. Generates pattern reports for admin.
 
-import { getOrgId } from './constants';
+import { getOrgId, getUserId } from './constants';
 
 // ============================================================
 // CREATIVE DNA EXTRACTION PROMPT
@@ -157,7 +157,7 @@ export async function createCreativeWithDNA(supabase: any, data: {
       review_data: data.dnaData,
       follow_up_prompt: data.dnaData.followUpPrompt || '',
       status: 'draft',
-      created_by: 'dev-user-001',
+      created_by: getUserId(),
     })
     .select('id')
     .single();

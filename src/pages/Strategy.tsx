@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertCircle, Database, FolderKanban, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
@@ -907,7 +907,7 @@ export function Strategy() {
       whatsapp_flow: data.whatsappFlow || '',
       status: 'draft',
       source: 'quick_generate',
-      created_by: 'dev-user-001',
+      created_by: getUserId(),
     };
     supabase.from('campaigns').insert(row).then(({ error }) => {
       if (error) showToast('Failed to save campaign', 'error');
@@ -931,7 +931,7 @@ export function Strategy() {
       placements: { placements: c.placements },
       budget: { daily: c.budget, total: '' },
       creative_config: { primaryText: c.primaryText, headline: c.headline, format: c.creativeFormat },
-      icebreakers: [], status: 'draft', source: 'full_strategy', created_by: 'dev-user-001',
+      icebreakers: [], status: 'draft', source: 'full_strategy', created_by: getUserId(),
     }));
     supabase.from('campaigns').insert(rows).then(({ error }) => {
       if (error) showToast('Failed to save campaigns', 'error');

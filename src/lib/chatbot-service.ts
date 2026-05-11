@@ -2,7 +2,7 @@
 // PURPOSE: Powers the floating AI chatbot. Context-aware, page-aware, database-aware.
 // 30 messages/day limit. Logs all conversations.
 
-import { getOrgId } from './constants';
+import { getOrgId, getUserId } from './constants';
 
 const DAILY_LIMIT = 30;
 const STORAGE_KEY = 'chatbot_usage';
@@ -116,7 +116,7 @@ export async function logChatMessage(supabase: any, data: {
   try {
     await supabase.from('chatbot_log').insert({
       org_id: getOrgId(),
-      user_id: 'dev-user-001', // TODO: Replace with real user ID
+      user_id: getUserId(),
       page_context: data.pageContext,
       data_context: data.dataContext?.substring(0, 2000) || null,
       user_message: data.userMessage,

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart3, Upload, RefreshCw, Download, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildSMMAnalyzerPrompt, buildScreenshotExtractionPrompt, SCREENSHOT_GUIDES } from '../lib/smm-prompts';
 import { generateSMMReportPDF } from '../lib/pdf-generator';
@@ -137,7 +137,7 @@ export default function SMMAnalyzer() {
       if (res && !res.error && !res.raw) {
         setAnalysis(res);
         await supabase.from('ai_sessions').insert({
-          org_id: getOrgId(), user_id: 'dev-user-001',
+          org_id: getOrgId(), user_id: getUserId(),
           session_type: 'smm_analysis', input_summary: platform + ' analysis: ' + period,
           input_data: metrics, output_data: res, health_score: res.healthScore,
         });

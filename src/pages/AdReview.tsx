@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Check, Eye, RefreshCw, Save, Upload, X } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiVision, isAiEnabled } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
@@ -380,7 +380,7 @@ export function AdReview() {
       .insert({
         org_id: getOrgId(),
         project_id: projectId || null,
-        created_by: 'dev-user-001',
+        created_by: getUserId(),
         platform_used: createdWith,
         review_score: data.overallScore ?? null,
         review_data: data,
