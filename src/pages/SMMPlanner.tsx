@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles } from 'lucide-react';
+import { Calendar, ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
@@ -24,6 +24,100 @@ function normalizePostType(t: string | undefined | null): string {
   const v = String(t ?? '').trim().toLowerCase();
   if (v === 'reel' || v === 'carousel' || v === 'static' || v === 'story' || v === 'video') return v;
   return 'static';
+}
+
+function toIsoTime(s: string | undefined | null): string {
+  if (!s) return '';
+  const trimmed = String(s).trim();
+  if (/^\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+  const m = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?$/);
+  if (!m) return '';
+  let h = parseInt(m[1], 10);
+  const mm = m[2];
+  const ampm = m[3]?.toUpperCase();
+  if (ampm === 'PM' && h < 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  if (h < 0 || h > 23) return '';
+  return `${String(h).padStart(2, '0')}:${mm}`;
+}
+
+function prettifyTime(s: string): string {
+  if (!s) return '';
+  const m = s.match(/^(\d{2}):(\d{2})$/);
+  if (!m) return s;
+  let h = parseInt(m[1], 10);
+  const mm = m[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${mm} ${ampm}`;
+}
+
+function dayFromIso(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { weekday: 'long' });
+}
+
+const PLATFORM_OPTIONS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'both', label: 'Both (IG + FB)' },
+];
+
+const POST_TYPE_OPTIONS = [
+  { value: 'reel', label: 'Reel' },
+  { value: 'carousel', label: 'Carousel' },
+  { value: 'static', label: 'Static Image' },
+  { value: 'story', label: 'Story' },
+  { value: 'video', label: 'Video' },
+];
+
+function prettifyPlatform(v: string): string {
+  return PLATFORM_OPTIONS.find(o => o.value === v)?.label || v;
+}
+
+function prettifyType(v: string): string {
+  return POST_TYPE_OPTIONS.find(o => o.value === v)?.label || v;
+}
+
+type PendingPost = {
+  _id: string;
+  _edited?: boolean;
+  date: string;
+  day?: string;
+  platform: string;
+  type: string;
+  category?: string;
+  topic: string;
+  time?: string;
+  captionEn?: string;
+  captionOd?: string;
+  hashtags?: string[];
+  nanoPrompt?: string;
+  reelScript?: string;
+};
+
+function pendingPostFromAi(post: any): PendingPost | null {
+  const iso = toIsoDate(post.date);
+  if (!iso) {
+    console.warn(`[SMM] Skipping post — unparseable date "${post.date}", topic: "${post.topic ?? '(untitled)'}"`);
+    return null;
+  }
+  return {
+    _id: crypto.randomUUID(),
+    date: iso,
+    day: dayFromIso(iso),
+    platform: normalizePlatform(post.platform),
+    type: normalizePostType(post.type),
+    category: post.category,
+    topic: String(post.topic ?? ''),
+    time: toIsoTime(post.time),
+    captionEn: post.captionEn,
+    captionOd: post.captionOd,
+    hashtags: post.hashtags || [],
+    nanoPrompt: post.nanoPrompt,
+    reelScript: post.reelScript,
+  };
 }
 
 function toIsoDate(s: string | undefined | null): string | null {
@@ -57,6 +151,12 @@ export default function SMMPlanner() {
   const [holidays, setHolidays] = useState<any[]>([]);
   const [result, setResult] = useState<any>(null);
   const [warning, setWarning] = useState('');
+  const [pendingPosts, setPendingPosts] = useState<PendingPost[]>([]);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<PendingPost | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   // Step 1: What do you want?
   const [description, setDescription] = useState('');
@@ -209,36 +309,14 @@ export default function SMMPlanner() {
           status: 'draft',
         });
 
-        // Save calendar entries
         if (res.calendar) {
-          const entries = res.calendar.map((post: any) => {
-            const iso = toIsoDate(post.date);
-            if (!iso) {
-              console.warn(`[SMM] Skipping calendar post with unparseable date "${post.date}" — topic: "${post.topic ?? '(untitled)'}"`);
-              return null;
-            }
-            return {
-              org_id: getOrgId(),
-              post_date: iso,
-              post_time: post.time,
-              platform: normalizePlatform(post.platform),
-              post_type: normalizePostType(post.type),
-              category: post.category,
-              topic: post.topic,
-              caption_en: post.captionEn,
-              caption_od: post.captionOd,
-              hashtags: post.hashtags || [],
-              nano_prompt: post.nanoPrompt,
-              reel_script: post.reelScript,
-              status: 'planned',
-            };
-          }).filter(Boolean);
-          if (entries.length > 0) {
-            await supabase.from('smm_calendar').insert(entries);
-          }
+          const pending = res.calendar
+            .map((p: any) => pendingPostFromAi(p))
+            .filter((p: PendingPost | null): p is PendingPost => p !== null);
+          setPendingPosts(pending);
         }
 
-        showToast('Plan generated and saved!', 'success');
+        showToast('Plan generated. Review and save below.', 'success');
       } else {
         showToast('AI generation failed. Try again.', 'error');
         if (res?.raw) setResult({ raw: res.raw });
@@ -251,14 +329,105 @@ export default function SMMPlanner() {
 
   const handleDownloadPDF = () => {
     if (!result || result.raw) return;
+    const calendarForPdf = pendingPosts.length > 0
+      ? pendingPosts.map(p => ({
+          date: p.date,
+          day: p.day,
+          platform: prettifyPlatform(p.platform),
+          type: prettifyType(p.type),
+          topic: p.topic,
+          time: prettifyTime(p.time || ''),
+          captionEn: p.captionEn,
+          captionOd: p.captionOd,
+          hashtags: p.hashtags,
+          nanoPrompt: p.nanoPrompt,
+          reelScript: p.reelScript,
+        }))
+      : (result.calendar || []);
     generateSMMPlanPDF({
       overview: result.overview || '',
       contentMix: result.contentMix || {},
       pillars: result.pillars || [],
-      calendar: result.calendar || [],
+      calendar: calendarForPdf,
       kpiTargets: result.kpiTargets || {},
       duration,
     });
+  };
+
+  const startEdit = (i: number) => {
+    setDeleteConfirmId(null);
+    setEditDraft({ ...pendingPosts[i] });
+    setEditingIndex(i);
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditDraft(null);
+  };
+
+  const applyEdit = () => {
+    if (editingIndex === null || !editDraft) return;
+    const updated: PendingPost = {
+      ...editDraft,
+      day: dayFromIso(editDraft.date),
+      _edited: true,
+    };
+    setPendingPosts(prev => prev.map((p, idx) => (idx === editingIndex ? updated : p)));
+    setEditingIndex(null);
+    setEditDraft(null);
+  };
+
+  const updateDraft = <K extends keyof PendingPost>(field: K, value: PendingPost[K]) => {
+    setEditDraft(prev => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const requestDelete = (id: string) => {
+    setEditingIndex(null);
+    setEditDraft(null);
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirmId) return;
+    setPendingPosts(prev => prev.filter(p => p._id !== deleteConfirmId));
+    setDeleteConfirmId(null);
+  };
+
+  const cancelDelete = () => setDeleteConfirmId(null);
+
+  const savePosts = async () => {
+    if (pendingPosts.length === 0) return;
+    setSaving(true);
+    try {
+      const entries = pendingPosts.map(p => ({
+        org_id: getOrgId(),
+        post_date: p.date,
+        post_time: p.time || null,
+        platform: normalizePlatform(p.platform),
+        post_type: normalizePostType(p.type),
+        category: p.category || null,
+        topic: p.topic,
+        caption_en: p.captionEn || null,
+        caption_od: p.captionOd || null,
+        hashtags: p.hashtags || [],
+        nano_prompt: p.nanoPrompt || null,
+        reel_script: p.reelScript || null,
+        status: 'planned',
+      }));
+      const { error } = await supabase.from('smm_calendar').insert(entries);
+      if (error) {
+        console.error('[SMM] Save failed:', error);
+        showToast('Failed to save posts. Try again.', 'error');
+        setSaving(false);
+        return;
+      }
+      setSaved(true);
+      showToast(`Saved ${entries.length} post${entries.length === 1 ? '' : 's'} to calendar`, 'success');
+    } catch (err) {
+      console.error('[SMM] Save error:', err);
+      showToast('Failed to save posts. Try again.', 'error');
+    }
+    setSaving(false);
   };
 
   // Copy helper
@@ -564,22 +733,128 @@ export default function SMMPlanner() {
             </div>
           )}
 
-          {/* Calendar entries */}
-          {result.calendar && result.calendar.length > 0 && (
+          {/* Calendar entries — editable */}
+          {pendingPosts.length > 0 && (
             <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 20 }}>
-              <h3 style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 16 }}>Content Calendar ({result.calendar.length} posts)</h3>
-              {result.calendar.map((post: any, i: number) => {
+              <h3 style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 16 }}>
+                Content Calendar ({pendingPosts.length} {pendingPosts.length === 1 ? 'post' : 'posts'})
+              </h3>
+              {pendingPosts.map((post, i) => {
                 const typeColors: Record<string, string> = { reel: C.blue, carousel: C.green, static: C.dim, story: C.yellow, video: C.purple };
+                const isEditing = editingIndex === i;
+                const isDeleting = deleteConfirmId === post._id;
+                const isLast = i === pendingPosts.length - 1;
+
+                if (isEditing && editDraft) {
+                  return (
+                    <div key={post._id} style={{ padding: '16px 0', borderBottom: isLast ? 'none' : '1px solid ' + C.border }}>
+                      <div className="flex flex-col gap-3">
+                        <div className="grid grid-cols-4 gap-2">
+                          <div>
+                            <label className="text-xs text-text-tertiary">Date</label>
+                            <input type="date" value={editDraft.date}
+                              onChange={(e) => updateDraft('date', e.target.value)}
+                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-text-tertiary">Time</label>
+                            <input type="time" value={editDraft.time || ''}
+                              onChange={(e) => updateDraft('time', e.target.value)}
+                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-text-tertiary">Platform</label>
+                            <select value={editDraft.platform}
+                              onChange={(e) => updateDraft('platform', e.target.value)}
+                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
+                              {PLATFORM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-text-tertiary">Type</label>
+                            <select value={editDraft.type}
+                              onChange={(e) => updateDraft('type', e.target.value)}
+                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
+                              {POST_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-text-tertiary">Topic</label>
+                          <input type="text" value={editDraft.topic}
+                            onChange={(e) => updateDraft('topic', e.target.value)}
+                            className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-text-tertiary">Category</label>
+                          <input type="text" value={editDraft.category || ''}
+                            onChange={(e) => updateDraft('category', e.target.value)}
+                            className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-text-tertiary">Caption (English)</label>
+                          <textarea value={editDraft.captionEn || ''}
+                            onChange={(e) => updateDraft('captionEn', e.target.value)}
+                            rows={4}
+                            className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-text-tertiary">Caption (Odia)</label>
+                          <textarea value={editDraft.captionOd || ''}
+                            onChange={(e) => updateDraft('captionOd', e.target.value)}
+                            rows={4}
+                            className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-text-tertiary">Hashtags (comma-separated)</label>
+                          <input type="text" value={(editDraft.hashtags || []).join(', ')}
+                            onChange={(e) => updateDraft('hashtags', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
+                            className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-text-tertiary">Image Prompt</label>
+                          <textarea value={editDraft.nanoPrompt || ''}
+                            onChange={(e) => updateDraft('nanoPrompt', e.target.value)}
+                            rows={3}
+                            className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                        </div>
+                        {(editDraft.type === 'reel' || editDraft.type === 'video') && (
+                          <div>
+                            <label className="text-xs text-text-tertiary">Reel Script</label>
+                            <textarea value={editDraft.reelScript || ''}
+                              onChange={(e) => updateDraft('reelScript', e.target.value)}
+                              rows={3}
+                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                          </div>
+                        )}
+                        <div className="flex gap-2 justify-end mt-2">
+                          <button onClick={cancelEdit}
+                            className="px-4 py-1.5 rounded-lg border border-border text-sm text-text-tertiary hover:text-text-primary transition-colors">
+                            Cancel
+                          </button>
+                          <button onClick={applyEdit}
+                            className="px-4 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-hover transition-colors">
+                            Save Changes
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
                 return (
-                  <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < result.calendar.length - 1 ? '1px solid ' + C.border : 'none' }}>
+                  <div key={post._id} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: isLast ? 'none' : '1px solid ' + C.border }}>
                     <div style={{ width: 70, flexShrink: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{post.date?.match(/-/) ? post.date.split('-').slice(1).join('/') : post.date}</p>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{post.date.split('-').slice(1).join('/')}</p>
                       <p style={{ fontSize: 11, color: C.dim }}>{post.day}</p>
                     </div>
-                    <div style={{ width: 70, flexShrink: 0 }}>
+                    <div style={{ width: 90, flexShrink: 0 }}>
                       <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: (typeColors[post.type] || C.dim) + '20', color: typeColors[post.type] || C.dim }}>
-                        {post.type}
+                        {prettifyType(post.type)}
                       </span>
+                      {post._edited && (
+                        <span style={{ display: 'block', marginTop: 4, fontSize: 10, color: '#92400E' }}>● Edited</span>
+                      )}
                     </div>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 4 }}>{post.topic}</p>
@@ -587,7 +862,9 @@ export default function SMMPlanner() {
                         <div style={{ background: C.bg, padding: 10, borderRadius: 8, marginBottom: 6 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                             <span style={{ fontSize: 11, color: C.dim }}>Caption</span>
-                            <button onClick={() => copy(post.captionEn)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><span style={{ fontSize: 11, color: C.dim }}>Copy</span></button>
+                            <button onClick={() => copy(post.captionEn || '')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                              <span style={{ fontSize: 11, color: C.dim }}>Copy</span>
+                            </button>
                           </div>
                           <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{post.captionEn}</p>
                         </div>
@@ -596,26 +873,88 @@ export default function SMMPlanner() {
                         <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', padding: 10, borderRadius: 8, marginBottom: 6 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                             <span style={{ fontSize: 11, color: '#a78bfa' }}>Image Prompt</span>
-                            <button onClick={() => copy(post.nanoPrompt)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><span style={{ fontSize: 11, color: C.dim }}>Copy</span></button>
+                            <button onClick={() => copy(post.nanoPrompt || '')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                              <span style={{ fontSize: 11, color: C.dim }}>Copy</span>
+                            </button>
                           </div>
                           <p style={{ fontSize: 11, color: C.text, lineHeight: 1.4 }}>{post.nanoPrompt}</p>
                         </div>
                       )}
-                      {post.hashtags && (
+                      {post.hashtags && post.hashtags.length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {post.hashtags.map((h: string, j: number) => (
                             <span key={j} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>#{h}</span>
                           ))}
                         </div>
                       )}
+                      {isDeleting && (
+                        <div className="mt-3 p-3 rounded-lg border border-warning-border bg-warning-subtle flex items-center gap-2">
+                          <p className="text-sm text-warning-text flex-1">Delete this post?</p>
+                          <button onClick={confirmDelete}
+                            className="px-3 py-1 rounded bg-warning text-white text-xs font-medium hover:opacity-90 transition-colors">
+                            Yes, delete
+                          </button>
+                          <button onClick={cancelDelete}
+                            className="px-3 py-1 rounded border border-border text-xs text-text-tertiary hover:text-text-primary transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div style={{ width: 60, flexShrink: 0, textAlign: 'right' }}>
-                      <p style={{ fontSize: 11, color: C.dim }}>{post.time}</p>
-                      <p style={{ fontSize: 11, color: C.dim }}>{post.platform}</p>
+                    <div style={{ width: 100, flexShrink: 0, textAlign: 'right' }}>
+                      <p style={{ fontSize: 11, color: C.dim }}>{prettifyTime(post.time || '')}</p>
+                      <p style={{ fontSize: 11, color: C.dim }}>{prettifyPlatform(post.platform)}</p>
+                      {!saved && !isDeleting && (
+                        <div style={{ display: 'flex', gap: 4, marginTop: 8, justifyContent: 'flex-end' }}>
+                          <button onClick={() => startEdit(i)}
+                            title="Edit"
+                            style={{ padding: 4, background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <Pencil size={14} style={{ color: C.accent }} />
+                          </button>
+                          <button onClick={() => requestDelete(post._id)}
+                            title="Delete"
+                            style={{ padding: 4, background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <Trash2 size={14} style={{ color: C.accent }} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Save to Calendar action bar */}
+          {pendingPosts.length > 0 && !saved && (
+            <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <p style={{ fontSize: 13, color: C.dim, flex: 1, minWidth: 200 }}>
+                  Review your posts above. Edit or delete any you don't want, then save the rest to your SMM Calendar.
+                </p>
+                <button onClick={savePosts}
+                  disabled={saving || editingIndex !== null || deleteConfirmId !== null}
+                  className="px-5 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2">
+                  {saving && <RefreshCw size={14} className="animate-spin" />}
+                  {saving
+                    ? `Saving ${pendingPosts.length} ${pendingPosts.length === 1 ? 'post' : 'posts'}...`
+                    : `Save ${pendingPosts.length} ${pendingPosts.length === 1 ? 'post' : 'posts'} to Calendar`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Post-save success state */}
+          {saved && (
+            <div style={{ background: C.green + '15', border: '1px solid ' + C.green + '40', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Check size={18} style={{ color: C.green }} />
+              <p style={{ fontSize: 13, color: C.green, flex: 1 }}>
+                Saved {pendingPosts.length} {pendingPosts.length === 1 ? 'post' : 'posts'} to the SMM Calendar.
+              </p>
+              <button onClick={() => { setStep(1); setResult(null); setPendingPosts([]); setSaved(false); }}
+                style={{ padding: '6px 12px', borderRadius: 6, background: 'transparent', color: C.dim, border: '1px solid ' + C.border, cursor: 'pointer', fontSize: 12 }}>
+                Start Over
+              </button>
             </div>
           )}
 
