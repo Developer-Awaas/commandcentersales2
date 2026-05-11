@@ -20,6 +20,12 @@ function normalizePlatform(p: string | undefined | null): string {
   return 'both';
 }
 
+function normalizePostType(t: string | undefined | null): string {
+  const v = String(t ?? '').trim().toLowerCase();
+  if (v === 'reel' || v === 'carousel' || v === 'static' || v === 'story' || v === 'video') return v;
+  return 'static';
+}
+
 function toIsoDate(s: string | undefined | null): string | null {
   if (!s) return null;
   const trimmed = String(s).trim();
@@ -216,7 +222,7 @@ export default function SMMPlanner() {
               post_date: iso,
               post_time: post.time,
               platform: normalizePlatform(post.platform),
-              post_type: post.type,
+              post_type: normalizePostType(post.type),
               category: post.category,
               topic: post.topic,
               caption_en: post.captionEn,
