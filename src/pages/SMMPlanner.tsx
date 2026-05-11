@@ -14,6 +14,12 @@ import { useToast } from '../contexts/ToastContext';
 // import { Select } from '../components/ui/Select';
 // import { Textarea } from '../components/ui/Textarea';
 
+function normalizePlatform(p: string | undefined | null): string {
+  const v = String(p ?? '').trim().toLowerCase();
+  if (v === 'instagram' || v === 'facebook' || v === 'both') return v;
+  return 'both';
+}
+
 function toIsoDate(s: string | undefined | null): string | null {
   if (!s) return null;
   const trimmed = String(s).trim();
@@ -209,7 +215,7 @@ export default function SMMPlanner() {
               org_id: getOrgId(),
               post_date: iso,
               post_time: post.time,
-              platform: post.platform || 'both',
+              platform: normalizePlatform(post.platform),
               post_type: post.type,
               category: post.category,
               topic: post.topic,

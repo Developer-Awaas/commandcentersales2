@@ -473,9 +473,21 @@ function StepAdReview({ data, onResult, onImageChange }: {
 
 function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Record<string, unknown>) => void }) {
   const [platform, setPlatform] = useState('AiSensy');
-  const [funnel, setFunnel] = useState((data.creativesResult?.funnel as string) || 'BOFU');
+  const inheritedFunnel = (data.creativesResult?.funnel as string) || null;
+  const [funnel, setFunnel] = useState(inheritedFunnel || 'BOFU');
+  const [pendingFunnel, setPendingFunnel] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+
+  function handleFunnelChange(newValue: string) {
+    if (newValue === funnel) return;
+    if (!inheritedFunnel || newValue === inheritedFunnel) {
+      setFunnel(newValue);
+      setPendingFunnel(null);
+      return;
+    }
+    setPendingFunnel(newValue);
+  }
 
   async function generate() {
     if (!isAiEnabled()) { showToast('Add Claude API key in Settings.', 'info'); return; }
@@ -500,9 +512,26 @@ function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Reco
       <p className="text-sm text-text-tertiary">Configuring ads for <span className="text-text-primary font-medium">{data.projectName || 'selected project'}</span></p>
       <div className="grid grid-cols-2 gap-4">
         <Select label="Ad Platform" options={PLATFORM_OPTIONS} value={platform} onChange={(e) => setPlatform(e.target.value)} />
-        <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnel} onChange={(e) => setFunnel(e.target.value)} />
+        <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={pendingFunnel ?? funnel} onChange={(e) => handleFunnelChange(e.target.value)} />
       </div>
-      <button onClick={generate} disabled={loading}
+      {pendingFunnel && (
+        <div className="p-4 rounded-xl border border-warning-border bg-warning-subtle flex flex-col gap-3">
+          <p className="text-sm text-warning-text">
+            You picked <span className="font-semibold">{inheritedFunnel}</span> as the funnel in the Creatives step. Changing it to <span className="font-semibold">{pendingFunnel}</span> here may produce inconsistent ad output.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => { setFunnel(pendingFunnel); setPendingFunnel(null); }}
+              className="px-4 py-1.5 rounded-lg bg-warning text-white text-sm font-medium hover:opacity-90 transition-colors">
+              Yes, change to {pendingFunnel}
+            </button>
+            <button onClick={() => setPendingFunnel(null)}
+              className="px-4 py-1.5 rounded-lg border border-border text-sm text-text-tertiary hover:text-text-primary transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <button onClick={generate} disabled={loading || pendingFunnel !== null}
         className="w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
         {loading ? <Spinner size="sm" /> : <Wand2 size={15} />}
         {loading ? 'Generating Config…' : 'Generate Ad Config'}
