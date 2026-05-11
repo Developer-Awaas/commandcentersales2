@@ -333,7 +333,20 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
     <div>
       <label className="block text-xs text-text-tertiary mb-1">{label}</label>
       <div className="flex gap-2 items-center">
-        <input type="color" value={value} onChange={e => onChange(e.target.value)} className="w-12 h-10 rounded cursor-pointer" />
+        <label className="relative inline-block w-10 h-10 flex-shrink-0">
+          <span
+            className="block w-10 h-10 rounded-md border border-border cursor-pointer"
+            style={{ backgroundColor: value || 'transparent' }}
+            aria-hidden="true"
+          />
+          <input
+            type="color"
+            value={value || '#000000'}
+            onChange={e => onChange(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            aria-label={`${label} color picker`}
+          />
+        </label>
         <input type="text" value={value} onChange={e => onChange(e.target.value)}
           className="flex-1 bg-surface-sunken border border-border rounded px-2 py-2 text-xs font-mono" />
       </div>
@@ -341,13 +354,43 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
   );
 }
 
+function loadGoogleFont(fontName: string): void {
+  if (!fontName?.trim()) return;
+  const encoded = encodeURIComponent(fontName.trim()).replace(/%20/g, '+');
+  const href = `https://fonts.googleapis.com/css2?family=${encoded}&display=swap`;
+  if (document.querySelector(`link[href="${href}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = href;
+  document.head.appendChild(link);
+}
+
 function FontInput({ label, value, onChange, hint }: { label: string; value: string; onChange: (v: string) => void; hint?: string }) {
+  // Debounce: only load the font 500ms after the user stops typing
+  useEffect(() => {
+    if (!value?.trim()) return;
+    const timer = setTimeout(() => loadGoogleFont(value), 500);
+    return () => clearTimeout(timer);
+  }, [value]);
+
   return (
     <div>
       <label className="block text-sm text-text-tertiary mb-1">{label}</label>
       <input type="text" value={value} onChange={e => onChange(e.target.value)}
         className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-text-primary" />
-      {hint && <p className="text-xs text-text-tertiary mt-1">{hint}</p>}
+      {value?.trim() ? (
+        <p
+          className="mt-2 text-3xl text-text-primary leading-tight truncate"
+          style={{ fontFamily: `'${value.trim()}', sans-serif` }}
+        >
+          Aa Bb Cc 123 — {value.trim()}
+        </p>
+      ) : (
+        <>
+          {hint && <p className="text-xs text-text-tertiary mt-1">{hint}</p>}
+          <p className="mt-2 text-3xl text-text-disabled italic leading-tight">Preview unavailable</p>
+        </>
+      )}
     </div>
   );
 }
