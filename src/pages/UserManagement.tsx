@@ -27,7 +27,7 @@ const ALL_MODULES: { key: string; label: string }[] = [
   { key: 'ad_config', label: 'Ad Config' },
   { key: 'creatives', label: 'Ad Creatives' },
   { key: 'ad_review', label: 'Ad Review' },
-  { key: 'analyzer', label: 'Lead Analyzer' },
+  { key: 'analyzer', label: 'Performance Analyzer' },
   { key: 'campaigns', label: 'Campaigns' },
   { key: 'campaign_wizard', label: 'Campaign Wizard' },
   { key: 'ai_sessions', label: 'AI History' },

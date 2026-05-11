@@ -473,7 +473,7 @@ function StepAdReview({ data, onResult, onImageChange }: {
 
 function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Record<string, unknown>) => void }) {
   const [platform, setPlatform] = useState('AiSensy');
-  const [funnel, setFunnel] = useState('BOFU');
+  const [funnel, setFunnel] = useState((data.creativesResult?.funnel as string) || 'BOFU');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
 
@@ -817,11 +817,11 @@ export function CampaignWizard({ onWizardEnd, onWizardStart, wizardActive }: { o
 
       {/* Step 3 skip confirmation */}
       {step3SkipConfirm && (
-        <div className="mb-4 p-4 rounded-xl border border-amber-700/40 bg-amber-950/20 flex flex-col gap-3">
-          <p className="text-sm text-amber-300">You haven't uploaded or analyzed a creative. Are you sure you want to skip this step?</p>
+        <div className="mb-4 p-4 rounded-xl border border-warning-border bg-warning-subtle flex flex-col gap-3">
+          <p className="text-sm text-warning-text">You haven't uploaded or analyzed a creative. Are you sure you want to skip this step?</p>
           <div className="flex gap-2">
             <button onClick={async () => { setStep3SkipConfirm(false); await goNext(); }}
-              className="px-4 py-1.5 rounded-lg bg-amber-600 text-text-primary text-sm font-medium hover:bg-amber-500 transition-colors">
+              className="px-4 py-1.5 rounded-lg bg-warning text-white text-sm font-medium hover:opacity-90 transition-colors">
               Yes, Skip
             </button>
             <button onClick={() => setStep3SkipConfirm(false)}

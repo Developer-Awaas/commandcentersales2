@@ -533,7 +533,7 @@ export default function SMMPlanner() {
                 return (
                   <div key={i} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: i < result.calendar.length - 1 ? '1px solid ' + C.border : 'none' }}>
                     <div style={{ width: 70, flexShrink: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{post.date?.split('-').slice(1).join('/')}</p>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{post.date?.match(/-/) ? post.date.split('-').slice(1).join('/') : post.date}</p>
                       <p style={{ fontSize: 11, color: C.dim }}>{post.day}</p>
                     </div>
                     <div style={{ width: 70, flexShrink: 0 }}>

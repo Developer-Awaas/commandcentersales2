@@ -51,7 +51,7 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-config', label: 'Ad Config', icon: Target },
   { id: 'creatives', label: 'Ad Creatives', icon: Palette },
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
-  { id: 'analyzer', label: 'Lead Analyzer', icon: TrendingUp },
+  { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'notifications', label: 'Notifications', icon: Bell },
