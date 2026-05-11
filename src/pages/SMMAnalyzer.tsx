@@ -34,7 +34,7 @@ export default function SMMAnalyzer() {
 
   const fetchHistory = async () => {
     const { data } = await supabase.from('smm_metrics')
-      .select('*').eq('platform', platform)
+      .select('*').eq('platform', platform).eq('org_id', getOrgId())
       .order('date', { ascending: false }).limit(30);
     setHistory(data || []);
   };

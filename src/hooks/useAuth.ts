@@ -22,15 +22,19 @@ interface AuthState {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  error: string | null;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
+
+const UNPROVISIONED_MSG = 'Account not fully provisioned — please contact admin.';
 
 export function useAuth(): AuthState {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchOrCreateProfile = useCallback(async (authUser: User) => {
     try {
@@ -41,14 +45,19 @@ export function useAuth(): AuthState {
         .maybeSingle();
 
       if (existing) {
+        if (!existing.org_id) {
+          setError(UNPROVISIONED_MSG);
+          await supabase.auth.signOut();
+          return;
+        }
         setProfile(existing as Profile);
-        if (existing.org_id) setStoredOrgId(existing.org_id);
+        setStoredOrgId(existing.org_id);
         storeUserId(authUser.id);
         if (authUser.email) setUserEmail(authUser.email);
         return;
       }
 
-      const { data: created } = await supabase
+      const { data: created, error: createErr } = await supabase
         .from('profiles')
         .insert({
           id: authUser.id,
@@ -60,13 +69,19 @@ export function useAuth(): AuthState {
         .select()
         .maybeSingle();
 
-      if (created) {
-        setProfile(created as Profile);
-        if ((created as Profile).org_id) setStoredOrgId((created as Profile).org_id!);
-        storeUserId(authUser.id);
+      if (createErr || !created || !(created as Profile).org_id) {
+        setError(UNPROVISIONED_MSG);
+        await supabase.auth.signOut();
+        return;
       }
+
+      setProfile(created as Profile);
+      setStoredOrgId((created as Profile).org_id!);
+      storeUserId(authUser.id);
+      if (authUser.email) setUserEmail(authUser.email);
     } catch {
-      setProfile(null);
+      setError(UNPROVISIONED_MSG);
+      await supabase.auth.signOut();
     }
   }, []);
 
@@ -109,6 +124,7 @@ export function useAuth(): AuthState {
   }, [fetchOrCreateProfile]);
 
   const signIn = useCallback(async (email: string, password: string) => {
+    setError(null);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       return { error: error?.message ?? null };
@@ -118,6 +134,7 @@ export function useAuth(): AuthState {
   }, []);
 
   const signOut = useCallback(async () => {
+    setError(null);
     try {
       await supabase.auth.signOut();
       clearStoredOrgId();
@@ -130,5 +147,5 @@ export function useAuth(): AuthState {
     setProfile(null);
   }, []);
 
-  return { session, user, profile, loading, signIn, signOut };
+  return { session, user, profile, loading, error, signIn, signOut };
 }
