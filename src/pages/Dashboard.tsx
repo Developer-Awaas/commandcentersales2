@@ -162,8 +162,9 @@ export function Dashboard() {
         supabase
           .from('campaigns')
           .select('*')
-          .eq('status', 'active'),
-        supabase.from('daily_metrics').select('spend,leads').gte('date', thirtyDaysAgo),
+          .eq('status', 'active')
+          .eq('org_id', getOrgId()),
+        supabase.from('daily_metrics').select('spend,leads').gte('date', thirtyDaysAgo).eq('org_id', getOrgId()),
         supabase
           .from('notifications')
           .select('id')
@@ -171,6 +172,7 @@ export function Dashboard() {
         supabase
           .from('ai_sessions')
           .select('*')
+          .eq('org_id', getOrgId())
           .order('created_at', { ascending: false })
           .limit(5),
       ]);

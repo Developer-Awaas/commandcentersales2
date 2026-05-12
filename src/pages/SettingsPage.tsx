@@ -181,7 +181,7 @@ export function SettingsPage() {
 
   async function deleteCompetitor(id: string) {
     setCompetitors((prev) => prev.filter((c) => c.id !== id));
-    await supabase.from('competitors').delete().eq('id', id);
+    await supabase.from('competitors').delete().eq('id', id).eq('org_id', getOrgId());
   }
 
   function handleClaudeKeyChange(val: string) {

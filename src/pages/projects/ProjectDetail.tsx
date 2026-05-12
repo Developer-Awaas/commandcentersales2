@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink, Image, Info, Pencil, Trash2, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { getOrgId } from '../../lib/constants';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Spinner } from '../../components/ui/Spinner';
@@ -77,10 +78,10 @@ function PerformanceTab({ project }: { project: Project }) {
     async function load() {
       const [metricsRes, activeCampRes, allCampRes, sessionsRes, creativesRes] = await Promise.all([
         supabase.from('daily_metrics').select('spend,leads,cpl').eq('project_id', project.id),
-        supabase.from('campaigns').select('*').eq('project_id', project.id).eq('status', 'active'),
-        supabase.from('campaigns').select('*').eq('project_id', project.id).order('created_at', { ascending: false }).limit(20),
-        supabase.from('ai_sessions').select('*').contains('project_ids', [project.id]).order('created_at', { ascending: false }).limit(15),
-        supabase.from('creatives').select('*').eq('project_id', project.id).order('created_at', { ascending: false }).limit(10),
+        supabase.from('campaigns').select('*').eq('project_id', project.id).eq('status', 'active').eq('org_id', getOrgId()),
+        supabase.from('campaigns').select('*').eq('project_id', project.id).eq('org_id', getOrgId()).order('created_at', { ascending: false }).limit(20),
+        supabase.from('ai_sessions').select('*').contains('project_ids', [project.id]).eq('org_id', getOrgId()).order('created_at', { ascending: false }).limit(15),
+        supabase.from('creatives').select('*').eq('project_id', project.id).eq('org_id', getOrgId()).order('created_at', { ascending: false }).limit(10),
       ]);
       setMetrics((metricsRes.data ?? []) as DailyMetric[]);
       setActiveCampaigns((activeCampRes.data ?? []) as Campaign[]);

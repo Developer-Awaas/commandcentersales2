@@ -91,7 +91,7 @@ export default function SMMPlanner() {
   }, []);
 
   const fetchProjects = async () => {
-    const { data } = await supabase.from('projects').select('*').eq('is_active', true);
+    const { data } = await supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId());
     setProjects(data || []);
   };
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Clock, History } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getOrgId } from '../lib/constants';
 import { Card } from '../components/ui/Card';
 import { Spinner } from '../components/ui/Spinner';
 import { AiSessionDetail } from '../components/AiSessionDetail';
@@ -75,6 +76,7 @@ export function AiSessions() {
       const { data } = await supabase
         .from('ai_sessions')
         .select('*')
+        .eq('org_id', getOrgId())
         .order('created_at', { ascending: false })
         .limit(50);
       setSessions((data ?? []) as AiSession[]);

@@ -226,6 +226,7 @@ export async function getCreativeDNAContext(supabase: any, projectId?: string) {
   let query = supabase
     .from('creatives')
     .select('design_dna, review_score, ctr, cpl, angle, format')
+    .eq('org_id', getOrgId())
     .neq('design_dna', '{}')
     .order('created_at', { ascending: false })
     .limit(10);

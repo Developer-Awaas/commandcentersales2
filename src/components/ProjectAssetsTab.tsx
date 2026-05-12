@@ -70,6 +70,7 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
       .from('project_assets')
       .select('*')
       .eq('project_id', projectId)
+      .eq('org_id', orgId)
       .order('asset_type')
       .order('display_order');
     setAssets(data || []);

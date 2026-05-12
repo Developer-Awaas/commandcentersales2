@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Megaphone, Plus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getOrgId } from '../lib/constants';
 import { Spinner } from '../components/ui/Spinner';
 
 interface Campaign {
@@ -40,6 +41,7 @@ export function Campaigns() {
       const { data } = await supabase
         .from('campaigns')
         .select('*, projects(name)')
+        .eq('org_id', getOrgId())
         .order('created_at', { ascending: false });
       setCampaigns((data ?? []) as Campaign[]);
       setLoading(false);

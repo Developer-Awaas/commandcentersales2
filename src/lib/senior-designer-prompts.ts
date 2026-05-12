@@ -6,6 +6,7 @@
 // All these flows now route through buildSeniorDesignerCreativePrompt().
 
 import { supabase } from './supabase';
+import { getOrgId } from './constants';
 
 // ============================================================
 // TYPES
@@ -390,7 +391,7 @@ export async function buildSeniorDesignerCreativePrompt(input: CreativeBriefInpu
   let projectData = input.project_data;
 
   if (!brandKit && supabase) {
-    const { data } = await supabase.from('brand_kits').select('*').limit(1).maybeSingle();
+    const { data } = await supabase.from('brand_kits').select('*').eq('org_id', getOrgId()).maybeSingle();
     brandKit = data || undefined;
   }
 
@@ -398,6 +399,7 @@ export async function buildSeniorDesignerCreativePrompt(input: CreativeBriefInpu
     const { data } = await supabase.from('project_assets')
       .select('*')
       .eq('project_id', input.project_id)
+      .eq('org_id', getOrgId())
       .order('display_order');
     projectAssets = data || [];
   }

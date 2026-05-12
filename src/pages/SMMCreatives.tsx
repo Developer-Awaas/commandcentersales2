@@ -39,7 +39,7 @@ export default function SMMCreatives() {
   const [holidays, setHolidays] = useState<any[]>([]);
 
   useEffect(() => {
-    supabase.from('projects').select('*').eq('is_active', true).then(({ data }) => setProjects(data || []));
+    supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId()).then(({ data }) => setProjects(data || []));
     supabase.from('events_calendar').select('*').eq('org_id', getOrgId()).order('date').then(({ data }) => setHolidays(data || []));
   }, []);
 

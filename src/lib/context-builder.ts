@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getOrgId } from './constants';
 
 export async function buildContext(options?: { projectId?: string; sessionType?: string }): Promise<string> {
   try {
@@ -7,6 +8,7 @@ export async function buildContext(options?: { projectId?: string; sessionType?:
     let sessionsQuery = supabase
       .from('ai_sessions')
       .select('created_at, session_type, input_summary, output_data, health_score, actions_taken')
+      .eq('org_id', getOrgId())
       .order('created_at', { ascending: false })
       .limit(5);
 
@@ -25,23 +27,27 @@ export async function buildContext(options?: { projectId?: string; sessionType?:
         supabase
           .from('creatives')
           .select('angle, format, ctr, cpl, review_score')
+          .eq('org_id', getOrgId())
           .gt('ctr', 0)
           .order('ctr', { ascending: false })
           .limit(1),
         supabase
           .from('creatives')
           .select('angle, format, ctr, cpl, review_score, retirement_reason')
+          .eq('org_id', getOrgId())
           .eq('status', 'retired')
           .order('ctr', { ascending: true })
           .limit(1),
         supabase
           .from('campaigns')
           .select('campaign_name, funnel_stage, platform, budget, status')
+          .eq('org_id', getOrgId())
           .eq('status', 'active')
           .limit(10),
         supabase
           .from('lead_funnel')
           .select('total_leads, contacted, sv_done, booked')
+          .eq('org_id', getOrgId())
           .gte('week_start', thirtyDaysAgo),
       ]);
 

@@ -133,7 +133,7 @@ export function Strategy() {
   const [brandKit, setBrandKit] = useState<{ default_languages?: string[] } | null>(null);
 
   useEffect(() => {
-    supabase.from('brand_kits').select('default_languages').limit(1).maybeSingle()
+    supabase.from('brand_kits').select('default_languages').eq('org_id', getOrgId()).maybeSingle()
       .then(({ data }) => { if (data) setBrandKit(data); });
   }, []);
 

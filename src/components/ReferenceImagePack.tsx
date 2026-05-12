@@ -85,6 +85,7 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
             .from('project_assets')
             .select('*')
             .eq('project_id', projectId)
+            .eq('org_id', orgId)
             .order('is_primary', { ascending: false })
             .order('display_order')
         : Promise.resolve({ data: [] }),
