@@ -6,6 +6,13 @@ import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildSMMPlannerPrompt, buildScreenshotExtractionPrompt, SCREENSHOT_GUIDES } from '../lib/smm-prompts';
 import { generateSMMPlanPDF } from '../lib/pdf-generator';
 import { useToast } from '../contexts/ToastContext';
+import {
+  toIsoDate, toIsoTime, prettifyTime, dayFromIso,
+  normalizePlatform, normalizePostType,
+  prettifyPlatform, prettifyType,
+  PLATFORM_OPTIONS, POST_TYPE_OPTIONS,
+  type PendingPost,
+} from '../lib/smm-helpers';
 
 // Shared UI - adjust imports to match your project's component paths
 // import { Card } from '../components/ui/Card';
@@ -13,89 +20,6 @@ import { useToast } from '../contexts/ToastContext';
 // import { Input } from '../components/ui/Input';
 // import { Select } from '../components/ui/Select';
 // import { Textarea } from '../components/ui/Textarea';
-
-function normalizePlatform(p: string | undefined | null): string {
-  const v = String(p ?? '').trim().toLowerCase();
-  if (v === 'instagram' || v === 'facebook' || v === 'both') return v;
-  return 'both';
-}
-
-function normalizePostType(t: string | undefined | null): string {
-  const v = String(t ?? '').trim().toLowerCase();
-  if (v === 'reel' || v === 'carousel' || v === 'static' || v === 'story' || v === 'video') return v;
-  return 'static';
-}
-
-function toIsoTime(s: string | undefined | null): string {
-  if (!s) return '';
-  const trimmed = String(s).trim();
-  if (/^\d{2}:\d{2}$/.test(trimmed)) return trimmed;
-  const m = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?$/);
-  if (!m) return '';
-  let h = parseInt(m[1], 10);
-  const mm = m[2];
-  const ampm = m[3]?.toUpperCase();
-  if (ampm === 'PM' && h < 12) h += 12;
-  if (ampm === 'AM' && h === 12) h = 0;
-  if (h < 0 || h > 23) return '';
-  return `${String(h).padStart(2, '0')}:${mm}`;
-}
-
-function prettifyTime(s: string): string {
-  if (!s) return '';
-  const m = s.match(/^(\d{2}):(\d{2})$/);
-  if (!m) return s;
-  let h = parseInt(m[1], 10);
-  const mm = m[2];
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${mm} ${ampm}`;
-}
-
-function dayFromIso(iso: string): string {
-  const d = new Date(iso + 'T00:00:00');
-  if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { weekday: 'long' });
-}
-
-const PLATFORM_OPTIONS = [
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'facebook', label: 'Facebook' },
-  { value: 'both', label: 'Both (IG + FB)' },
-];
-
-const POST_TYPE_OPTIONS = [
-  { value: 'reel', label: 'Reel' },
-  { value: 'carousel', label: 'Carousel' },
-  { value: 'static', label: 'Static Image' },
-  { value: 'story', label: 'Story' },
-  { value: 'video', label: 'Video' },
-];
-
-function prettifyPlatform(v: string): string {
-  return PLATFORM_OPTIONS.find(o => o.value === v)?.label || v;
-}
-
-function prettifyType(v: string): string {
-  return POST_TYPE_OPTIONS.find(o => o.value === v)?.label || v;
-}
-
-type PendingPost = {
-  _id: string;
-  _edited?: boolean;
-  date: string;
-  day?: string;
-  platform: string;
-  type: string;
-  category?: string;
-  topic: string;
-  time?: string;
-  captionEn?: string;
-  captionOd?: string;
-  hashtags?: string[];
-  nanoPrompt?: string;
-  reelScript?: string;
-};
 
 function pendingPostFromAi(post: any): PendingPost | null {
   const iso = toIsoDate(post.date);
@@ -118,25 +42,6 @@ function pendingPostFromAi(post: any): PendingPost | null {
     nanoPrompt: post.nanoPrompt,
     reelScript: post.reelScript,
   };
-}
-
-function toIsoDate(s: string | undefined | null): string | null {
-  if (!s) return null;
-  const trimmed = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-  const today = new Date();
-  const tryYear = today.getFullYear();
-  let d = new Date(`${trimmed} ${tryYear}`);
-  if (isNaN(d.getTime())) return null;
-  const oneDayMs = 24 * 60 * 60 * 1000;
-  if (d.getTime() < today.getTime() - oneDayMs) {
-    d = new Date(`${trimmed} ${tryYear + 1}`);
-    if (isNaN(d.getTime())) return null;
-  }
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 const TYPES = ['Company Branding', 'Project Branding', 'Holiday/Event Posts', 'Goal-based Campaign'];

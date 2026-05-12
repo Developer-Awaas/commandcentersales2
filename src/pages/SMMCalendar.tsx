@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, CreditCard as Edit3, Check, X, Eye, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CreditCard as Edit3, Check, X, Eye, Calendar, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
+import {
+  dayFromIso,
+  normalizePlatform, normalizePostType,
+  PLATFORM_OPTIONS, POST_TYPE_OPTIONS,
+  type PendingPost,
+} from '../lib/smm-helpers';
 
 const C = {
   bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
@@ -30,6 +36,9 @@ export default function SMMCalendar() {
   const [viewYear, setViewYear] = useState(new Date().getFullYear());
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
+  const [editingDraft, setEditingDraft] = useState<PendingPost | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { fetchData(); }, [viewMonth, viewYear]);
 
@@ -39,7 +48,7 @@ export default function SMMCalendar() {
     const endDate = new Date(viewYear, viewMonth + 1, 0).toISOString().split('T')[0];
 
     const [postsRes, eventsRes] = await Promise.all([
-      supabase.from('smm_calendar').select('*').gte('post_date', startDate).lte('post_date', endDate).order('post_date'),
+      supabase.from('smm_calendar').select('*').eq('org_id', getOrgId()).gte('post_date', startDate).lte('post_date', endDate).order('post_date'),
       supabase.from('events_calendar').select('*').eq('org_id', getOrgId()).gte('date', startDate).lte('date', endDate),
     ]);
 
@@ -52,6 +61,137 @@ export default function SMMCalendar() {
     await supabase.from('smm_calendar').update({ status }).eq('id', id);
     fetchData();
     showToast('Post status updated', 'success');
+  };
+
+  const pendingPostFromRow = (row: any): PendingPost => ({
+    _id: row.id,
+    date: row.post_date,
+    day: row.post_date ? dayFromIso(row.post_date) : '',
+    platform: normalizePlatform(row.platform),
+    type: normalizePostType(row.post_type),
+    category: row.category,
+    topic: row.topic || '',
+    time: row.post_time ? String(row.post_time).slice(0, 5) : '',
+    captionEn: row.caption_en,
+    captionOd: row.caption_od,
+    hashtags: row.hashtags || [],
+    nanoPrompt: row.nano_prompt,
+    reelScript: row.reel_script,
+  });
+
+  const openAdd = () => {
+    setSelectedPost(null);
+    setDeleteConfirmId(null);
+    const today = new Date().toISOString().split('T')[0];
+    setEditingDraft({
+      _id: 'new',
+      date: today,
+      day: dayFromIso(today),
+      platform: 'both',
+      type: 'static',
+      topic: '',
+      time: '',
+    });
+  };
+
+  const openEdit = () => {
+    if (!selectedPost) return;
+    setDeleteConfirmId(null);
+    setEditingDraft(pendingPostFromRow(selectedPost));
+  };
+
+  const closeForm = () => setEditingDraft(null);
+
+  const closeModal = () => {
+    setSelectedPost(null);
+    setEditingDraft(null);
+    setDeleteConfirmId(null);
+  };
+
+  const updateDraft = <K extends keyof PendingPost>(field: K, value: PendingPost[K]) => {
+    setEditingDraft(prev => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const requestDelete = (id: string) => setDeleteConfirmId(id);
+  const cancelDelete = () => setDeleteConfirmId(null);
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('smm_calendar').delete().eq('id', deleteConfirmId);
+      if (error) {
+        console.error('[SMM Calendar] Delete failed:', error);
+        showToast('Failed to delete. Try again.', 'error');
+        setSaving(false);
+        return;
+      }
+      showToast('Event deleted', 'success');
+      closeModal();
+      await fetchData();
+    } catch (err) {
+      console.error('[SMM Calendar] Delete error:', err);
+      showToast('Failed to delete. Try again.', 'error');
+    }
+    setSaving(false);
+  };
+
+  const saveDraft = async () => {
+    if (!editingDraft) return;
+    if (!editingDraft.topic.trim()) {
+      showToast('Topic is required.', 'error');
+      return;
+    }
+    if (!editingDraft.date) {
+      showToast('Date is required.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        post_date: editingDraft.date,
+        post_time: editingDraft.time || null,
+        platform: normalizePlatform(editingDraft.platform),
+        post_type: normalizePostType(editingDraft.type),
+        category: editingDraft.category || null,
+        topic: editingDraft.topic,
+        caption_en: editingDraft.captionEn || null,
+        caption_od: editingDraft.captionOd || null,
+        hashtags: editingDraft.hashtags || [],
+        nano_prompt: editingDraft.nanoPrompt || null,
+        reel_script: editingDraft.reelScript || null,
+      };
+
+      if (editingDraft._id === 'new') {
+        const { error } = await supabase.from('smm_calendar').insert({
+          ...payload,
+          org_id: getOrgId(),
+          status: 'planned',
+        });
+        if (error) {
+          console.error('[SMM Calendar] Insert failed:', error);
+          showToast('Failed to add event. Try again.', 'error');
+          setSaving(false);
+          return;
+        }
+        showToast('Event added to calendar', 'success');
+      } else {
+        const { error } = await supabase.from('smm_calendar').update(payload).eq('id', editingDraft._id);
+        if (error) {
+          console.error('[SMM Calendar] Update failed:', error);
+          showToast('Failed to save changes. Try again.', 'error');
+          setSaving(false);
+          return;
+        }
+        showToast('Event updated', 'success');
+      }
+      closeModal();
+      await fetchData();
+    } catch (err) {
+      console.error('[SMM Calendar] Save error:', err);
+      showToast('Failed to save. Try again.', 'error');
+    }
+    setSaving(false);
   };
 
   const prevMonth = () => {
@@ -100,6 +240,10 @@ export default function SMMCalendar() {
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setViewMode('week')} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer', background: viewMode === 'week' ? C.accent : 'transparent', color: viewMode === 'week' ? C.bg : C.dim, border: '1px solid ' + C.border }}>Week</button>
           <button onClick={() => setViewMode('month')} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer', background: viewMode === 'month' ? C.accent : 'transparent', color: viewMode === 'month' ? C.bg : C.dim, border: '1px solid ' + C.border }}>Month</button>
+          <button onClick={openAdd}
+            style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: C.accent, color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Plus size={14} /> Add Event
+          </button>
         </div>
       </div>
 
@@ -181,95 +325,230 @@ export default function SMMCalendar() {
         ))}
       </div>
 
-      {/* Post Detail Modal */}
-      {selectedPost && (
-        <div onClick={() => setSelectedPost(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 16, padding: 24, maxWidth: 600, width: '90%', maxHeight: '80vh', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, background: (TYPE_COLORS[selectedPost.post_type] || C.dim) + '20', color: TYPE_COLORS[selectedPost.post_type] || C.dim, fontWeight: 600 }}>
-                  {selectedPost.post_type}
-                </span>
-                <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, background: (STATUS_COLORS[selectedPost.status] || C.dim) + '20', color: STATUS_COLORS[selectedPost.status] || C.dim }}>
-                  {selectedPost.status}
-                </span>
-              </div>
-              <button onClick={() => setSelectedPost(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <X size={18} style={{ color: C.dim }} />
-              </button>
-            </div>
+      {/* Modal — tri-state container: view / edit / add */}
+      {(selectedPost || editingDraft) && (
+        <div onClick={closeModal} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 16, padding: 24, maxWidth: 600, width: '90%', maxHeight: '85vh', overflow: 'auto' }}>
 
-            <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, marginBottom: 4 }}>{selectedPost.topic}</h3>
-            <p style={{ fontSize: 12, color: C.dim, marginBottom: 16 }}>{selectedPost.post_date} at {selectedPost.post_time || 'Not set'} on {selectedPost.platform}</p>
-
-            {selectedPost.caption_en && (
-              <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Caption (English)</span>
-                  <button onClick={() => copy(selectedPost.caption_en)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+            {editingDraft ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}>
+                    {editingDraft._id === 'new' ? 'Add Event' : 'Edit Event'}
+                  </h3>
+                  <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                    <X size={18} style={{ color: C.dim }} />
+                  </button>
                 </div>
-                <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedPost.caption_en}</p>
-              </div>
-            )}
 
-            {selectedPost.caption_od && (
-              <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Caption (Odia)</span>
-                  <button onClick={() => copy(selectedPost.caption_od)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-4 gap-2">
+                    <div>
+                      <label className="text-xs text-text-tertiary">Date</label>
+                      <input type="date" value={editingDraft.date}
+                        onChange={(e) => updateDraft('date', e.target.value)}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-tertiary">Time</label>
+                      <input type="time" value={editingDraft.time || ''}
+                        onChange={(e) => updateDraft('time', e.target.value)}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-tertiary">Platform</label>
+                      <select value={editingDraft.platform}
+                        onChange={(e) => updateDraft('platform', e.target.value)}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
+                        {PLATFORM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-tertiary">Type</label>
+                      <select value={editingDraft.type}
+                        onChange={(e) => updateDraft('type', e.target.value)}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
+                        {POST_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-tertiary">Topic</label>
+                    <input type="text" value={editingDraft.topic}
+                      onChange={(e) => updateDraft('topic', e.target.value)}
+                      placeholder="What is this post about?"
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-tertiary">Category</label>
+                    <input type="text" value={editingDraft.category || ''}
+                      onChange={(e) => updateDraft('category', e.target.value)}
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-tertiary">Caption (English)</label>
+                    <textarea value={editingDraft.captionEn || ''}
+                      onChange={(e) => updateDraft('captionEn', e.target.value)}
+                      rows={4}
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-tertiary">Caption (Odia)</label>
+                    <textarea value={editingDraft.captionOd || ''}
+                      onChange={(e) => updateDraft('captionOd', e.target.value)}
+                      rows={4}
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-tertiary">Hashtags (comma-separated)</label>
+                    <input type="text" value={(editingDraft.hashtags || []).join(', ')}
+                      onChange={(e) => updateDraft('hashtags', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-tertiary">Image Prompt</label>
+                    <textarea value={editingDraft.nanoPrompt || ''}
+                      onChange={(e) => updateDraft('nanoPrompt', e.target.value)}
+                      rows={3}
+                      className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                  </div>
+                  {(editingDraft.type === 'reel' || editingDraft.type === 'video') && (
+                    <div>
+                      <label className="text-xs text-text-tertiary">Reel Script</label>
+                      <textarea value={editingDraft.reelScript || ''}
+                        onChange={(e) => updateDraft('reelScript', e.target.value)}
+                        rows={3}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
+                    </div>
+                  )}
+                  <div className="flex gap-2 justify-end mt-2">
+                    <button onClick={selectedPost ? closeForm : closeModal}
+                      disabled={saving}
+                      className="px-4 py-1.5 rounded-lg border border-border text-sm text-text-tertiary hover:text-text-primary transition-colors disabled:opacity-40">
+                      Cancel
+                    </button>
+                    <button onClick={saveDraft}
+                      disabled={saving}
+                      className="px-4 py-1.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand-hover transition-colors disabled:opacity-40 flex items-center gap-2">
+                      {saving && <RefreshCw size={14} className="animate-spin" />}
+                      {saving ? 'Saving…' : editingDraft._id === 'new' ? 'Add Event' : 'Save Changes'}
+                    </button>
+                  </div>
                 </div>
-                <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedPost.caption_od}</p>
-              </div>
-            )}
+              </>
+            ) : selectedPost ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, background: (TYPE_COLORS[selectedPost.post_type] || C.dim) + '20', color: TYPE_COLORS[selectedPost.post_type] || C.dim, fontWeight: 600 }}>
+                      {selectedPost.post_type}
+                    </span>
+                    <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, background: (STATUS_COLORS[selectedPost.status] || C.dim) + '20', color: STATUS_COLORS[selectedPost.status] || C.dim }}>
+                      {selectedPost.status}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button onClick={openEdit} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                      <Pencil size={16} style={{ color: C.accent }} />
+                    </button>
+                    <button onClick={() => requestDelete(selectedPost.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                      <Trash2 size={16} style={{ color: C.accent }} />
+                    </button>
+                    <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                      <X size={18} style={{ color: C.dim }} />
+                    </button>
+                  </div>
+                </div>
 
-            {selectedPost.nano_prompt && (
-              <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', padding: 12, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: '#a78bfa' }}>Image Prompt</span>
-                  <button onClick={() => copy(selectedPost.nano_prompt)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-                </div>
-                <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{selectedPost.nano_prompt}</p>
-              </div>
-            )}
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, marginBottom: 4 }}>{selectedPost.topic}</h3>
+                <p style={{ fontSize: 12, color: C.dim, marginBottom: 16 }}>{selectedPost.post_date} at {selectedPost.post_time || 'Not set'} on {selectedPost.platform}</p>
 
-            {selectedPost.reel_script && (
-              <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Reel Script</span>
-                  <button onClick={() => copy(selectedPost.reel_script)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-                </div>
-                <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedPost.reel_script}</p>
-              </div>
-            )}
+                {selectedPost.caption_en && (
+                  <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: C.dim }}>Caption (English)</span>
+                      <button onClick={() => copy(selectedPost.caption_en)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                    </div>
+                    <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedPost.caption_en}</p>
+                  </div>
+                )}
 
-            {selectedPost.hashtags && selectedPost.hashtags.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Hashtags</span>
-                  <button onClick={() => copy(selectedPost.hashtags.map((h: string) => '#' + h).join(' '))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {selectedPost.hashtags.map((h: string, i: number) => (
-                    <span key={i} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>#{h}</span>
-                  ))}
-                </div>
-              </div>
-            )}
+                {selectedPost.caption_od && (
+                  <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: C.dim }}>Caption (Odia)</span>
+                      <button onClick={() => copy(selectedPost.caption_od)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                    </div>
+                    <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedPost.caption_od}</p>
+                  </div>
+                )}
 
-            {/* Status Change Buttons */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid ' + C.border }}>
-              {['planned', 'created', 'posted', 'skipped'].map(status => (
-                <button key={status} onClick={() => { updatePostStatus(selectedPost.id, status); setSelectedPost({ ...selectedPost, status }); }}
-                  style={{
-                    flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 12, cursor: 'pointer', textTransform: 'capitalize',
-                    background: selectedPost.status === status ? (STATUS_COLORS[status] || C.dim) + '30' : C.bg,
-                    color: selectedPost.status === status ? STATUS_COLORS[status] || C.dim : C.dim,
-                    border: '1px solid ' + (selectedPost.status === status ? STATUS_COLORS[status] || C.dim : C.border),
-                  }}>
-                  {status}
-                </button>
-              ))}
-            </div>
+                {selectedPost.nano_prompt && (
+                  <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: '#a78bfa' }}>Image Prompt</span>
+                      <button onClick={() => copy(selectedPost.nano_prompt)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                    </div>
+                    <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{selectedPost.nano_prompt}</p>
+                  </div>
+                )}
+
+                {selectedPost.reel_script && (
+                  <div style={{ background: C.bg, padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: C.dim }}>Reel Script</span>
+                      <button onClick={() => copy(selectedPost.reel_script)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                    </div>
+                    <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedPost.reel_script}</p>
+                  </div>
+                )}
+
+                {selectedPost.hashtags && selectedPost.hashtags.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: C.dim }}>Hashtags</span>
+                      <button onClick={() => copy(selectedPost.hashtags.map((h: string) => '#' + h).join(' '))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {selectedPost.hashtags.map((h: string, i: number) => (
+                        <span key={i} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>#{h}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {deleteConfirmId === selectedPost.id ? (
+                  <div className="mt-4 p-4 rounded-lg border border-warning-border bg-warning-subtle flex items-center gap-2">
+                    <p className="text-sm text-warning-text flex-1">Delete this event? This can't be undone.</p>
+                    <button onClick={confirmDelete}
+                      disabled={saving}
+                      className="px-3 py-1 rounded bg-warning text-white text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-40">
+                      {saving ? 'Deleting…' : 'Yes, delete'}
+                    </button>
+                    <button onClick={cancelDelete}
+                      disabled={saving}
+                      className="px-3 py-1 rounded border border-border text-xs text-text-tertiary hover:text-text-primary transition-colors disabled:opacity-40">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 16, paddingTop: 16, borderTop: '1px solid ' + C.border }}>
+                    {['planned', 'created', 'posted', 'skipped'].map(status => (
+                      <button key={status} onClick={() => { updatePostStatus(selectedPost.id, status); setSelectedPost({ ...selectedPost, status }); }}
+                        style={{
+                          flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 12, cursor: 'pointer', textTransform: 'capitalize',
+                          background: selectedPost.status === status ? (STATUS_COLORS[status] || C.dim) + '30' : C.bg,
+                          color: selectedPost.status === status ? STATUS_COLORS[status] || C.dim : C.dim,
+                          border: '1px solid ' + (selectedPost.status === status ? STATUS_COLORS[status] || C.dim : C.border),
+                        }}>
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : null}
+
           </div>
         </div>
       )}
@@ -278,7 +557,7 @@ export default function SMMCalendar() {
         <div style={{ textAlign: 'center', padding: 40, color: C.dim }}>
           <Calendar size={40} style={{ marginBottom: 12, opacity: 0.5 }} />
           <p style={{ fontSize: 14 }}>No posts planned for {MONTHS[viewMonth]}.</p>
-          <p style={{ fontSize: 12, marginTop: 4 }}>Go to SMM Planner to generate a content plan.</p>
+          <p style={{ fontSize: 12, marginTop: 4 }}>Generate a plan in SMM Planner, or click + Add Event to create one manually.</p>
         </div>
       )}
     </div>
