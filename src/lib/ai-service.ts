@@ -24,14 +24,19 @@ export function setUserEmail(email: string): void {
   localStorage.setItem('user_email', email);
 }
 
-function getUserCallCount(): number {
-  const key = `ai_calls_${getTodayKeyIST()}`;
-  return parseInt(localStorage.getItem(key) || '0', 10);
-}
-
-function incrementUserCallCount(): void {
-  const key = `ai_calls_${getTodayKeyIST()}`;
-  localStorage.setItem(key, String(getUserCallCount() + 1));
+async function getUserCallCount(): Promise<number> {
+  const uid = localStorage.getItem('user_id');
+  if (!uid) return 0;
+  const today = getTodayKeyIST();
+  const start = `${today}T00:00:00+05:30`;
+  const end = `${today}T23:59:59+05:30`;
+  const { count } = await supabase
+    .from('ai_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', uid)
+    .gte('created_at', start)
+    .lte('created_at', end);
+  return count ?? 0;
 }
 
 async function getGlobalCallCount(): Promise<number> {
@@ -62,7 +67,7 @@ async function checkQuota(): Promise<string | null> {
   if (email === ADMIN_EMAIL) return null;
 
   const limit = await getUserDailyLimit();
-  if (getUserCallCount() >= limit) return QUOTA_MSG;
+  if ((await getUserCallCount()) >= limit) return QUOTA_MSG;
 
   const global = await getGlobalCallCount();
   if (global >= GLOBAL_DAILY_LIMIT) return QUOTA_MSG;
@@ -70,8 +75,19 @@ async function checkQuota(): Promise<string | null> {
   return null;
 }
 
+// Resolution order:
+// 1. localStorage 'claude_api_key' (admin's per-browser key — takes priority)
+// 2. VITE_ANTHROPIC_API_KEY env var (fallback for pilot users without a per-browser key)
+// Both are app-wide reads — there's no per-user/org storage yet. See .env.example for setup.
 export function getApiKey(): string | null {
-  return localStorage.getItem(STORAGE_KEY) || null;
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) return stored;
+  const envKey = import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined;
+  return envKey || null;
+}
+
+export async function getTodayAiCallsCount(): Promise<number> {
+  return getUserCallCount();
 }
 
 export function setApiKey(key: string): void {
@@ -209,7 +225,6 @@ export async function aiCall(
       .join('');
 
     const parsed = extractJson(rawText);
-    incrementUserCallCount();
     if (parsed) return parsed as Record<string, unknown>;
 
     return { raw: rawText };
@@ -267,7 +282,6 @@ export async function aiVision(
       .join('');
 
     const parsed = extractJson(rawText);
-    incrementUserCallCount();
     if (parsed) return parsed as Record<string, unknown>;
 
     return { raw: rawText };

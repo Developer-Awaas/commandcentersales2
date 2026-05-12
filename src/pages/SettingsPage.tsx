@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings, Lock, X, Plus, AlertTriangle, CheckCircle, Wifi, WifiOff, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
-import { getApiKey, setApiKey, aiCall } from '../lib/ai-service';
+import { getApiKey, setApiKey, aiCall, getTodayAiCallsCount } from '../lib/ai-service';
 
 const ADMIN_EMAIL = 'rahul@neelachalahomes.com';
 function isAdmin(): boolean {
@@ -88,15 +88,12 @@ export function SettingsPage() {
   const [testResult, setTestResult] = useState<TestResult>({ status: 'idle', message: '' });
   const [keySaveStatus, setKeySaveStatus] = useState<KeySaveStatus>('idle');
   const [userAiLimit, setUserAiLimit] = useState(30);
-
-  function getTodayCallsUsed(): number {
-    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    return parseInt(localStorage.getItem(`ai_calls_${today}`) || '0', 10);
-  }
+  const [todayCallsUsed, setTodayCallsUsed] = useState(0);
 
   useEffect(() => {
     loadOrg();
     loadCompetitors();
+    getTodayAiCallsCount().then(setTodayCallsUsed);
     const stored = getApiKey();
     if (stored) setClaudeKey(stored);
     const uid = localStorage.getItem('user_id');
@@ -381,12 +378,13 @@ export function SettingsPage() {
             <div className="flex items-start gap-3 px-4 py-3.5 rounded-lg bg-surface-sunken border border-border">
               <div className="flex-1">
                 <p className="text-sm text-text-primary font-medium mb-1">AI features powered by admin's API key</p>
-                <p className="text-xs text-text-tertiary">Daily usage: <span className="text-brand font-semibold">{getTodayCallsUsed()}</span> / <span className="text-text-primary">{userAiLimit}</span> calls today</p>
+                <p className="text-xs text-text-tertiary">Daily usage: <span className="text-brand font-semibold">{todayCallsUsed}</span> / <span className="text-text-primary">{userAiLimit}</span> calls today</p>
               </div>
             </div>
           </Card>
         )}
 
+        {isAdmin() && (
         <Card className="p-5">
           <SectionLabel>API Configuration</SectionLabel>
 
@@ -485,6 +483,7 @@ export function SettingsPage() {
             ))}
           </div>
         </Card>
+        )}
       </div>
     </div>
   );
