@@ -24,6 +24,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../lib/supabase';
 import type { AppSection } from '../../contexts/NavigationContext';
+import { hasModuleAccess } from '../../lib/access';
 
 interface SidebarProps {
   activePage: string;
@@ -129,8 +130,8 @@ export function Sidebar({
   ];
   const rawNavItems =
     activeSection === 'lead_gen' ? LEAD_GEN_NAV : activeSection === 'smm' ? SMM_NAV : DASHBOARD_NAV;
-  const navItems = isWizardMode && activeSection === 'lead_gen' ? WIZARD_NAV : rawNavItems;
-  const isAdmin = profile?.role === 'admin';
+  const sectionItems = isWizardMode && activeSection === 'lead_gen' ? WIZARD_NAV : rawNavItems;
+  const navItems = sectionItems.filter((item) => hasModuleAccess(profile, item.id));
 
   function renderNavItem(item: NavItem) {
     const Icon = item.icon;
@@ -235,7 +236,7 @@ export function Sidebar({
         <p className="px-1 pt-1 pb-1.5 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
           Settings
         </p>
-        {BOTTOM_NAV.filter((item) => item.id !== 'users' || isAdmin).map(renderNavItem)}
+        {BOTTOM_NAV.filter((item) => hasModuleAccess(profile, item.id)).map(renderNavItem)}
 
         {/* Learning Mode */}
         <div className="flex items-center justify-between px-3 py-2">

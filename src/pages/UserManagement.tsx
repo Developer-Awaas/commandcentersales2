@@ -38,6 +38,7 @@ const ALL_MODULES: { key: string; label: string }[] = [
   { key: 'smm_creatives', label: 'SMM Creatives' },
   { key: 'smm_analyzer', label: 'SMM Analyzer' },
   { key: 'content_library', label: 'Content Library' },
+  { key: 'brand_kit', label: 'Brand Kit' },
   { key: 'settings', label: 'Settings' },
   { key: 'user_management', label: 'Users' },
 ];

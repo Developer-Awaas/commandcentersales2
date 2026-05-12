@@ -30,39 +30,7 @@ import { Campaigns } from './pages/Campaigns';
 import { CampaignWizard } from './pages/CampaignWizard';
 import BrandKit from './pages/BrandKit';
 import type { Profile } from './lib/supabase';
-
-const ACCESS_MAP: Record<string, string> = {
-  dashboard: 'dashboard',
-  projects: 'projects',
-  strategy: 'strategy_quick',
-  'ad-config': 'ad_config',
-  creatives: 'creatives',
-  'ad-review': 'ad_review',
-  analyzer: 'analyzer',
-  organic: 'organic',
-  'ai-sessions': 'dashboard',
-  notifications: 'notifications',
-  reports: 'reports',
-  settings: 'settings',
-  'brand-kit': 'settings',
-  users: 'user_management',
-  campaigns: 'dashboard',
-  'smm-planner': 'dashboard',
-  'smm-calendar': 'dashboard',
-  'smm-creatives': 'dashboard',
-  'smm-analyzer': 'dashboard',
-  'content-library': 'dashboard',
-};
-
-function hasAccess(profile: Profile | null, page: string): boolean {
-  if (!profile) return false;
-  if (profile.role === 'admin') return true;
-  const key = ACCESS_MAP[page];
-  if (!key) return false;
-  const ma = profile.module_access;
-  if (Array.isArray(ma)) return ma.includes(key);
-  return ma?.[key] === true;
-}
+import { hasModuleAccess } from './lib/access';
 
 function AccessDenied() {
   return (
@@ -77,7 +45,7 @@ function AccessDenied() {
 }
 
 function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }: { page: string; profile: Profile | null; wizardActive: boolean; onWizardEnd: () => void; onWizardStart: () => void }) {
-  if (!hasAccess(profile, page)) return <AccessDenied />;
+  if (!hasModuleAccess(profile, page)) return <AccessDenied />;
 
   switch (page) {
     case 'dashboard': return <Dashboard />;
