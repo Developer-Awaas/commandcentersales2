@@ -4,10 +4,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings, Lock, X, Plus, AlertTriangle, CheckCircle, Wifi, WifiOff, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, ADMIN_EMAIL } from '../lib/constants';
 import { getApiKey, setApiKey, aiCall, getTodayAiCallsCount } from '../lib/ai-service';
 
-const ADMIN_EMAIL = 'rahul@neelachalahomes.com';
 function isAdmin(): boolean {
   return localStorage.getItem('user_email') === ADMIN_EMAIL;
 }

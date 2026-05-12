@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { ADMIN_EMAIL } from './constants';
 
 const STORAGE_KEY = 'claude_api_key';
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -6,7 +7,6 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_SYSTEM =
   'You are an expert performance marketing specialist for Indian real estate. Respond ONLY in valid JSON.';
 
-const ADMIN_EMAIL = 'rahul@neelachalahomes.com';
 const USER_DAILY_LIMIT_DEFAULT = 40;
 const GLOBAL_DAILY_LIMIT = 200;
 const QUOTA_MSG = 'Daily AI quota reached. Resets at midnight IST.';
