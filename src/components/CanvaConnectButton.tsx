@@ -44,9 +44,16 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
       alert('VITE_CANVA_CLIENT_ID is not configured.');
       return;
     }
-    const returnUrl = window.location.href;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
     const redirectUri = `${supabaseUrl}/functions/v1/canva-oauth-callback`;
+
+    // Encode returnUrl + user identity in state so the callback can identify the user
+    // without relying on an Authorization header (browser redirects never carry one)
+    const statePayload = encodeURIComponent(JSON.stringify({
+      returnUrl: window.location.href,
+      userId,
+      orgId: getOrgId(),
+    }));
 
     const authUrl = [
       'https://www.canva.com/api/oauth/authorize',
@@ -54,7 +61,7 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
       `&response_type=code`,
       `&scope=${encodeURIComponent('design:content:read design:content:write asset:read asset:write')}`,
       `&redirect_uri=${encodeURIComponent(redirectUri)}`,
-      `&state=${encodeURIComponent(returnUrl)}`,
+      `&state=${statePayload}`,
     ].join('');
 
     window.location.href = authUrl;

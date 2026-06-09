@@ -230,6 +230,7 @@ function VariantCard({ v }: { v: AiVariant }) {
 
 function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Record<string, unknown>) => void }) {
   const [platform, setPlatform] = useState('Nanobanana (Gemini)');
+  const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
   const [funnel, setFunnel] = useState('BOFU');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
@@ -257,6 +258,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
         user_brief: userBrief,
         funnel_stage: funnel as 'TOFU' | 'MOFU' | 'BOFU',
         languages,
+        ad_platform: adPlatform,
       });
 
       const angleLabels = [
@@ -387,6 +389,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
       <div className="grid grid-cols-2 gap-4">
         <Select label="Creative Platform" options={CREATIVE_PLATFORM_OPTIONS} value={platform} onChange={(e) => setPlatform(e.target.value)} />
         <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnel} onChange={(e) => setFunnel(e.target.value)} />
+        <Select label="Output Ad Platform" options={PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as 'Meta Ads Manager' | 'AiSensy')} />
       </div>
       <button onClick={generate} disabled={loading}
         className="w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed">

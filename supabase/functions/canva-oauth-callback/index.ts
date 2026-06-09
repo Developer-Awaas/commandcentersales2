@@ -4,7 +4,6 @@ Deno.serve(async (req) => {
   const url = new URL(req.url)
   const code = url.searchParams.get('code')
   const state = url.searchParams.get('state')
-  const returnUrl = state ? decodeURIComponent(state) : '/'
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -15,8 +14,38 @@ Deno.serve(async (req) => {
   const clientSecret = Deno.env.get('CANVA_CLIENT_SECRET')!
   const appUrl = Deno.env.get('APP_URL') ?? 'http://localhost:5173'
 
+  // State is a JSON payload {returnUrl, userId, orgId} encoded by CanvaConnectButton.
+  // Browser redirects never carry an Authorization header, so user identity must come
+  // from the state parameter that was set before the OAuth redirect.
+  let returnUrl = appUrl
+  let stateUserId: string | null = null
+  let stateOrgId: string | null = null
+
+  if (state) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(state)) as {
+        returnUrl?: string
+        userId?: string
+        orgId?: string
+      }
+      returnUrl = parsed.returnUrl ?? appUrl
+      stateUserId = parsed.userId ?? null
+      stateOrgId = parsed.orgId ?? null
+    } catch {
+      // Legacy format: state was just the plain return URL
+      returnUrl = decodeURIComponent(state)
+    }
+  }
+
   if (!code) {
     return Response.redirect(`${appUrl}/?canva_error=no_code`, 302)
+  }
+
+  if (!stateUserId) {
+    return Response.redirect(
+      `${appUrl}/?canva_error=${encodeURIComponent('OAuth state missing user identity — please try connecting again')}`,
+      302
+    )
   }
 
   try {
@@ -27,7 +56,7 @@ Deno.serve(async (req) => {
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: `${appUrl}/integrations/canva/callback`,
+        redirect_uri: `${Deno.env.get('SUPABASE_URL')}/functions/v1/canva-oauth-callback`,
         client_id: clientId,
         client_secret: clientSecret,
       }),
@@ -45,18 +74,12 @@ Deno.serve(async (req) => {
       throw new Error(tokenJson.error ?? `Token exchange failed: ${tokenRes.status}`)
     }
 
-    // Get the user from the auth header (forwarded by Supabase edge runtime)
-    const authHeader = req.headers.get('authorization') ?? ''
-    const jwt = authHeader.replace('Bearer ', '')
-    const { data: { user } } = await supabase.auth.getUser(jwt)
-    if (!user) throw new Error('Could not identify user')
-
     const expiresAt = new Date(Date.now() + (tokenJson.expires_in ?? 3600) * 1000).toISOString()
 
-    // Upsert token into org_user_integrations
+    // Upsert token using user identity from the OAuth state parameter
     await supabase.from('org_user_integrations').upsert({
-      user_id: user.id,
-      org_id: user.user_metadata?.org_id ?? '00000000-0000-0000-0000-000000000001',
+      user_id: stateUserId,
+      org_id: stateOrgId ?? '00000000-0000-0000-0000-000000000001',
       provider: 'canva',
       access_token: tokenJson.access_token,
       refresh_token: tokenJson.refresh_token ?? null,

@@ -592,11 +592,21 @@ OUTPUT JSON SCHEMA:
   ${input.placement === 'feed_square' ? `"nanobanana_prompt_story": "Adapted 9-section prompt for 1080x1920 story version of the same concept",` : ''}
   "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
   "ad_copy": {
-    ${input.languages.map(lang => `"headline_${lang.toLowerCase()}": "max 6 words in ${lang}",
-    "subhead_${lang.toLowerCase()}": "max 12 words in ${lang}",
-    "primary_text_${lang.toLowerCase()}": "150-250 char Meta primary text in ${lang} with appropriate emojis",
-    "description_${lang.toLowerCase()}": "max 30 chars in ${lang}"`).join(',\n    ')},
-    "cta": "Send WhatsApp Message OR Book Site Visit OR Get Brochure OR Learn More"
+    ${(input.ad_platform === 'AiSensy'
+      ? input.languages.map(lang =>
+        `"headline_${lang.toLowerCase()}": "WhatsApp template header — max 60 chars, benefit-led hook in ${lang}",
+    "subhead_${lang.toLowerCase()}": "Teaser line — max 20 words in ${lang}",
+    "primary_text_${lang.toLowerCase()}": "WhatsApp message body — conversational, emoji-rich, 300-500 chars in ${lang}. Open with a personal hook (not a broadcast). Include the key USP + soft CTA. Reads like a message from a trusted advisor, not an ad. No jargon.",
+    "description_${lang.toLowerCase()}": "WhatsApp quick-reply button label — max 20 chars in ${lang}"`)
+      : input.languages.map(lang =>
+        `"headline_${lang.toLowerCase()}": "Max 40 chars — Meta feed headline in ${lang}. Punchy benefit statement.",
+    "subhead_${lang.toLowerCase()}": "Max 20 words in ${lang}",
+    "primary_text_${lang.toLowerCase()}": "First 125 chars MUST work as a standalone hook (visible before 'See More' on Meta). Total 125-250 chars. Emoji-led. In ${lang}. Lead with the strongest hook — price, urgency, or dream.",
+    "description_${lang.toLowerCase()}": "Max 30 chars — Meta link description in ${lang}"`)
+    ).join(',\n    ')},
+    "cta": ${input.ad_platform === 'AiSensy'
+      ? `"WhatsApp Now OR Know More OR Book a Call — keep under 20 chars, WhatsApp button label"`
+      : `"Send WhatsApp Message OR Book Site Visit OR Get Brochure OR Learn More — use exact Meta CTA label text"`}
   },
   "post_production_notes": "Manual overlay needed (especially for non-Latin scripts where Nanobanana may render imperfectly). Be specific.",
   "design_dna_tags": {
@@ -660,6 +670,7 @@ export async function buildVariantBriefs(args: {
   user_brief: string;
   funnel_stage: CreativeBriefInput['funnel_stage'];
   languages: string[];
+  ad_platform?: 'AiSensy' | 'Meta Ads Manager';
   quick_references?: QuickReference[];
 }) {
   const variants: Array<{label: 'A' | 'B' | 'C', angle: string}> = [
@@ -677,6 +688,7 @@ export async function buildVariantBriefs(args: {
       placement: 'feed_square',
       languages: args.languages,
       quick_references: args.quick_references,
+      ad_platform: args.ad_platform,
       variant_label: v.label,
       variant_angle: v.angle,
     })

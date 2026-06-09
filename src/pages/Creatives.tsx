@@ -73,6 +73,11 @@ const PLATFORM_OPTIONS = [
   { value: 'Manual / Designer', label: 'Manual / Designer' },
 ];
 
+const AD_PLATFORM_OPTIONS = [
+  { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
+  { value: 'AiSensy', label: 'AiSensy (WhatsApp)' },
+];
+
 interface LibraryCreative {
   id: string;
   variant?: string;
@@ -316,6 +321,7 @@ export function Creatives() {
   const [projectId, setProjectId] = useState('');
   const [funnelStage, setFunnelStage] = useState('TOFU');
   const [creativePlatform, setCreativePlatform] = useState('Nanobanana (Gemini)');
+  const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
   const [image, setImage] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
@@ -427,6 +433,7 @@ export function Creatives() {
           user_brief: userBrief,
           funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
           languages: ['English', 'Odia'],
+          ad_platform: adPlatform,
         });
 
         const imagePayload = image ? await fileToBase64(image) : null;
@@ -550,11 +557,18 @@ export function Creatives() {
           if (promptsToRender.length > 0) {
             setGalleryImages([]);
             setGeneratingImages(true);
+            // sessionId groups all 3 images so edits overwrite the same files (saves storage)
+            const sessionId = crypto.randomUUID();
             Promise.allSettled(
               promptsToRender.map(async ({ label, prompt }) => {
                 const [img] = await generateImageWithGemini(prompt, '1:1');
-                const url = await uploadGeminiImageToSupabase(img.base64, img.mimeType);
-                return { url, label } as GalleryImage;
+                const { url, id, storagePath } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
+                  sessionId,
+                  angleLabel: label,
+                  funnelStage,
+                  projectId,
+                });
+                return { url, id, label, storagePath } as GalleryImage;
               })
             ).then((results) => {
               const imgs = results
@@ -674,6 +688,7 @@ Return ONLY a JSON object:
             )}
             <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnelStage} onChange={(e) => { setFunnelStage(e.target.value); setResult({ status: 'idle' }); }} />
             <Select label="Creative Platform" options={PLATFORM_OPTIONS} value={creativePlatform} onChange={(e) => setCreativePlatform(e.target.value)} />
+            <Select label="Output Ad Platform" options={AD_PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as 'Meta Ads Manager' | 'AiSensy')} />
           </div>
 
           <div className="flex flex-col gap-1.5">

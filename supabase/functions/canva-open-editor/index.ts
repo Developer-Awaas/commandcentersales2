@@ -49,6 +49,13 @@ Deno.serve(async (req) => {
 
   const accessToken = tokenRow.access_token
 
+  if (!asset.image_url) {
+    return new Response(
+      JSON.stringify({ error: 'Asset has no image URL — the image may still be generating. Refresh and try again.' }),
+      { status: 400, headers: corsHeaders() }
+    )
+  }
+
   try {
     // Step 1: Upload image via URL import
     const uploadRes = await fetch(`${CANVA_API_BASE}/asset-uploads`, {
@@ -115,7 +122,7 @@ Deno.serve(async (req) => {
       })
       .eq('id', creativeAssetId)
 
-    return new Response(JSON.stringify({ editUrl }), { headers: corsHeaders() })
+    return new Response(JSON.stringify({ editUrl, designId }), { headers: corsHeaders() })
   } catch (err: unknown) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),

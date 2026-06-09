@@ -18,23 +18,20 @@
   - Authenticated users can insert and select their own org's data
 */
 
-CREATE TABLE IF NOT EXISTS ai_sessions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id uuid NOT NULL,
-  user_id text NOT NULL DEFAULT 'dev-user-001',
-  session_type text NOT NULL,
-  project_ids uuid[] DEFAULT '{}',
-  input_summary text DEFAULT '',
-  input_data jsonb DEFAULT '{}',
-  output_data jsonb DEFAULT '{}',
-  health_score numeric(4,1) DEFAULT NULL,
-  tokens_used integer DEFAULT 0,
-  created_at timestamptz DEFAULT now()
-);
+-- ai_sessions table already created in earlier migration, skip if exists
+-- Only add missing columns if needed
+ALTER TABLE IF EXISTS ai_sessions
+ADD COLUMN IF NOT EXISTS session_type text,
+ADD COLUMN IF NOT EXISTS project_ids uuid[],
+ADD COLUMN IF NOT EXISTS input_data jsonb,
+ADD COLUMN IF NOT EXISTS output_data jsonb,
+ADD COLUMN IF NOT EXISTS health_score numeric(4,1),
+ADD COLUMN IF NOT EXISTS tokens_used integer;
 
+-- Use 'type' column that already exists
 CREATE INDEX IF NOT EXISTS ai_sessions_org_id_idx ON ai_sessions (org_id);
 CREATE INDEX IF NOT EXISTS ai_sessions_created_at_idx ON ai_sessions (created_at DESC);
-CREATE INDEX IF NOT EXISTS ai_sessions_session_type_idx ON ai_sessions (session_type);
+CREATE INDEX IF NOT EXISTS ai_sessions_type_idx ON ai_sessions (type);
 
 ALTER TABLE ai_sessions ENABLE ROW LEVEL SECURITY;
 

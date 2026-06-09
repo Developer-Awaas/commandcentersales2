@@ -1,3 +1,5 @@
-# commandcentersales
+# Command Center V2
 
-[![Open in Bolt](https://bolt.new/static/open-in-bolt.svg)](https://bolt.new/~/sb1-xavhyhmz)
+NH Command Center — Real-estate marketing SaaS for AWAAS Services Pvt Ltd.
+
+Stack: React + TypeScript · Supabase (Postgres + Edge Functions + Auth + Storage + Realtime) · Vite

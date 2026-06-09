@@ -30,11 +30,23 @@ interface AdobeExpressModalProps {
   imageUrl: string;
   assetId: string;
   orgId: string;
+  /** Original storage path — when provided, overwrites the file in place (saves storage). */
+  storagePath?: string;
+  /** Bucket containing storagePath (default: 'creative-assets'). */
+  storageBucket?: string;
   onSave: (editedUrl: string) => void;
   onClose: () => void;
 }
 
-export function AdobeExpressModal({ imageUrl, assetId, orgId, onSave, onClose }: AdobeExpressModalProps) {
+export function AdobeExpressModal({
+  imageUrl,
+  assetId,
+  orgId,
+  storagePath,
+  storageBucket,
+  onSave,
+  onClose,
+}: AdobeExpressModalProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'editing' | 'saving' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
   const ccRef = useRef<Awaited<ReturnType<NonNullable<typeof window.CCEverywhere>['initialize']>> | null>(null);
@@ -88,26 +100,35 @@ export function AdobeExpressModal({ imageUrl, assetId, orgId, onSave, onClose }:
               setStatus('saving');
 
               try {
-                const binary = atob(editedBase64)
-                const bytes = new Uint8Array(binary.length)
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+                const binary = atob(editedBase64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
                 const editedBlob = new Blob([bytes], { type: 'image/jpeg' });
-                const storagePath = `${orgId}/creatives/edited/${assetId}-ae.jpg`;
+
+                // When storagePath is provided, overwrite the original file (saves storage space).
+                // Otherwise fall back to legacy behaviour (create a new /edited/ file).
+                const bucket = storageBucket ?? 'creative-assets';
+                const savePath = storagePath ?? `${orgId}/creatives/edited/${assetId}-ae.jpg`;
+                const isOverwrite = !!storagePath;
 
                 const { error: uploadErr } = await supabase.storage
-                  .from('creative-assets')
-                  .upload(storagePath, editedBlob, { contentType: 'image/jpeg', upsert: true });
+                  .from(bucket)
+                  .upload(savePath, editedBlob, { contentType: 'image/jpeg', upsert: true });
                 if (uploadErr) throw new Error(uploadErr.message);
 
-                const { data: urlData } = supabase.storage.from('creative-assets').getPublicUrl(storagePath);
+                const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(savePath);
                 const publicUrl = urlData.publicUrl;
 
-                await supabase.from('creative_assets').update({
-                  edited_image_url: publicUrl,
-                  editor_used: 'adobe_express',
-                  status: 'edited',
-                  updated_at: new Date().toISOString(),
-                }).eq('id', assetId);
+                if (assetId !== 'temp') {
+                  // Overwrite mode: update image_url so edited version replaces the original in DB.
+                  // Legacy mode: store separately in edited_image_url.
+                  const dbUpdate = isOverwrite
+                    ? { image_url: publicUrl, editor_used: 'adobe_express', status: 'edited', updated_at: new Date().toISOString() }
+                    : { edited_image_url: publicUrl, editor_used: 'adobe_express', status: 'edited', updated_at: new Date().toISOString() };
+
+                  const { error: updateErr } = await supabase.from('creative_assets').update(dbUpdate).eq('id', assetId);
+                  if (updateErr) throw new Error(`DB update failed: ${updateErr.message}`);
+                }
 
                 onSave(publicUrl);
               } catch (err: unknown) {
@@ -126,7 +147,7 @@ export function AdobeExpressModal({ imageUrl, assetId, orgId, onSave, onClose }:
     }
 
     init();
-  }, [imageUrl, assetId, orgId, onSave, onClose]);
+  }, [imageUrl, assetId, orgId, storagePath, storageBucket, onSave, onClose]);
 
   if (status === 'editing') {
     // Adobe Express renders in its own iframe/overlay; we just show a minimal backdrop

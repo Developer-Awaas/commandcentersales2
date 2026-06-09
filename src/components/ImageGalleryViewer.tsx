@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { downloadImage } from '../lib/image-utils';
 import { AdobeExpressModal } from './AdobeExpressModal';
-import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
 
 export interface GalleryImage {
   id?: string;
@@ -26,17 +26,36 @@ interface LightboxState {
 
 export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
+
+  // Local copy so the gallery reflects edits without needing a prop change from the parent
+  const [localImages, setLocalImages] = useState<GalleryImage[]>(images);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [canvaLoading, setCanvaLoading] = useState<string | null>(null);
   const [adobeImage, setAdobeImage] = useState<GalleryImage | null>(null);
+  // Tracks images that have an open Canva design so we can show a "Sync" button
+  const [canvaDesignIds, setCanvaDesignIds] = useState<Record<string, string>>({});
+  const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
 
-  if (!images.length) return null;
+  // Stable key representing the current generation session: length + first image id/url.
+  // Changing this means a genuinely new set of images was passed (new generation),
+  // so we reset both localImages AND canvaDesignIds. A parent re-render that passes the
+  // same images array reference (or semantically identical images) must NOT wipe
+  // canvaDesignIds — that would hide the "Sync from Canva" button mid-session.
+  const sessionKeyRef = useRef('');
+  useEffect(() => {
+    const key = `${images.length}:${images[0]?.id ?? images[0]?.url ?? ''}`;
+    const isNewSession = key !== sessionKeyRef.current;
+    sessionKeyRef.current = key;
+    setLocalImages(images);
+    if (isNewSession) setCanvaDesignIds({});
+  }, [images]);
+
+  if (!localImages.length) return null;
 
   async function handleCanva(img: GalleryImage) {
     setCanvaLoading(img.url);
     try {
       if (img.id) {
-        // Asset already in DB — call edge function
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
         const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
         const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
@@ -44,17 +63,61 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
           body: JSON.stringify({ creativeAssetId: img.id, userId: getUserId() }),
         });
-        const json = await res.json() as { editUrl?: string; needsAuth?: boolean; authUrl?: string; error?: string };
-        if (json.editUrl) { window.open(json.editUrl, '_blank'); return; }
+        const json = await res.json() as { editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string };
+        if (json.editUrl) {
+          // Store designId so the "Sync from Canva" button appears after the user edits
+          if (json.designId && img.id) {
+            setCanvaDesignIds((prev) => ({ ...prev, [img.id!]: json.designId! }));
+          }
+          window.open(json.editUrl, '_blank');
+          return;
+        }
         if (json.authUrl) { window.location.href = json.authUrl; return; }
         if (json.error) throw new Error(json.error);
       }
-      // Fallback: open Canva's direct image editor with URL encoded
-      window.open(`https://www.canva.com/create/instagram-posts/`, '_blank');
+      // Fallback when no DB record yet
+      window.open('https://www.canva.com/create/instagram-posts/', '_blank');
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Canva error', 'error');
     } finally {
       setCanvaLoading(null);
+    }
+  }
+
+  async function handleCanvaSync(img: GalleryImage) {
+    if (!img.id) return;
+    setCanvaSyncing(img.id);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+      const res = await fetch(`${supabaseUrl}/functions/v1/canva-sync-design`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
+        body: JSON.stringify({ creativeAssetId: img.id, userId: getUserId() }),
+      });
+      const json = await res.json() as { imageUrl?: string; error?: string };
+      if (json.imageUrl) {
+        // Match by id (stable) not url (may have changed after a prior Adobe Express edit)
+        setLocalImages((prev) => prev.map((i) =>
+          (img.id ? i.id === img.id : i.url === img.url) ? { ...i, url: json.imageUrl! } : i
+        ));
+        setCanvaDesignIds((prev) => { const next = { ...prev }; delete next[img.id!]; return next; });
+        showToast('Synced from Canva!', 'success');
+        // Await DB update so errors are not silently swallowed
+        const { error: dbErr } = await supabase.from('creative_assets').update({
+          image_url: json.imageUrl,
+          editor_used: 'canva',
+          status: 'edited',
+          updated_at: new Date().toISOString(),
+        }).eq('id', img.id!);
+        if (dbErr) console.warn('[canva-sync] DB update failed:', dbErr.message);
+      } else {
+        throw new Error(json.error ?? 'Sync failed');
+      }
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Canva sync failed', 'error');
+    } finally {
+      setCanvaSyncing(null);
     }
   }
 
@@ -65,18 +128,16 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
 
   function handleAdobeSave(editedUrl: string) {
     showToast('Saved via Adobe Express!', 'success');
-    if (adobeImage?.id) {
-      supabase.from('creative_assets').update({
-        edited_image_url: editedUrl,
-        editor_used: 'adobe_express',
-        status: 'edited',
-        updated_at: new Date().toISOString(),
-      }).eq('id', adobeImage.id);
+    if (adobeImage) {
+      // Update the gallery in place — no download needed
+      setLocalImages((prev) =>
+        prev.map((img) => img.url === adobeImage.url ? { ...img, url: editedUrl } : img)
+      );
     }
     setAdobeImage(null);
   }
 
-  const current = lightbox !== null ? images[lightbox.index] : null;
+  const current = lightbox !== null ? localImages[lightbox.index] : null;
 
   return (
     <>
@@ -84,7 +145,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">
-            Generated Images ({images.length})
+            Generated Images ({localImages.length})
           </p>
           {onClose && (
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-hover text-text-tertiary hover:text-text-primary transition-all">
@@ -93,9 +154,9 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           )}
         </div>
 
-        <div className={`grid gap-4 ${images.length === 1 ? 'grid-cols-1 max-w-sm' : images.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {images.map((img, i) => (
-            <div key={img.url} className="flex flex-col gap-2">
+        <div className={`grid gap-4 ${localImages.length === 1 ? 'grid-cols-1 max-w-sm' : localImages.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          {localImages.map((img, i) => (
+            <div key={img.id ?? img.url} className="flex flex-col gap-2">
               {/* Image card */}
               <div
                 className="relative aspect-square rounded-xl overflow-hidden bg-surface-sunken border border-border cursor-pointer group"
@@ -138,6 +199,20 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 </button>
               </div>
 
+              {/* Canva sync button — appears after "Edit in Canva" is opened */}
+              {img.id && canvaDesignIds[img.id] && (
+                <button
+                  onClick={() => handleCanvaSync(img)}
+                  disabled={canvaSyncing === img.id}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[11px] font-medium hover:bg-teal-500/20 transition-all disabled:opacity-50"
+                >
+                  {canvaSyncing === img.id
+                    ? <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                    : <RefreshCw size={11} />}
+                  {canvaSyncing === img.id ? 'Syncing…' : 'Sync from Canva'}
+                </button>
+              )}
+
               <button
                 onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all"
@@ -164,7 +239,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
             <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
               <span className="text-xs text-text-tertiary capitalize">{current.label ?? `Image ${lightbox.index + 1}`}</span>
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-text-tertiary">{lightbox.index + 1} / {images.length}</span>
+                <span className="text-[11px] text-text-tertiary">{lightbox.index + 1} / {localImages.length}</span>
                 <button onClick={() => setLightbox(null)} className="p-1.5 rounded-lg hover:bg-surface-hover text-text-tertiary transition-all">
                   <X size={14} />
                 </button>
@@ -182,7 +257,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                   <ChevronLeft size={16} />
                 </button>
               )}
-              {lightbox.index < images.length - 1 && (
+              {lightbox.index < localImages.length - 1 && (
                 <button
                   onClick={() => setLightbox((l) => l ? { ...l, index: l.index + 1 } : null)}
                   className="absolute right-3 p-2 rounded-xl bg-surface-elevated border border-border text-text-tertiary hover:text-text-primary transition-all"
@@ -193,7 +268,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 px-5 py-4 border-t border-border flex-shrink-0">
+            <div className="flex items-center gap-2 px-5 py-4 border-t border-border flex-shrink-0 flex-wrap">
               <button
                 onClick={() => handleCanva(current)}
                 disabled={canvaLoading === current.url}
@@ -209,6 +284,18 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 <Layers size={13} />
                 Adobe Express
               </button>
+              {current.id && canvaDesignIds[current.id] && (
+                <button
+                  onClick={() => handleCanvaSync(current)}
+                  disabled={canvaSyncing === current.id}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-medium hover:bg-teal-500/20 transition-all disabled:opacity-50 flex-1 justify-center"
+                >
+                  {canvaSyncing === current.id
+                    ? <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                    : <RefreshCw size={13} />}
+                  {canvaSyncing === current.id ? 'Syncing…' : 'Sync from Canva'}
+                </button>
+              )}
               <button
                 onClick={() => downloadImage(current.url, `generated-${current.label ?? lightbox.index + 1}.jpg`)}
                 className="p-2 rounded-xl border border-border text-text-tertiary hover:text-text-primary transition-all"
@@ -226,6 +313,8 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           imageUrl={adobeImage.url}
           assetId={adobeImage.id ?? 'temp'}
           orgId={getOrgId()}
+          storagePath={adobeImage.storagePath}
+          storageBucket="brand-assets"
           onSave={handleAdobeSave}
           onClose={() => setAdobeImage(null)}
         />

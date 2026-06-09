@@ -17,6 +17,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
+import { getOrgId, getUserId } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
 import { TargetingVerifier } from '../../components/TargetingVerifier';
@@ -1308,11 +1309,14 @@ interface GeneratedImageState {
   base64: string;
   mimeType: string;
   publicUrl?: string;
+  assetId?: string;
+  storagePath?: string;
   aspectRatio: '1:1' | '9:16';
 }
 
 function GeminiImageCard({ img }: { img: GeneratedImageState }) {
   const [urlCopied, setUrlCopied] = useState(false);
+  const [canvaLoading, setCanvaLoading] = useState(false);
   const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
   const label = img.aspectRatio === '9:16' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
 
@@ -1323,7 +1327,29 @@ function GeminiImageCard({ img }: { img: GeneratedImageState }) {
     a.click();
   }
 
-  function openInCanva() {
+  async function openInCanva() {
+    // If the image has a DB record, use the Canva API for a proper edit session
+    if (img.assetId) {
+      setCanvaLoading(true);
+      try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
+          body: JSON.stringify({ creativeAssetId: img.assetId, userId: getUserId() }),
+        });
+        const json = await res.json() as { editUrl?: string; authUrl?: string; error?: string };
+        if (json.editUrl) { window.open(json.editUrl, '_blank', 'noopener'); return; }
+        if (json.authUrl) { window.location.href = json.authUrl; return; }
+        if (json.error) throw new Error(json.error);
+      } catch {
+        // Fall through to clipboard-copy fallback
+      } finally {
+        setCanvaLoading(false);
+      }
+    }
+    // Fallback: copy public URL so user can paste into Canva → Uploads → Upload from URL
     const urlToCopy = img.publicUrl ?? dataUrl;
     navigator.clipboard.writeText(urlToCopy).catch(() => {});
     setUrlCopied(true);
@@ -1344,10 +1370,13 @@ function GeminiImageCard({ img }: { img: GeneratedImageState }) {
           </button>
           <button
             onClick={openInCanva}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${urlCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-[#7D2AE8] text-white hover:bg-[#6B22D0] border border-transparent'}`}
+            disabled={canvaLoading}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-60 ${urlCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-[#7D2AE8] text-white hover:bg-[#6B22D0] border border-transparent'}`}
           >
-            <ExternalLink size={12} />
-            {urlCopied ? 'URL copied — paste in Canva!' : 'Edit in Canva'}
+            {canvaLoading
+              ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <ExternalLink size={12} />}
+            {canvaLoading ? 'Opening…' : urlCopied ? 'URL copied — paste in Canva!' : 'Edit in Canva'}
           </button>
         </div>
       </div>
@@ -1400,12 +1429,17 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
         if (result.status === 'fulfilled' && result.value.length > 0) {
           const img = result.value[0];
           let publicUrl: string | undefined;
+          let assetId: string | undefined;
+          let storagePath: string | undefined;
           try {
-            publicUrl = await uploadGeminiImageToSupabase(img.base64, img.mimeType);
+            const uploaded = await uploadGeminiImageToSupabase(img.base64, img.mimeType);
+            publicUrl = uploaded.url;
+            assetId = uploaded.id;
+            storagePath = uploaded.storagePath;
           } catch {
             // non-fatal — image still shows from base64
           }
-          collected.push({ base64: img.base64, mimeType: img.mimeType, publicUrl, aspectRatio: ratio });
+          collected.push({ base64: img.base64, mimeType: img.mimeType, publicUrl, assetId, storagePath, aspectRatio: ratio });
         }
       }
 
