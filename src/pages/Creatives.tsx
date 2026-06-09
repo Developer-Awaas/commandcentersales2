@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { AlertCircle, BookOpen, ChevronDown, ChevronUp, Palette, RefreshCw, Save, Upload, X } from 'lucide-react';
+import { AlertCircle, BookOpen, ChevronDown, ChevronUp, Palette, RefreshCw, Save, Upload, X, ImageIcon } from 'lucide-react';
+import { CreativeViewer } from '../components/CreativeViewer';
+import { ImageGalleryViewer, type GalleryImage } from '../components/ImageGalleryViewer';
+import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
 import { InlineCreativeReview, type InlineReviewProject } from '../components/InlineCreativeReview';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
@@ -316,6 +319,8 @@ export function Creatives() {
   const [image, setImage] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  const [generatingImages, setGeneratingImages] = useState(false);
   const { showToast } = useToast();
   const [library, setLibrary] = useState<LibraryCreative[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
@@ -538,6 +543,28 @@ export function Creatives() {
             },
           });
 
+          // Auto-generate actual images from nanoPrompts in background
+          const promptsToRender = aiVariants
+            .filter((v) => v.nanoPrompt)
+            .map((v) => ({ label: v.angle, prompt: v.nanoPrompt }));
+          if (promptsToRender.length > 0) {
+            setGalleryImages([]);
+            setGeneratingImages(true);
+            Promise.allSettled(
+              promptsToRender.map(async ({ label, prompt }) => {
+                const [img] = await generateImageWithGemini(prompt, '1:1');
+                const url = await uploadGeminiImageToSupabase(img.base64, img.mimeType);
+                return { url, label } as GalleryImage;
+              })
+            ).then((results) => {
+              const imgs = results
+                .filter((r): r is PromiseFulfilledResult<GalleryImage> => r.status === 'fulfilled')
+                .map((r) => r.value);
+              setGalleryImages(imgs);
+              if (imgs.length === 0) showToast('Image generation failed — check VITE_GEMINI_API_KEY.', 'error');
+            }).finally(() => setGeneratingImages(false));
+          }
+
           logAiSession(supabase, {
             sessionType: 'creative',
             projectIds: [projectId],
@@ -691,6 +718,51 @@ Return ONLY a JSON object:
               platform={creativePlatform}
             />
           )}
+        </div>
+      )}
+
+      {/* Image Gallery — auto-rendered from nanoPrompts */}
+      {(generatingImages || galleryImages.length > 0) && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-border" />
+            <div className="flex items-center gap-2">
+              <ImageIcon size={13} className="text-brand" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">AI-Rendered Images</span>
+            </div>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          {generatingImages && galleryImages.length === 0 ? (
+            <div className="flex items-center gap-2 py-4">
+              <Spinner size="sm" />
+              <span className="text-xs text-text-tertiary">Rendering images with Gemini…</span>
+            </div>
+          ) : (
+            <ImageGalleryViewer
+              images={galleryImages}
+              onClose={() => setGalleryImages([])}
+            />
+          )}
+        </div>
+      )}
+
+      {/* AI Image Generator (Gemini) — per campaign+funnel */}
+      {projectId && (
+        <div className="mt-10">
+          <div className="flex items-center gap-2 mb-5">
+            <div className="h-px flex-1 bg-border" />
+            <div className="flex items-center gap-2">
+              <ImageIcon size={14} className="text-brand" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">
+                Gemini AI Images
+              </span>
+            </div>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <CreativeViewer
+            campaignId={projectId}
+            funnelStage={funnelStage.toLowerCase() === 'tofu' ? 'awareness' : funnelStage.toLowerCase() === 'mofu' ? 'consideration' : 'conversion'}
+          />
         </div>
       )}
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, RefreshCw, Search, TrendingUp, Upload } from 'lucide-react';
+import { CampaignMetricsChart } from '../components/CampaignMetricsChart';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
@@ -715,8 +716,13 @@ Return ONLY a JSON object:
         </div>
       )}
 
+      {/* Auto-synced Meta metrics section */}
+      <div className="mb-8">
+        <CampaignMetricsChart orgId={undefined} campaignId={projectId !== 'all' ? projectId : undefined} />
+      </div>
+
       <div className="mt-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-4">Metrics History</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-4">Manually Entered Metrics History</p>
         {historyLoading ? (
           <div className="flex items-center gap-2 py-4">
             <Spinner size="sm" />

@@ -11,7 +11,12 @@ import {
   Copy,
   CheckCircle,
   Info,
+  ImageIcon,
+  Download,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
+import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
 import { TargetingVerifier } from '../../components/TargetingVerifier';
@@ -1299,8 +1304,72 @@ function FullStrategyPlaceholder({ inputs, projects }: { inputs: FullStrategyInp
   );
 }
 
+interface GeneratedImageState {
+  base64: string;
+  mimeType: string;
+  publicUrl?: string;
+  aspectRatio: '1:1' | '9:16';
+}
+
+function GeminiImageCard({ img }: { img: GeneratedImageState }) {
+  const [urlCopied, setUrlCopied] = useState(false);
+  const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
+  const label = img.aspectRatio === '9:16' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
+
+  function download() {
+    const a = document.createElement('a');
+    a.href = img.publicUrl ?? dataUrl;
+    a.download = `aanya-creative-${img.aspectRatio.replace(':', 'x')}-${Date.now()}.${img.mimeType.split('/')[1] ?? 'png'}`;
+    a.click();
+  }
+
+  function openInCanva() {
+    const urlToCopy = img.publicUrl ?? dataUrl;
+    navigator.clipboard.writeText(urlToCopy).catch(() => {});
+    setUrlCopied(true);
+    setTimeout(() => setUrlCopied(false), 3000);
+    window.open('https://www.canva.com/create/social-media/', '_blank', 'noopener');
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-500/30 bg-emerald-900/10 overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-emerald-500/20 flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">{label}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={download}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-text-tertiary hover:text-text-primary border border-border hover:border-border/80 transition-all"
+          >
+            <Download size={12} /> Download
+          </button>
+          <button
+            onClick={openInCanva}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${urlCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-[#7D2AE8] text-white hover:bg-[#6B22D0] border border-transparent'}`}
+          >
+            <ExternalLink size={12} />
+            {urlCopied ? 'URL copied — paste in Canva!' : 'Edit in Canva'}
+          </button>
+        </div>
+      </div>
+      <img
+        src={dataUrl}
+        alt={`Gemini generated ${label}`}
+        className="w-full object-contain max-h-[480px]"
+      />
+      {urlCopied && (
+        <div className="px-4 py-2 bg-emerald-900/30 border-t border-emerald-500/20 text-xs text-emerald-300">
+          In Canva: click <span className="font-semibold">Uploads → Upload from URL</span> and paste the image URL.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project }: { data: SeniorDesignerResult; languages: string[]; onRetry?: () => void; savedId?: string; project?: InlineReviewProject | null }) {
   const [promptCopied, setPromptCopied] = useState(false);
+  const [geminiGenerating, setGeminiGenerating] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+  const [geminiImages, setGeminiImages] = useState<GeneratedImageState[]>([]);
 
   function copyPrompt() {
     if (!data.nanobanana_prompt_main) return;
@@ -1308,6 +1377,48 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
       setPromptCopied(true);
       setTimeout(() => setPromptCopied(false), 2000);
     });
+  }
+
+  async function handleGenerateWithGemini() {
+    if (!data.nanobanana_prompt_main) return;
+    setGeminiGenerating(true);
+    setGeminiError(null);
+    setGeminiImages([]);
+
+    try {
+      const [feedResult, storyResult] = await Promise.allSettled([
+        generateImageWithGemini(data.nanobanana_prompt_main, '1:1'),
+        generateImageWithGemini(data.nanobanana_prompt_main, '9:16'),
+      ]);
+
+      const collected: GeneratedImageState[] = [];
+
+      for (const [result, ratio] of [
+        [feedResult, '1:1'],
+        [storyResult, '9:16'],
+      ] as [PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, '1:1' | '9:16'][]) {
+        if (result.status === 'fulfilled' && result.value.length > 0) {
+          const img = result.value[0];
+          let publicUrl: string | undefined;
+          try {
+            publicUrl = await uploadGeminiImageToSupabase(img.base64, img.mimeType);
+          } catch {
+            // non-fatal — image still shows from base64
+          }
+          collected.push({ base64: img.base64, mimeType: img.mimeType, publicUrl, aspectRatio: ratio });
+        }
+      }
+
+      if (collected.length === 0) {
+        setGeminiError('Both image sizes failed to generate. Check your VITE_GEMINI_API_KEY and try again.');
+      } else {
+        setGeminiImages(collected);
+      }
+    } catch (err) {
+      setGeminiError(err instanceof Error ? err.message : 'Image generation failed.');
+    } finally {
+      setGeminiGenerating(false);
+    }
   }
 
   return (
@@ -1333,21 +1444,62 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
         <Card className="p-5 border-2 border-amber-500/30">
           <div className="flex items-start justify-between gap-4 mb-3">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400 mb-1">Nanobanana Prompt</div>
-              <div className="text-xs text-text-tertiary">Copy the full prompt below, then upload the reference images in the listed order.</div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400 mb-1">Aanya's Creative Prompt</div>
+              <div className="text-xs text-text-tertiary">Generate the image directly via Gemini, or copy to use in Nanobanana.</div>
             </div>
-            <button
-              onClick={copyPrompt}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0 ${promptCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500 text-black hover:bg-amber-400'}`}
-            >
-              {promptCopied ? <CheckCircle size={14} /> : <Copy size={14} />}
-              {promptCopied ? 'Copied!' : 'Copy Prompt'}
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={copyPrompt}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${promptCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'border border-border text-text-tertiary hover:text-text-primary hover:border-border/80'}`}
+              >
+                {promptCopied ? <CheckCircle size={14} /> : <Copy size={14} />}
+                {promptCopied ? 'Copied!' : 'Copy'}
+              </button>
+              <button
+                onClick={handleGenerateWithGemini}
+                disabled={geminiGenerating}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+              >
+                {geminiGenerating ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
+                {geminiGenerating ? 'Generating…' : 'Generate with Gemini'}
+              </button>
+            </div>
           </div>
           <pre className="bg-black/50 rounded-lg p-4 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-96 overflow-y-auto leading-relaxed">
             {data.nanobanana_prompt_main}
           </pre>
         </Card>
+      )}
+
+      {/* Gemini-generated images */}
+      {geminiGenerating && (
+        <div className="flex items-center gap-3 px-5 py-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+          <Loader2 size={16} className="animate-spin text-amber-400 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-300">Generating Feed + Story images with Gemini Imagen 3…</p>
+            <p className="text-xs text-text-tertiary mt-0.5">This usually takes 10–20 seconds.</p>
+          </div>
+        </div>
+      )}
+
+      {geminiError && (
+        <div className="flex items-start gap-3 px-5 py-4 rounded-xl bg-red-500/10 border border-red-500/20">
+          <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-300">{geminiError}</p>
+        </div>
+      )}
+
+      {geminiImages.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-surface-elevated" />
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Gemini Generated Creatives</span>
+            <div className="h-px flex-1 bg-surface-elevated" />
+          </div>
+          {geminiImages.map((img, i) => (
+            <GeminiImageCard key={i} img={img} />
+          ))}
+        </div>
       )}
 
       {/* Reference Image Manifest */}
