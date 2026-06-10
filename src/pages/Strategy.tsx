@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Database, FolderKanban, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
@@ -8,7 +8,6 @@ import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
-import { buildMetaQuickGeneratePrompt } from '../lib/meta-prompts';
 import { buildQuickGenerateBrief } from '../lib/senior-designer-prompts';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
@@ -32,19 +31,6 @@ import {
   autoCreateConfigFromProject,
 } from './projects/types';
 
-function mapCampaignGoalFromInputs(
-  inputs: QuickGenerateInputs
-): 'lead_generation' | 'branding' | 'awareness' | 'festive_event' | 'engagement' | 'milestone' | 'educational' {
-  const obj = (inputs.objective || '').toLowerCase();
-  if (obj.includes('lead')) return 'lead_generation';
-  if (obj.includes('brand')) return 'branding';
-  if (obj.includes('aware')) return 'awareness';
-  if (obj.includes('festiv') || obj.includes('event')) return 'festive_event';
-  if (obj.includes('engag')) return 'engagement';
-  if (obj.includes('milest')) return 'milestone';
-  if (obj.includes('educ')) return 'educational';
-  return 'lead_generation';
-}
 
 interface SelectedConfig {
   config: ProjectConfiguration;
@@ -129,7 +115,14 @@ export function Strategy() {
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<StrategyResult>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
+
+  useEffect(() => {
+    if (result) {
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    }
+  }, [result]);
   const [brandKit, setBrandKit] = useState<{ default_languages?: string[] } | null>(null);
 
   useEffect(() => {
@@ -273,13 +266,9 @@ export function Strategy() {
       return;
     }
 
-    const isMeta = quickInputs.adPlatform.toLowerCase().includes('meta');
-    const isNanobanana = quickInputs.creativePlatform.toLowerCase().includes('nanobanana');
-
-    // ── Senior Designer path (Nanobanana, non-Meta) ──────────────────────────
-    if (isNanobanana && !isMeta) {
-      setSubmitting(true);
-      try {
+    // ── Senior Designer path (always) ────────────────────────────────────────
+    setSubmitting(true);
+    try {
         const funnel =
           quickInputs.campaignGoal === 'awareness' || quickInputs.campaignGoal === 'branding'
             ? 'TOFU'
@@ -415,313 +404,14 @@ export function Strategy() {
         if (updatePricesInDb) await savePriceUpdates();
 
         setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Unexpected error';
-        showToast('Generation failed. Check console.', 'error');
-        console.error('[Senior Designer]', err);
-        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, error: msg });
-      }
-      setSubmitting(false);
-      return;
-    }
-
-    // ── Legacy path (Meta, or non-Nanobanana platforms) ──────────────────────
-    setSubmitting(true);
-
-    const [context, verifiedKw] = await Promise.all([
-      buildContext({ projectId: quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined }),
-      loadVerifiedKeywords(quickInputs.adPlatform),
-    ]);
-
-    const verifiedSection = [
-      verifiedKw.available.length > 0 ? `VERIFIED TARGETING (confirmed available in ${quickInputs.adPlatform}): ${verifiedKw.available.join(', ')}` : '',
-      verifiedKw.notFound.length > 0 ? `NOT AVAILABLE (do NOT suggest these): ${verifiedKw.notFound.join(', ')}` : '',
-    ].filter(Boolean).join('\n');
-
-    // Build project detail block
-    let projBlock: string;
-    let configsForPrompt: SelectedConfig[] = [];
-
-    if (quickInputs.projectId === 'custom') {
-      const cp = quickInputs.customProject;
-      projBlock = [
-        `Name: ${cp.name}`,
-        `Location: ${cp.locality ? cp.locality + ', ' : ''}${cp.city}`,
-        `Status: Not specified`,
-        `CONFIGURATIONS BEING ADVERTISED:`,
-        `  - Type: ${cp.type}, Price: ₹${cp.price}L, Units Available: ${cp.unitsLeft}`,
-        `USPs: ${cp.usps || 'None listed'}`,
-        `RERA: NOT AVAILABLE — DO NOT MENTION RERA IN ANY OUTPUT`,
-      ].join('\n');
-    } else {
-      const fp = fullProject;
-      const checkedConfigs = selectedConfigs.filter((sc) => sc.checked);
-      configsForPrompt = checkedConfigs;
-
-      const configLines = checkedConfigs.length > 0
-        ? checkedConfigs.map((sc) => [
-            `  - Type: ${sc.config.type}`,
-            sc.config.carpet ? `    Carpet Area: ${sc.config.carpet}` : '',
-            `    Current Price: ₹${sc.currentPrice || sc.config.price_lacs}L`,
-            sc.config.remaining_units != null ? `    Units Available: ${sc.config.remaining_units}` : '',
-            sc.config.notes ? `    Notes: ${sc.config.notes}` : '',
-          ].filter(Boolean).join('\n')).join('\n')
-        : `  - Type: ${fp?.unit_types || 'Not specified'}, Price: ₹${fp?.price_range_lacs || 'Not specified'}L`;
-
-      projBlock = [
-        `Name: ${fp?.name ?? projectName}`,
-        `Location: ${fp?.locality ?? ''}, ${fp?.city ?? 'Bhubaneswar'}`,
-        `Status: ${fp?.status ?? 'Not specified'}`,
-        fp?.completion_pct != null ? `Completion: ${fp.completion_pct}%` : '',
-        fp?.expected_possession ? `Possession: ${fp.expected_possession}` : '',
-        fp?.nearest_landmarks ? `Landmarks: ${fp.nearest_landmarks}` : '',
-        '',
-        `CONFIGURATIONS BEING ADVERTISED (use ONLY these — do NOT mention any other types):`,
-        configLines,
-        '',
-        `USPs: ${fp?.usps || 'None listed'}`,
-        fp?.amenities ? `Amenities: ${fp.amenities}` : '',
-        `RERA: ${fp?.rera_number || 'NOT AVAILABLE — DO NOT MENTION RERA IN ANY OUTPUT'}`,
-      ].filter((l) => l !== undefined).join('\n');
-    }
-
-    const reraNote = fullProject?.rera_number || quickInputs.projectId === 'custom' ? '' : 'NOT AVAILABLE';
-    const creativeConfigNote = configsForPrompt.length > 0
-      ? configsForPrompt.map((sc) => `${sc.config.type} at ₹${sc.currentPrice || sc.config.price_lacs}L`).join(', ')
-      : 'as specified above';
-
-    let quickPrompt: string;
-
-    if (isMeta) {
-      const checkedConfigsForMeta = selectedConfigs
-        .filter((sc) => sc.checked)
-        .map((sc) => ({
-          type: sc.config.type,
-          price_lacs: sc.config.price_lacs,
-          userPrice: sc.currentPrice,
-          remaining_units: sc.config.remaining_units,
-          notes: sc.config.notes,
-          carpet: sc.config.carpet,
-        }));
-
-      const metaPrompt = buildMetaQuickGeneratePrompt({
-        project: fullProject,
-        configs: checkedConfigsForMeta.length > 0 ? checkedConfigsForMeta : [{ type: quickInputs.customProject.type, price_lacs: quickInputs.customProject.price, userPrice: quickInputs.customProject.price, remaining_units: quickInputs.customProject.unitsLeft }],
-        perSqftEnabled: quickInputs.includePerSqft,
-        perSqftValue: quickInputs.perSqftRate,
-        description: quickInputs.prompt || 'Generate a high-converting lead gen ad.',
-        objective: quickInputs.objective,
-        competitorAnalysis: quickInputs.competitorAnalysis,
-        verifiedTargeting: verifiedKw,
-      });
-      const metaFinalPrompt = context ? metaPrompt + '\n\n' + context : metaPrompt;
-
-      // CALL 1 — Meta strategy/targeting (unchanged)
-      const metaRes = await aiCall(metaFinalPrompt);
-      if (metaRes.error) {
-        showToast(String(metaRes.error), 'error');
-        setResult({ type: 'quick', inputs: quickInputs, projectName, error: String(metaRes.error), isMeta });
-        setSubmitting(false);
-        return;
-      }
-
-      const metaParsed = (metaRes.raw ? (() => {
-        const s = String(metaRes.raw);
-        try { return JSON.parse(s); } catch { /* fallthrough */ }
-        try { return JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); } catch { /* fallthrough */ }
-        const st = s.indexOf('{'); const en = s.lastIndexOf('}');
-        if (st !== -1 && en !== -1) return JSON.parse(s.substring(st, en + 1));
-        return metaRes;
-      })() : metaRes) as MetaAiResult;
-
-      // CALL 2 — Aanya senior designer creative upgrade
-      try {
-        console.log('🎨 [AANYA-META] Calling Aanya for creative prompt upgrade...');
-
-        const { systemPrompt: aanyaSystem, userPrompt: aanyaUser } = await buildQuickGenerateBrief({
-          user_brief: quickInputs.prompt,
-          project_id: quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined,
-          project_data:
-            quickInputs.projectId === 'custom'
-              ? {
-                  name: quickInputs.customProject.name,
-                  locality: quickInputs.customProject.locality,
-                  city: quickInputs.customProject.city,
-                  price_range_lacs: quickInputs.customProject.price,
-                  units_remaining: parseInt(quickInputs.customProject.unitsLeft) || null,
-                  usps: quickInputs.customProject.usps,
-                  unit_types: quickInputs.customProject.type,
-                }
-              : undefined,
-          campaign_goal: mapCampaignGoalFromInputs(quickInputs),
-          funnel_stage: 'BOFU',
-          placement: 'feed_square',
-          languages: quickInputs.languages,
-          quick_references: quickInputs.quickRefs,
-          ad_platform: 'Meta Ads Manager',
-        });
-
-        console.log('🎨 [AANYA-META] System prompt length:', aanyaSystem.length);
-        console.log('🎨 [AANYA-META] User prompt brand check:', {
-          has_1B4332: aanyaUser.includes('#1B4332'),
-          has_2DD4A8: aanyaUser.includes('#2DD4A8'),
-          has_INVIOLABLE: aanyaUser.includes('INVIOLABLE') || aanyaSystem.includes('INVIOLABLE'),
-          has_SECTION_1: aanyaUser.includes('SECTION 1: SCENE NARRATIVE'),
-        });
-
-        const aanyaRes = await aiCall(aanyaUser, aanyaSystem, 16000);
-        console.log('🎨 [AANYA-META] Response keys:', Object.keys(aanyaRes));
-
-        let aanyaParsed: SeniorDesignerResult;
-        if (aanyaRes.raw) {
-          const s = String(aanyaRes.raw);
-          console.log('🎨 [AANYA-META] Raw response first 500 chars:', s.substring(0, 500));
-          try { aanyaParsed = JSON.parse(s); }
-          catch {
-            try { aanyaParsed = JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
-            catch {
-              const st = s.indexOf('{'); const en = s.lastIndexOf('}');
-              if (st !== -1 && en !== -1) { aanyaParsed = JSON.parse(s.substring(st, en + 1)); }
-              else { throw new Error('Could not parse Aanya response'); }
-            }
-          }
-        } else if (aanyaRes.error) {
-          throw new Error(String(aanyaRes.error));
-        } else {
-          aanyaParsed = aanyaRes as SeniorDesignerResult;
-        }
-
-        if (aanyaParsed.nanobanana_prompt_main) {
-          metaParsed.creativePrompt = aanyaParsed.nanobanana_prompt_main;
-        }
-        if (aanyaParsed.nanobanana_prompt_story) {
-          metaParsed.creativePromptStory = aanyaParsed.nanobanana_prompt_story;
-        }
-        metaParsed._aanyaBrief = aanyaParsed;
-
-        console.log('✅ [AANYA-META] Creative prompts upgraded by Aanya');
-      } catch (aanyaErr) {
-        console.warn('⚠️ [AANYA-META] Aanya call failed, keeping Meta-generated prompts:', aanyaErr);
-      }
-
-      setResult({ type: 'quick', inputs: quickInputs, projectName, aiData: metaParsed, isMeta: true });
-      logAiSession(supabase, {
-        sessionType: 'quick_generate',
-        projectIds: quickInputs.projectId && quickInputs.projectId !== 'custom' ? [quickInputs.projectId] : [],
-        inputSummary: quickInputs.prompt || `Meta quick generate for ${projectName}`,
-        inputData: { prompt: quickInputs.prompt, objective: quickInputs.objective, platform: quickInputs.adPlatform },
-        outputData: metaParsed as Record<string, unknown>,
-      });
-      logActivity(supabase, {
-        action: 'generated_strategy',
-        entityType: 'ai_session',
-        details: { mode: 'quick_meta', project: projectName },
-      });
-      if (updatePricesInDb) await savePriceUpdates();
-      setSubmitting(false);
-      return;
-    } else {
-      const creativePromptBase = `COMPLETE DETAILED prompt for ${quickInputs.creativePlatform} to generate 1080x1080 ad image. MANDATORY: Use ONLY the exact project data from the prompt — Project: ${fullProject?.name ?? quickInputs.customProject.name}, Location: ${fullProject?.locality ?? quickInputs.customProject.locality}, Configurations: ${creativeConfigNote}. Do NOT add RERA${reraNote ? ' (not provided)' : ''}. Do NOT invent unit types or amenities not listed. Include: visual style, color palette (#1B4332, #2DD4A8), text overlay with headline text, logo 'Neelachala Homes' top-left 80x80px, mood matching ${quickInputs.objective}, 1080x1080 dimensions.`;
-
-      const creativePromptStoryBase = `COMPLETE DETAILED prompt for ${quickInputs.creativePlatform} to generate 1080x1920 story ad image. Same project data as above. Vertical composition, brand colors #1B4332 #2DD4A8, logo 'Neelachala Homes' top-left, CTA at bottom, 1080x1920 dimensions.`;
-
-      const prompt = [
-        'CRITICAL RULES — READ BEFORE GENERATING:',
-        '1. Use ONLY the configurations listed below. If only 2BHK is listed, do NOT mention 3BHK or any other type.',
-        '2. Use the exact prices given. Do NOT round or modify.',
-        '3. If RERA says "NOT AVAILABLE", do NOT include RERA in any text or creative.',
-        '4. If amenities are not listed, do NOT invent amenities.',
-        '5. All ad copy, headlines, descriptions, and creative prompts must reflect ONLY this project data.',
-        '',
-        'Generate a SINGLE ready-to-deploy real estate ad. Write REAL content, not placeholders.',
-        `USER REQUEST: ${quickInputs.prompt || 'Generate a high-converting ad.'}`,
-        '',
-        `PROJECT DETAILS — USE ONLY THESE EXACT VALUES:\n${projBlock}`,
-        '',
-        `OBJECTIVE: ${quickInputs.objective}`,
-        `CREATIVE PLATFORM: ${quickInputs.creativePlatform}`,
-        `AD PLATFORM: ${quickInputs.adPlatform}`,
-        verifiedSection || '',
-        quickInputs.competitorAnalysis ? `COMPETITOR INTELLIGENCE: ${quickInputs.competitorAnalysis}. Differentiate the ad.` : '',
-        quickInputs.referenceImage ? 'REFERENCE IMAGE: User uploaded a reference image. Incorporate its style.' : '',
-        quickInputs.includePerSqft && quickInputs.perSqftRate
-          ? `INCLUDE PRICE PER SQ.FT in ad copy and creative: ₹${quickInputs.perSqftRate}/sqft. Mention in headline or primary text where relevant.`
-          : 'DO NOT mention per sqft rate anywhere.',
-        'CRITICAL: primaryText = actual 150-250 char ad copy with emojis. headline = actual max 25 chars.',
-        `Respond in this EXACT JSON format:`,
-        JSON.stringify({
-          idea: 'concept in 1 sentence',
-          campaignName: `NH-PROJ-BOFU-${new Date().toLocaleString('en-IN', { month: 'short', year: '2-digit' }).replace(' ', '').toUpperCase()}`,
-          objective: quickInputs.objective,
-          adType: 'CTWA',
-          primaryText: 'ACTUAL AD COPY 150-250 chars with emojis',
-          primaryTextOdia: 'Odia translation of primaryText',
-          headline: 'ACTUAL HEADLINE max 25 chars',
-          description: 'ACTUAL description 30 chars',
-          callToAction: 'Send WhatsApp Message',
-          locations: 'cities to target',
-          ageRange: '30 to 50',
-          gender: 'All',
-          interests: 'comma-separated interest keywords',
-          demographics: 'REAL Meta demographics: Job Titles, Education Level, Life Events',
-          occupations: 'specific job titles: Software Engineer, Doctor, Business Owner',
-          behaviors: 'targeting behaviors',
-          placements: 'placements string',
-          instagramPlacements: ['Feed', 'Stories', 'Reels'],
-          facebookPlacements: ['Feed', 'Reels', 'Stories'],
-          audienceExpansion: 'ON or OFF with reason',
-          dailyBudget: '500',
-          duration: '7',
-          bidStrategy: 'Lowest cost',
-          icebreakers: ['real icebreaker 1', 'real icebreaker 2', 'real icebreaker 3'],
-          creativePrompt: creativePromptBase,
-          creativePromptStory: creativePromptStoryBase,
-          hashtags: ['15 real hashtags'],
-          whatsappFlow: 'recommendation for WhatsApp flow',
-          launchChecklist: ['step1', 'step2', 'step3'],
-        }),
-      ]
-        .filter(Boolean)
-        .join('\n\n');
-
-      quickPrompt = context ? prompt + '\n\n' + context : prompt;
-    }
-
-    try {
-      const res = await aiCall(quickPrompt);
-      if (res.error) {
-        showToast(String(res.error), 'error');
-        setResult({ type: 'quick', inputs: quickInputs, projectName, error: String(res.error), isMeta });
-      } else if (res.raw) {
-        setResult({ type: 'quick', inputs: quickInputs, projectName, rawText: String(res.raw), isMeta });
-      } else {
-        setResult({ type: 'quick', inputs: quickInputs, projectName, aiData: res as QuickAiResult, isMeta });
-        // Save price updates to DB if enabled
-        if (updatePricesInDb) {
-          await savePriceUpdates();
-        }
-        logAiSession(supabase, {
-          sessionType: 'quick_generate',
-          projectIds: quickInputs.projectId && quickInputs.projectId !== 'custom' ? [quickInputs.projectId] : [],
-          inputSummary: quickInputs.prompt || `Quick generate for ${projectName}`,
-          inputData: { prompt: quickInputs.prompt, objective: quickInputs.objective, platform: quickInputs.adPlatform },
-          outputData: res,
-        });
-        logActivity(supabase, {
-          action: 'generated_strategy',
-          entityType: 'ai_session',
-          details: { mode: 'quick', project: projectName },
-        });
-      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';
-      showToast(msg, 'error');
-      setResult({ type: 'quick', inputs: quickInputs, projectName, error: msg, isMeta });
+      showToast('Generation failed. Check console.', 'error');
+      console.error('[Senior Designer]', err);
+      setResult({ type: 'quick_senior', inputs: quickInputs, projectName, error: msg });
     }
-
     setSubmitting(false);
   }
-
   async function handleFullSubmit() {
     if (!isAiEnabled()) {
       setResult({
@@ -1015,17 +705,19 @@ export function Strategy() {
       )}
 
       {mode === 'quick' && (
-        <QuickGenerateForm
-          projects={projects}
-          projectsLoading={projectsLoading}
-          inputs={quickInputs}
-          onChange={setQuickInputs}
-          orgId={getOrgId()}
-          brandKitDefaultLanguages={brandKit?.default_languages}
-        />
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-6">
+          <QuickGenerateForm
+            projects={projects}
+            projectsLoading={projectsLoading}
+            inputs={quickInputs}
+            onChange={setQuickInputs}
+            orgId={getOrgId()}
+            brandKitDefaultLanguages={brandKit?.default_languages}
+          />
+        </div>
       )}
 
-      {/* Configuration selector */}
+      {/* Configuration selector — same blue form zone */}
       {mode === 'quick' && quickInputs.projectId && quickInputs.projectId !== 'custom' && (
         <Card className="p-5 mt-4">
           <div className="flex items-center justify-between mb-4">
@@ -1193,23 +885,29 @@ export function Strategy() {
       )}
 
       {mode === 'full' && (
-        <FullStrategyForm
-          projects={projects}
-          projectsLoading={projectsLoading}
-          inputs={fullInputs}
-          onChange={setFullInputs}
-          onSubmit={handleFullSubmit}
-          submitting={submitting}
-        />
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-6">
+          <FullStrategyForm
+            projects={projects}
+            projectsLoading={projectsLoading}
+            inputs={fullInputs}
+            onChange={setFullInputs}
+            onSubmit={handleFullSubmit}
+            submitting={submitting}
+          />
+        </div>
       )}
 
-      <StrategyResultPanel
-        result={result}
-        onRetry={mode === 'quick' ? handleQuickSubmit : handleFullSubmit}
-        onSaveQuick={saveQuickCampaign}
-        onSaveFull={saveFullCampaigns}
-        quickProject={quickProjectForReview}
-      />
+      {result && (
+        <div ref={resultRef} className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-6">
+          <StrategyResultPanel
+            result={result}
+            onRetry={mode === 'quick' ? handleQuickSubmit : handleFullSubmit}
+            onSaveQuick={saveQuickCampaign}
+            onSaveFull={saveFullCampaigns}
+            quickProject={quickProjectForReview}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   CheckSquare,
   Square,
@@ -23,6 +23,7 @@ import { CopyButton } from '../../components/ui/CopyButton';
 import { TargetingVerifier } from '../../components/TargetingVerifier';
 import { InlineCreativeReview, type InlineReviewProject } from '../../components/InlineCreativeReview';
 import ReferenceImagePack from '../../components/ReferenceImagePack';
+import { ImageGalleryViewer, type GalleryImage } from '../../components/ImageGalleryViewer';
 import {
   type StrategyResult as StrategyResultType,
   type QuickGenerateInputs,
@@ -1394,11 +1395,27 @@ function GeminiImageCard({ img }: { img: GeneratedImageState }) {
   );
 }
 
-function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project }: { data: SeniorDesignerResult; languages: string[]; onRetry?: () => void; savedId?: string; project?: InlineReviewProject | null }) {
+function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage }: {
+  data: SeniorDesignerResult;
+  languages: string[];
+  onRetry?: () => void;
+  savedId?: string;
+  project?: InlineReviewProject | null;
+  projectId?: string;
+  funnelStage?: string;
+}) {
   const [promptCopied, setPromptCopied] = useState(false);
   const [geminiGenerating, setGeminiGenerating] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
-  const [geminiImages, setGeminiImages] = useState<GeneratedImageState[]>([]);
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  // Stable session ID groups the feed+story pair in creative_assets
+  const sessionIdRef = useRef(crypto.randomUUID());
+
+  // Auto-generate images as soon as Aanya's prompt is available
+  useEffect(() => {
+    if (data.nanobanana_prompt_main) handleGenerateWithGemini();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function copyPrompt() {
     if (!data.nanobanana_prompt_main) return;
@@ -1412,7 +1429,9 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
     if (!data.nanobanana_prompt_main) return;
     setGeminiGenerating(true);
     setGeminiError(null);
-    setGeminiImages([]);
+    setGalleryImages([]);
+    // New regeneration gets a fresh session ID so storage paths don't collide
+    sessionIdRef.current = crypto.randomUUID();
 
     try {
       const [feedResult, storyResult] = await Promise.allSettled([
@@ -1420,33 +1439,44 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
         generateImageWithGemini(data.nanobanana_prompt_main, '9:16'),
       ]);
 
-      const collected: GeneratedImageState[] = [];
+      const collected: GalleryImage[] = [];
+      const generationErrors: string[] = [];
 
-      for (const [result, ratio] of [
-        [feedResult, '1:1'],
-        [storyResult, '9:16'],
-      ] as [PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, '1:1' | '9:16'][]) {
+      for (const [result, ratio, label, angleLabel] of [
+        [feedResult, '1:1', 'Feed (1080×1080)', 'feed'],
+        [storyResult, '9:16', 'Story (1080×1920)', 'story'],
+      ] as [PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, '1:1' | '9:16', string, string][]) {
+        if (result.status === 'rejected') {
+          generationErrors.push(String(result.reason instanceof Error ? result.reason.message : result.reason));
+        }
         if (result.status === 'fulfilled' && result.value.length > 0) {
           const img = result.value[0];
-          let publicUrl: string | undefined;
-          let assetId: string | undefined;
+          const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
+          let url = dataUrl;
+          let id: string | undefined;
           let storagePath: string | undefined;
           try {
-            const uploaded = await uploadGeminiImageToSupabase(img.base64, img.mimeType);
-            publicUrl = uploaded.url;
-            assetId = uploaded.id;
+            const uploaded = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
+              sessionId: sessionIdRef.current,
+              angleLabel: data.creative_concept ? `${data.creative_concept}-${angleLabel}` : angleLabel,
+              funnelStage: funnelStage ?? 'BOFU',
+              projectId,
+            });
+            url = uploaded.url;
+            id = uploaded.id;
             storagePath = uploaded.storagePath;
           } catch {
-            // non-fatal — image still shows from base64
+            // non-fatal — fall back to base64 data URL
           }
-          collected.push({ base64: img.base64, mimeType: img.mimeType, publicUrl, assetId, storagePath, aspectRatio: ratio });
+          collected.push({ id, url, label, storagePath, promptUsed: data.nanobanana_prompt_main });
         }
       }
 
       if (collected.length === 0) {
-        setGeminiError('Both image sizes failed to generate. Check your VITE_GEMINI_API_KEY and try again.');
+        const detail = generationErrors.length > 0 ? ` — ${generationErrors[0]}` : '';
+        setGeminiError(`Image generation failed${detail}. Check your VITE_GEMINI_API_KEY and restart the dev server.`);
       } else {
-        setGeminiImages(collected);
+        setGalleryImages(collected);
       }
     } catch (err) {
       setGeminiError(err instanceof Error ? err.message : 'Image generation failed.');
@@ -1473,39 +1503,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
         </Card>
       )}
 
-      {/* Nanobanana Prompt — primary deliverable */}
-      {data.nanobanana_prompt_main && (
-        <Card className="p-5 border-2 border-amber-500/30">
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400 mb-1">Aanya's Creative Prompt</div>
-              <div className="text-xs text-text-tertiary">Generate the image directly via Gemini, or copy to use in Nanobanana.</div>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={copyPrompt}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${promptCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'border border-border text-text-tertiary hover:text-text-primary hover:border-border/80'}`}
-              >
-                {promptCopied ? <CheckCircle size={14} /> : <Copy size={14} />}
-                {promptCopied ? 'Copied!' : 'Copy'}
-              </button>
-              <button
-                onClick={handleGenerateWithGemini}
-                disabled={geminiGenerating}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-black hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
-              >
-                {geminiGenerating ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
-                {geminiGenerating ? 'Generating…' : 'Generate with Gemini'}
-              </button>
-            </div>
-          </div>
-          <pre className="bg-black/50 rounded-lg p-4 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-96 overflow-y-auto leading-relaxed">
-            {data.nanobanana_prompt_main}
-          </pre>
-        </Card>
-      )}
-
-      {/* Gemini-generated images */}
+      {/* Generated images — auto-triggered, shown in the full gallery viewer */}
       {geminiGenerating && (
         <div className="flex items-center gap-3 px-5 py-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
           <Loader2 size={16} className="animate-spin text-amber-400 flex-shrink-0" />
@@ -1519,21 +1517,56 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project 
       {geminiError && (
         <div className="flex items-start gap-3 px-5 py-4 rounded-xl bg-red-500/10 border border-red-500/20">
           <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-300">{geminiError}</p>
+          <div>
+            <p className="text-sm text-red-300">{geminiError}</p>
+            <button
+              onClick={handleGenerateWithGemini}
+              className="mt-2 flex items-center gap-2 text-xs text-text-tertiary hover:text-text-primary transition-colors"
+            >
+              <RefreshCw size={12} /> Retry
+            </button>
+          </div>
         </div>
       )}
 
-      {geminiImages.length > 0 && (
-        <div className="space-y-4">
+      {galleryImages.length > 0 && (
+        <div className="space-y-3">
           <div className="flex items-center gap-2">
             <div className="h-px flex-1 bg-surface-elevated" />
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Gemini Generated Creatives</span>
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Generated Creatives</span>
             <div className="h-px flex-1 bg-surface-elevated" />
           </div>
-          {geminiImages.map((img, i) => (
-            <GeminiImageCard key={i} img={img} />
-          ))}
+          <ImageGalleryViewer images={galleryImages} />
         </div>
+      )}
+
+      {/* Nanobanana Prompt — collapsible, for manual use */}
+      {data.nanobanana_prompt_main && (
+        <Card className="p-5 border border-amber-500/20">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400">Aanya's Image Prompt</div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={copyPrompt}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${promptCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'border border-border text-text-tertiary hover:text-text-primary'}`}
+              >
+                {promptCopied ? <CheckCircle size={12} /> : <Copy size={12} />}
+                {promptCopied ? 'Copied!' : 'Copy'}
+              </button>
+              {!geminiGenerating && (
+                <button
+                  onClick={handleGenerateWithGemini}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-tertiary hover:text-text-primary transition-all"
+                >
+                  <RefreshCw size={12} /> Regenerate
+                </button>
+              )}
+            </div>
+          </div>
+          <pre className="bg-black/50 rounded-lg p-4 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-48 overflow-y-auto leading-relaxed">
+            {data.nanobanana_prompt_main}
+          </pre>
+        </Card>
       )}
 
       {/* Reference Image Manifest */}
@@ -1646,16 +1679,28 @@ export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, 
   if (!result) return null;
 
   return (
-    <div className="mt-8">
+    <div>
       <div className="flex items-center gap-2 mb-5">
-        <div className="h-px flex-1 bg-surface-elevated" />
-        <span className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Result</span>
-        <div className="h-px flex-1 bg-surface-elevated" />
+        <div className="h-px flex-1 bg-emerald-200" />
+        <span className="text-xs font-semibold uppercase tracking-widest text-emerald-700">Result</span>
+        <div className="h-px flex-1 bg-emerald-200" />
       </div>
 
       {result.type === 'quick_senior' && (() => {
         if (result.error) return <ErrorBanner message={result.error} onRetry={onRetry} />;
-        if (result.aiData) return <SeniorDesignerResultPanel data={result.aiData} languages={result.inputs.languages} onRetry={onRetry} savedId={result.savedId} project={quickProject} />;
+        if (result.aiData) {
+          const goal = result.inputs.campaignGoal;
+          const funnel = (goal === 'awareness' || goal === 'branding') ? 'TOFU' : goal === 'engagement' ? 'MOFU' : 'BOFU';
+          return <SeniorDesignerResultPanel
+            data={result.aiData}
+            languages={result.inputs.languages}
+            onRetry={onRetry}
+            savedId={result.savedId}
+            project={quickProject}
+            projectId={result.inputs.projectId !== 'custom' ? result.inputs.projectId : undefined}
+            funnelStage={funnel}
+          />;
+        }
         return <ErrorBanner message="No result returned." onRetry={onRetry} />;
       })()}
 

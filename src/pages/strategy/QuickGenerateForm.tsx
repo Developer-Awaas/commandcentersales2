@@ -22,16 +22,6 @@ const OBJECTIVE_OPTIONS = [
   { value: 'Site Visit Drive', label: 'Site Visit Drive' },
 ];
 
-const CREATIVE_PLATFORM_OPTIONS = [
-  { value: 'Nanobanana (Gemini)', label: 'Nanobanana (Gemini)' },
-  { value: 'ChatGPT / DALL-E', label: 'ChatGPT / DALL-E' },
-  { value: 'Claude', label: 'Claude' },
-  { value: 'Canva', label: 'Canva' },
-  { value: 'Adobe Express', label: 'Adobe Express' },
-  { value: 'Midjourney', label: 'Midjourney' },
-  { value: 'Manual', label: 'Manual' },
-];
-
 const AD_PLATFORM_OPTIONS = [
   { value: 'AiSensy', label: 'AiSensy' },
   { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
@@ -83,7 +73,6 @@ export function QuickGenerateForm({
   ];
 
   const isCustom = inputs.projectId === 'custom';
-  const isNanobanana = inputs.creativePlatform.toLowerCase().includes('nanobanana');
   const isMeta = inputs.adPlatform.toLowerCase().includes('meta');
 
   return (
@@ -186,12 +175,6 @@ export function QuickGenerateForm({
         <Card className="p-5 flex flex-col gap-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Platform & Objective</p>
           <Select
-            label="Creative Platform"
-            options={CREATIVE_PLATFORM_OPTIONS}
-            value={inputs.creativePlatform}
-            onChange={(e) => set('creativePlatform', e.target.value)}
-          />
-          <Select
             label="Ad Platform"
             options={AD_PLATFORM_OPTIONS}
             value={inputs.adPlatform}
@@ -245,23 +228,19 @@ export function QuickGenerateForm({
         </Card>
       </div>
 
-      {/* Language Selector — shown for Nanobanana */}
-      {isNanobanana && (
-        <LanguageSelector
-          value={inputs.languages}
-          onChange={(v) => set('languages', v)}
-          defaultLanguages={brandKitDefaultLanguages}
-        />
-      )}
+      {/* Language Selector */}
+      <LanguageSelector
+        value={inputs.languages}
+        onChange={(v) => set('languages', v)}
+        defaultLanguages={brandKitDefaultLanguages}
+      />
 
-      {/* Quick Reference Uploader — shown for Nanobanana */}
-      {isNanobanana && (
-        <QuickReferenceUploader
-          orgId={orgId}
-          onChange={(refs) => set('quickRefs', refs)}
-          maxFiles={5}
-        />
-      )}
+      {/* Quick Reference Uploader */}
+      <QuickReferenceUploader
+        orgId={orgId}
+        onChange={(refs) => set('quickRefs', refs)}
+        maxFiles={5}
+      />
 
       {/* Competitor Analysis */}
       <Card className="p-5">

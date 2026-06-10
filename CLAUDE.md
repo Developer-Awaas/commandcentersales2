@@ -114,12 +114,25 @@ All tables use RLS with `TO anon, authenticated USING (true)` (app-layer org_id 
 
 ---
 
+## Quick Generate Ad flow (Strategy page)
+
+`handleQuickSubmit` in `Strategy.tsx` **always** runs the Aanya senior-designer path — there is no `isNanobanana` gate or separate Meta/legacy branch.
+
+1. User fills `QuickGenerateForm`: project, campaign goal, brief, **ad platform** (AiSensy or Meta Ads Manager)
+   - `creativePlatform` dropdown removed — hardcoded to `'Nanobanana (Gemini)'`
+   - Language selector + Quick Reference uploader always visible
+2. `buildQuickGenerateBrief` builds senior-designer system/user prompts, passing `ad_platform`
+   - **Meta Ads Manager**: headline ≤40 chars, first 125 chars of primary_text must be a standalone hook, description ≤30 chars, standard Meta CTA labels
+   - **AiSensy (WhatsApp)**: headline = WhatsApp template header ≤60 chars, primary_text = conversational WhatsApp message body 300-500 chars, description = quick-reply button label ≤20 chars
+3. Claude returns `SeniorDesignerResult` JSON → result stored as `type: 'quick_senior'`
+4. `SeniorDesignerResultPanel` auto-triggers Gemini image generation on mount via `useEffect`
+5. 3 images generated → uploaded to `brand-assets` bucket, `creative_assets` rows inserted
+6. `ImageGalleryViewer` renders with Canva + Adobe Express CTAs
+
 ## Creatives page image flow (Nanobanana path)
 
 1. User selects project + funnel stage + **output ad platform** (Meta Ads Manager or AiSensy) → clicks "Generate 3 Variants"
 2. `buildVariantBriefs` is called with `ad_platform` — Aanya generates 3 text variants with platform-specific ad copy
-   - **Meta Ads Manager**: headline ≤40 chars, first 125 chars of primary_text must be a standalone hook, description ≤30 chars, standard Meta CTA labels
-   - **AiSensy (WhatsApp)**: headline = WhatsApp template header ≤60 chars, primary_text = conversational WhatsApp message body 300-500 chars, description = quick-reply button label ≤20 chars
 3. A `sessionId` UUID is created once for this batch
 4. `generateImageWithGemini` is called for each prompt; result passed to `uploadGeminiImageToSupabase` with `{ sessionId, angleLabel, funnelStage, projectId }`
 5. `uploadGeminiImageToSupabase` uploads to `brand-assets` at deterministic path, inserts `creative_assets` row, returns `{ url, id, storagePath }`
@@ -144,6 +157,7 @@ All tables use RLS with `TO anon, authenticated USING (true)` (app-layer org_id 
 | 8 | `ImageGalleryViewer` | `canvaDesignIds` reset on every parent re-render → Sync button vanished mid-session | Uses `sessionKeyRef` — only resets when first image id/url actually changes (new generation) |
 | 9 | `CampaignWizard.tsx` | `buildVariantBriefs` called without `ad_platform` | Added "Output Ad Platform" dropdown to `StepCreatives`; wired to `buildVariantBriefs` |
 | 10 | `canva-open-editor` | `asset.image_url` passed to Canva with no null check → cryptic 500 | Added early 400 return when `image_url` is null |
+| 11 | `Strategy.tsx` + `QuickGenerateForm.tsx` | `isNanobanana` gate caused text-only output for Meta/non-Nanobanana platforms; `creativePlatform` dropdown was misleading | Removed dropdown + gate; `handleQuickSubmit` always runs the senior-designer path → always auto-generates Gemini images |
 
 ## Rules
 
