@@ -43,6 +43,7 @@ interface StrategyResultProps {
   onSaveQuick?: (data: QuickAiResult) => void;
   onSaveFull?: (data: FullAiResult) => void;
   quickProject?: InlineReviewProject | null;
+  onGeminiStateChange?: (active: boolean) => void;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -97,7 +98,7 @@ export function AanyaDesignerNotes({ brief }: { brief?: SeniorDesignerResult }) 
           {brief.post_production_notes && (
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
               <AlertCircle size={13} className="text-amber-400 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-300 leading-relaxed">{String(brief.post_production_notes)}</p>
+              <p className="text-xs text-black leading-relaxed">{String(brief.post_production_notes)}</p>
             </div>
           )}
           {tags && Object.keys(tags).length > 0 && (
@@ -1395,7 +1396,7 @@ function GeminiImageCard({ img }: { img: GeneratedImageState }) {
   );
 }
 
-function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage }: {
+function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange }: {
   data: SeniorDesignerResult;
   languages: string[];
   onRetry?: () => void;
@@ -1403,13 +1404,24 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   project?: InlineReviewProject | null;
   projectId?: string;
   funnelStage?: string;
+  onGeminiStateChange?: (active: boolean) => void;
 }) {
   const [promptCopied, setPromptCopied] = useState(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
   const [geminiGenerating, setGeminiGenerating] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
+  const [brandColors, setBrandColors] = useState<{ primary: string; accent: string } | undefined>();
   // Stable session ID groups the feed+story pair in creative_assets
   const sessionIdRef = useRef(crypto.randomUUID());
+
+  useEffect(() => {
+    supabase.from('brand_kits').select('primary_color,secondary_color').eq('org_id', getOrgId()).maybeSingle()
+      .then(({ data: bk }) => {
+        if (bk?.primary_color) setBrandColors({ primary: bk.primary_color, accent: bk.secondary_color ?? '#c9a961' });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-generate images as soon as Aanya's prompt is available
   useEffect(() => {
@@ -1428,6 +1440,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   async function handleGenerateWithGemini() {
     if (!data.nanobanana_prompt_main) return;
     setGeminiGenerating(true);
+    onGeminiStateChange?.(true);
     setGeminiError(null);
     setGalleryImages([]);
     // New regeneration gets a fresh session ID so storage paths don't collide
@@ -1468,13 +1481,20 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           } catch {
             // non-fatal — fall back to base64 data URL
           }
-          collected.push({ id, url, label, storagePath, promptUsed: data.nanobanana_prompt_main });
+          collected.push({
+            id, url, label, storagePath,
+            promptUsed: data.nanobanana_prompt_main,
+            adCopy: {
+              headline: data.ad_copy?.headline_english,
+              cta: data.ad_copy?.cta,
+            },
+          });
         }
       }
 
       if (collected.length === 0) {
         const detail = generationErrors.length > 0 ? ` — ${generationErrors[0]}` : '';
-        setGeminiError(`Image generation failed${detail}. Check your VITE_GEMINI_API_KEY and restart the dev server.`);
+        setGeminiError(`Image generation failed${detail || '. The service may be temporarily busy — try again.'}`);
       } else {
         setGalleryImages(collected);
       }
@@ -1482,6 +1502,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       setGeminiError(err instanceof Error ? err.message : 'Image generation failed.');
     } finally {
       setGeminiGenerating(false);
+      onGeminiStateChange?.(false);
     }
   }
 
@@ -1508,24 +1529,42 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         <div className="flex items-center gap-3 px-5 py-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
           <Loader2 size={16} className="animate-spin text-amber-400 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-amber-300">Generating Feed + Story images with Gemini Imagen 3…</p>
+            <p className="text-sm font-medium text-amber-300">Generating Feed + Story images with FLUX…</p>
             <p className="text-xs text-text-tertiary mt-0.5">This usually takes 10–20 seconds.</p>
           </div>
         </div>
       )}
 
       {geminiError && (
-        <div className="flex items-start gap-3 px-5 py-4 rounded-xl bg-red-500/10 border border-red-500/20">
-          <AlertCircle size={15} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm text-red-300">{geminiError}</p>
-            <button
-              onClick={handleGenerateWithGemini}
-              className="mt-2 flex items-center gap-2 text-xs text-text-tertiary hover:text-text-primary transition-colors"
-            >
-              <RefreshCw size={12} /> Retry
-            </button>
+        <div className="flex flex-col items-center gap-4 px-6 py-8 rounded-xl bg-surface-elevated border border-border">
+          <div className="w-14 h-14 rounded-2xl bg-surface-sunken border border-border flex items-center justify-center">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="14" cy="14" r="11" stroke="#4b5563" strokeWidth="1.5" strokeDasharray="3 2"/>
+              <path d="M9 14 Q14 8 19 14 Q14 20 9 14Z" stroke="#4b5563" strokeWidth="1.5" fill="none"/>
+              <line x1="7" y1="7" x2="21" y2="21" stroke="#f87171" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
           </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-text-primary">Image generation failed</p>
+            <p className="text-xs text-text-tertiary mt-1 max-w-xs">{geminiError}</p>
+          </div>
+          {data.nanobanana_prompt_main && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={copyPrompt}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${promptCopied ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : 'border-border text-text-tertiary hover:text-text-primary'}`}
+              >
+                {promptCopied ? <CheckCircle size={12} /> : <Copy size={12} />}
+                {promptCopied ? 'Copied!' : 'Copy Prompt'}
+              </button>
+              <button
+                onClick={handleGenerateWithGemini}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-tertiary hover:text-text-primary transition-all"
+              >
+                <RefreshCw size={12} /> Retry
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1536,37 +1575,43 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Generated Creatives</span>
             <div className="h-px flex-1 bg-surface-elevated" />
           </div>
-          <ImageGalleryViewer images={galleryImages} />
-        </div>
-      )}
-
-      {/* Nanobanana Prompt — collapsible, for manual use */}
-      {data.nanobanana_prompt_main && (
-        <Card className="p-5 border border-amber-500/20">
-          <div className="flex items-center justify-between gap-4 mb-3">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400">Aanya's Image Prompt</div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={copyPrompt}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${promptCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'border border-border text-text-tertiary hover:text-text-primary'}`}
-              >
-                {promptCopied ? <CheckCircle size={12} /> : <Copy size={12} />}
-                {promptCopied ? 'Copied!' : 'Copy'}
-              </button>
-              {!geminiGenerating && (
+          <ImageGalleryViewer images={galleryImages} brandColors={brandColors} />
+          {data.nanobanana_prompt_main && (
+            <div className="rounded-xl border border-border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-surface-elevated">
                 <button
-                  onClick={handleGenerateWithGemini}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-tertiary hover:text-text-primary transition-all"
+                  onClick={() => setPromptExpanded((p) => !p)}
+                  className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary transition-colors"
                 >
-                  <RefreshCw size={12} /> Regenerate
+                  <ChevronDown size={12} className={`transition-transform duration-150 ${promptExpanded ? 'rotate-180' : ''}`} />
+                  Aanya's prompt
                 </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={copyPrompt}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${promptCopied ? 'text-emerald-300' : 'text-text-tertiary hover:text-text-primary'}`}
+                  >
+                    {promptCopied ? <CheckCircle size={11} /> : <Copy size={11} />}
+                    {promptCopied ? 'Copied' : 'Copy'}
+                  </button>
+                  {!geminiGenerating && (
+                    <button
+                      onClick={handleGenerateWithGemini}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary transition-colors"
+                    >
+                      <RefreshCw size={11} /> Regenerate
+                    </button>
+                  )}
+                </div>
+              </div>
+              {promptExpanded && (
+                <pre className="px-4 py-3 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-40 overflow-y-auto bg-black/30 leading-relaxed border-t border-border">
+                  {data.nanobanana_prompt_main}
+                </pre>
               )}
             </div>
-          </div>
-          <pre className="bg-black/50 rounded-lg p-4 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-48 overflow-y-auto leading-relaxed">
-            {data.nanobanana_prompt_main}
-          </pre>
-        </Card>
+          )}
+        </div>
       )}
 
       {/* Reference Image Manifest */}
@@ -1638,7 +1683,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       {data.post_production_notes && (
         <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-5">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400 mb-2">Post-Production Notes</div>
-          <p className="text-sm text-amber-100 leading-relaxed">{data.post_production_notes}</p>
+          <p className="text-sm text-black leading-relaxed">{data.post_production_notes}</p>
         </div>
       )}
 
@@ -1675,7 +1720,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   );
 }
 
-export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, quickProject }: StrategyResultProps) {
+export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, quickProject, onGeminiStateChange }: StrategyResultProps) {
   if (!result) return null;
 
   return (
@@ -1699,6 +1744,7 @@ export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, 
             project={quickProject}
             projectId={result.inputs.projectId !== 'custom' ? result.inputs.projectId : undefined}
             funnelStage={funnel}
+            onGeminiStateChange={onGeminiStateChange}
           />;
         }
         return <ErrorBanner message="No result returned." onRetry={onRetry} />;

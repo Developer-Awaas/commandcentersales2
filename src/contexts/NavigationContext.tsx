@@ -7,6 +7,8 @@ interface NavigationContextValue {
   activePage: string;
   activeSection: AppSection;
   setSection: (section: AppSection) => void;
+  generatingPage: string | null;
+  setGeneratingPage: (page: string | null) => void;
 }
 
 export const NavigationContext = createContext<NavigationContextValue>({
@@ -14,6 +16,8 @@ export const NavigationContext = createContext<NavigationContextValue>({
   activePage: 'dashboard',
   activeSection: 'dashboard',
   setSection: () => {},
+  generatingPage: null,
+  setGeneratingPage: () => {},
 });
 
 export function useNavigation() {

@@ -10,6 +10,8 @@ export default {
           'elevated': '#FFFFFF',
           'sunken': '#F4F4F5',
           'hover': '#F4F4F5',
+          'sidebar': '#DED5C6',
+          'sidebar-hover': '#D0C5B3',
         },
         // Border colors
         'border': {

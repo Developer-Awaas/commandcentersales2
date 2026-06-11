@@ -9,6 +9,9 @@ interface AiSessionData {
   outputData?: Record<string, unknown>;
   healthScore?: number | null;
   tokensUsed?: number;
+  claudeInputTokens?: number;
+  claudeOutputTokens?: number;
+  geminiImagesGenerated?: number;
 }
 
 interface ActivityData {
@@ -31,7 +34,10 @@ export function logAiSession(supabase: SupabaseClient, data: AiSessionData): voi
         input_data: data.inputData ?? {},
         output_data: data.outputData ?? {},
         health_score: data.healthScore ?? null,
-        tokens_used: data.tokensUsed ?? 0,
+        tokens_used: data.tokensUsed ?? (data.claudeInputTokens ?? 0) + (data.claudeOutputTokens ?? 0),
+        claude_input_tokens: data.claudeInputTokens ?? 0,
+        claude_output_tokens: data.claudeOutputTokens ?? 0,
+        gemini_images_generated: data.geminiImagesGenerated ?? 0,
       })
   ).catch(console.error);
 }

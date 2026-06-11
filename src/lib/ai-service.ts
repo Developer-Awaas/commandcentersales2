@@ -215,9 +215,8 @@ export async function aiCall(
     }
 
     const data = await res.json();
-    const stopReason = data?.stop_reason;
-    const outputTokens = data?.usage?.output_tokens;
-    console.log('[aiCall] stop_reason:', stopReason, 'output_tokens:', outputTokens);
+    const inputTokens: number = data?.usage?.input_tokens ?? 0;
+    const outputTokens: number = data?.usage?.output_tokens ?? 0;
 
     const rawText: string = (data?.content ?? [])
       .filter((b: { type: string }) => b.type === 'text')
@@ -225,9 +224,9 @@ export async function aiCall(
       .join('');
 
     const parsed = extractJson(rawText);
-    if (parsed) return parsed as Record<string, unknown>;
+    if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 
-    return { raw: rawText };
+    return { raw: rawText, _inputTokens: inputTokens, _outputTokens: outputTokens };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return { error: msg };
@@ -276,15 +275,18 @@ export async function aiVision(
     }
 
     const data = await res.json();
+    const inputTokens: number = data?.usage?.input_tokens ?? 0;
+    const outputTokens: number = data?.usage?.output_tokens ?? 0;
+
     const rawText: string = (data?.content ?? [])
       .filter((b: { type: string }) => b.type === 'text')
       .map((b: { text: string }) => b.text)
       .join('');
 
     const parsed = extractJson(rawText);
-    if (parsed) return parsed as Record<string, unknown>;
+    if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 
-    return { raw: rawText };
+    return { raw: rawText, _inputTokens: inputTokens, _outputTokens: outputTokens };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return { error: msg };

@@ -718,7 +718,7 @@ Return ONLY a JSON object:
 
       {/* Auto-synced Meta metrics section */}
       <div className="mb-8">
-        <CampaignMetricsChart orgId={undefined} campaignId={projectId !== 'all' ? projectId : undefined} />
+        <CampaignMetricsChart orgId={undefined} />
       </div>
 
       <div className="mt-2">

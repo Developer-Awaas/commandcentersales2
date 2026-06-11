@@ -4,7 +4,8 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { downloadImage } from '../lib/image-utils';
 import { AdobeExpressModal } from './AdobeExpressModal';
-import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
+import { composeAdImage, DEFAULT_AD_COLORS, type AdColors } from '../lib/ad-compositor';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw, Eye, EyeOff, Sparkles } from 'lucide-react';
 
 export interface GalleryImage {
   id?: string;
@@ -12,11 +13,13 @@ export interface GalleryImage {
   label?: string;
   storagePath?: string;
   promptUsed?: string;
+  adCopy?: { headline?: string; cta?: string };
 }
 
 interface ImageGalleryViewerProps {
   images: GalleryImage[];
   onClose?: () => void;
+  brandColors?: AdColors;
 }
 
 interface LightboxState {
@@ -24,7 +27,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, brandColors = DEFAULT_AD_COLORS }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
 
   // Local copy so the gallery reflects edits without needing a prop change from the parent
@@ -35,6 +38,8 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
   // Tracks images that have an open Canva design so we can show a "Sync" button
   const [canvaDesignIds, setCanvaDesignIds] = useState<Record<string, string>>({});
   const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [composingAd, setComposingAd] = useState<string | null>(null);
 
   // Stable key representing the current generation session: length + first image id/url.
   // Changing this means a genuinely new set of images was passed (new generation),
@@ -147,11 +152,23 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">
             Generated Images ({localImages.length})
           </p>
-          {onClose && (
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-hover text-text-tertiary hover:text-text-primary transition-all">
-              <X size={14} />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {localImages.some((i) => i.adCopy?.headline) && (
+              <button
+                onClick={() => setShowOverlay((v) => !v)}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-border text-[11px] text-text-tertiary hover:text-text-primary hover:border-border-strong transition-all"
+                title={showOverlay ? 'Hide text overlay' : 'Show text overlay'}
+              >
+                {showOverlay ? <EyeOff size={11} /> : <Eye size={11} />}
+                {showOverlay ? 'Hide text' : 'Show text'}
+              </button>
+            )}
+            {onClose && (
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-hover text-text-tertiary hover:text-text-primary transition-all">
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className={`grid gap-4 ${localImages.length === 1 ? 'grid-cols-1 max-w-sm' : localImages.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
@@ -171,7 +188,40 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-all flex items-center justify-center">
                   <Maximize2 size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
-                {img.label && (
+
+                {/* Professional ad panel overlay */}
+                {showOverlay && img.adCopy?.headline && (
+                  <div className="absolute inset-0 pointer-events-none flex flex-col justify-end">
+                    <div
+                      className="flex flex-col gap-1.5 px-3 pt-10 pb-3"
+                      style={{
+                        background: `linear-gradient(to top, ${brandColors.primary}f7 55%, ${brandColors.primary}cc 75%, transparent)`,
+                      }}
+                    >
+                      {img.label && (
+                        <span
+                          className="self-start px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest mb-0.5"
+                          style={{ background: brandColors.accent, color: brandColors.primary }}
+                        >
+                          {img.label}
+                        </span>
+                      )}
+                      <p className="text-white font-bold text-[12px] leading-snug drop-shadow-md line-clamp-3">
+                        {img.adCopy.headline}
+                      </p>
+                      {img.adCopy.cta && (
+                        <span
+                          className="self-start mt-1 px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-wide shadow-md"
+                          style={{ background: brandColors.accent, color: brandColors.primary }}
+                        >
+                          {img.adCopy.cta} →
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {!img.adCopy?.headline && img.label && (
                   <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] text-white capitalize">
                     {img.label}
                   </div>
@@ -213,13 +263,41 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 </button>
               )}
 
-              <button
-                onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all"
-              >
-                <Download size={11} />
-                Download
-              </button>
+              {img.adCopy?.headline ? (
+                <button
+                  onClick={async () => {
+                    setComposingAd(img.url);
+                    try {
+                      const composed = await composeAdImage(
+                        img.url,
+                        { headline: img.adCopy!.headline, cta: img.adCopy!.cta, label: img.label },
+                        brandColors
+                      );
+                      downloadImage(composed, `ad-${img.label ?? i + 1}.jpg`);
+                    } catch {
+                      showToast('Could not compose ad — downloading raw image instead.', 'error');
+                      downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`);
+                    } finally {
+                      setComposingAd(null);
+                    }
+                  }}
+                  disabled={composingAd === img.url}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all disabled:opacity-50"
+                >
+                  {composingAd === img.url
+                    ? <span className="w-3 h-3 border-2 border-text-tertiary border-t-transparent rounded-full animate-spin" />
+                    : <Sparkles size={11} />}
+                  {composingAd === img.url ? 'Composing…' : 'Download Ad'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all"
+                >
+                  <Download size={11} />
+                  Download
+                </button>
+              )}
             </div>
           ))}
         </div>

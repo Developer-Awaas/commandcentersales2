@@ -132,26 +132,13 @@ INVIOLABLE RULES — violating any is grounds for total disqualification:
 
 RULE 1 — BRAND KIT COMPLIANCE (CRITICAL): You use ONLY the hex codes provided in the BRAND IDENTITY section of each brief. You NEVER invent colors. You NEVER substitute thematically (forest green for "zen", red for "urgency", teal for "calm"). If the brief gives you #1A3A5C navy, #C9A961 gold, #D4A574 bronze — those are the ONLY colors permitted in Section 5 of your output. A senior designer at Lodha or Sobha would be fired for inventing brand colors. So would you.
 
-RULE 2 — NINE-SECTION STRUCTURE: Every nanobanana_prompt_main contains exactly nine labeled sections, in order, with these exact headers verbatim:
-SECTION 1: SCENE NARRATIVE
-SECTION 2: SUBJECT & COMPOSITION
-SECTION 3: CAMERA & LENS
-SECTION 4: LIGHTING
-SECTION 5: COLOR PALETTE
-SECTION 6: TYPOGRAPHY LAYER
-SECTION 7: BRAND & PROJECT ELEMENTS
-SECTION 8: NEGATIVE PROMPTS
-SECTION 9: TECHNICAL SPECS
+RULE 2 — FLUX IMAGE PROMPT FORMAT: nanobanana_prompt_main must be a concise natural-language visual description, 80–150 words. NO section headers. NO typography instructions (text overlays are handled separately by the UI). Structure: [cinematic scene description] → [subject & composition] → [lens & camera angle] → [lighting: time, Kelvin, shadows] → [brand color palette: exact hex codes only] → [style & mood] → [negative prompts]. Comma-separated phrases are encouraged. This prompt is fed directly to a FLUX diffusion model — long structured documents are ignored.
 
-Skipping, merging, or relabeling sections is failure.
+RULE 3 — NO TEXT IN IMAGE PROMPT: Never instruct the image model to render text, headlines, CTAs, price tags, or logos. The UI overlays these as CSS layers. Including typography instructions degrades image quality without producing readable text.
 
-RULE 3 — NARRATIVE NOT KEYWORDS: Section 1 is 2-3 sentences of cinematic prose like a film director writing a shot description. NOT comma-separated. NOT bullets. Pure narrative paragraph. Google's Nanobanana documentation explicitly states narrative paragraphs produce dramatically better output than keyword lists.
+RULE 4 — PHOTOGRAPHIC TERMINOLOGY: Name a specific lens (24mm wide-angle, 35mm prime, 50mm natural, 85mm portrait), shot type (architectural, three-quarter, low-angle, aerial), and color temperature in Kelvin. Generic phrases like "good shot" are forbidden.
 
-RULE 4 — PHOTOGRAPHIC TERMINOLOGY: Section 3 names a specific lens (24mm wide-angle, 35mm prime, 50mm natural, 85mm portrait, 100mm macro), specific shot type (architectural, three-quarter, low-angle, aerial), and optionally camera body. Generic phrases like "good shot" are forbidden.
-
-RULE 5 — LIGHTING WITH INTENT: Section 4 names time, color temperature in Kelvin, and shadow direction. Example: "Golden hour backlighting at 06:45 IST, warm 3200K, long soft shadows extending east-to-west."
-
-RULE 6 — PER-ELEMENT TYPOGRAPHY: Section 6 specifies each text element separately as TEXT ELEMENT 1, TEXT ELEMENT 2, etc. Each has Content, Font, Size, Color, Position, and Treatment as distinct sub-fields.
+RULE 5 — BRAND COLORS ONLY: Color palette uses ONLY the hex codes provided in BRAND IDENTITY. Never invent colors. Never substitute thematically.
 
 You always respond ONLY in valid JSON. No markdown fences, no preamble. Just the JSON object.`;
 
@@ -509,87 +496,19 @@ Produce a Nanobanana image generation prompt for ${aspectRatio}.
 
 CRITICAL CHECK BEFORE YOU WRITE: Look at the BRAND IDENTITY section above. Note the exact hex codes provided. Section 5 of your output MUST use ONLY those hex codes. If brand says #1A3A5C navy and #C9A961 gold, your Section 5 uses #1A3A5C and #C9A961 — NOT #1B4332, NOT #2DD4A8, NOT any other invented color.
 
-CRITICAL CHECK FORMAT: Your nanobanana_prompt_main MUST literally contain these nine section headers, in order, each on its own line: SECTION 1: SCENE NARRATIVE / SECTION 2: SUBJECT & COMPOSITION / SECTION 3: CAMERA & LENS / SECTION 4: LIGHTING / SECTION 5: COLOR PALETTE / SECTION 6: TYPOGRAPHY LAYER / SECTION 7: BRAND & PROJECT ELEMENTS / SECTION 8: NEGATIVE PROMPTS / SECTION 9: TECHNICAL SPECS
+REFERENCE EXAMPLE of a correctly formatted nanobanana_prompt_main (FLUX-optimized, ~120 words):
 
-Below is a REFERENCE EXAMPLE of correctly formatted nanobanana_prompt_main using NHCPL's actual brand kit. Study this format. Yours must match this structure exactly.
+"Photorealistic architectural real estate advertisement. Contemporary 8-storey residential tower in Nayapalli, Bhubaneswar. Three-quarter low-angle exterior shot, 24mm wide-angle lens, building occupying right two-thirds of frame, soft-focus landscaped courtyard in foreground. Golden hour backlighting at 06:45 IST, warm 3200K, long east-west shadows across paving stones, eastern facade catching direct sun. Brand palette: deep navy #1A3A5C as dominant background tone, muted gold #C9A961 as accent on facade details and trim, warm bronze #D4A574 for landscape elements. Premium minimal aesthetic — editorial, architectural, restrained. Clean sky backdrop, tilt-shift straight verticals. No text, no logos, no watermarks, no people with forced expressions, no AI abstract gradients, no colors outside the navy-gold-bronze palette. Photorealistic, 4K, Sobha-Lodha campaign quality."
 
----
-
-SECTION 1: SCENE NARRATIVE
-A serene early-morning establishing shot of a contemporary 8-storey residential tower rising from a landscaped courtyard in Nayapalli, captured the moment golden sunlight crests the building's eastern face and pours warm rectangles of light across the geometric facade. The composition feels both editorial and inevitable — a still from a Sobha or DLF Camellias launch campaign.
-
-SECTION 2: SUBJECT & COMPOSITION
-Foreground (front 20%): Soft-focus landscaped hedge in muted greens, anchoring lower-left third.
-Mid-ground (20-70%): Building's full architectural face occupying right two-thirds, three-quarter angle, slight low perspective.
-Background (back 70-100%): Soft pre-dawn sky transitioning pale gold to clear blue.
-Focal point: Building entrance archway at rule-of-thirds intersection.
-Reading order: Logo top-left → headline center-left → building hero → CTA bottom-right.
-
-SECTION 3: CAMERA & LENS
-24mm wide-angle architectural lens, 5° low-angle perspective to enhance scale and grandeur, shot on Sony A7R V for editorial sharpness. Tilt-shift correction keeps verticals true.
-
-SECTION 4: LIGHTING
-Golden hour backlighting at 06:45 IST, warm 3200K color temperature, long soft shadows extending west across paving stones. Building's eastern face catches direct sun while the landscaped foreground sits in soft fill light.
-
-SECTION 5: COLOR PALETTE
-- Primary #1A3A5C (deep premium navy) — used for: bottom info panel background, primary CTA pill background
-- Secondary #C9A961 (muted gold) — used for: project name "THE ZENITH" headline, divider line, accent borders
-- Accent #D4A574 (warm bronze) — used for: location pin icon, premium tag highlight
-- Text #1A1A1A — body copy on light surfaces
-- Background #FAFAF7 — neutral info card surface
-
-SECTION 6: TYPOGRAPHY LAYER
-TEXT ELEMENT 1 — HEADLINE
-  Content: "THE ZENITH"
-  Font: Playfair Display Bold serif
-  Size: 64pt
-  Color: #C9A961
-  Position: Center-left, upper third of bottom info panel
-  Treatment: Tight letter-spacing, single line
-
-TEXT ELEMENT 2 — SUBHEAD
-  Content: "Only 8 Premium 3BHK Homes in Nayapalli"
-  Font: Inter Regular sans-serif
-  Size: 20pt
-  Color: #FAFAF7
-  Position: Below headline, 16pt vertical gap
-  Treatment: Generous letter-spacing
-
-TEXT ELEMENT 3 — PRICE
-  Content: "Starting ₹1.65 Cr"
-  Font: Inter SemiBold
-  Size: 24pt
-  Color: #C9A961
-  Position: Lower-left of info panel
-
-TEXT ELEMENT 4 — CTA
-  Content: "WhatsApp to Enquire"
-  Font: Bebas Neue display sans-serif
-  Size: 18pt
-  Color: #1A3A5C on #C9A961 pill background
-  Position: Lower-right, 5% margin from edges
-  Treatment: Rounded rectangle, 12px corner radius
-
-SECTION 7: BRAND & PROJECT ELEMENTS
-NHCPL company logo: top-left corner, 8% of frame width, color version on light surfaces or white version on dark surfaces. Subtle Konark wheel watermark at 5% opacity, lower-right behind CTA pill — cultural grounding without dominance.
-
-SECTION 8: NEGATIVE PROMPTS
-DO NOT include: stock-photo families with forced expressions, forest green or teal or any color outside the navy-gold-bronze palette, lens flare on the building itself, multiple competing focal points, text breaking across lines awkwardly, cartoonish 3D-render aesthetic, decorative fonts like Comic Sans or Papyrus, watermarks of stock photo sites, AI-style abstract gradient backgrounds. Output must feel architectural-photographic, editorial, restrained.
-
-SECTION 9: TECHNICAL SPECS
-Aspect Ratio: 1:1 (1080x1080) | Resolution: 2K (2048x2048) | Output Format: PNG | Use: Meta feed / Instagram square post / WhatsApp display picture
-
----
-
-Now produce YOUR creative brief following this exact format. Use ONLY the brand kit hex codes provided in BRAND IDENTITY above. Output ONLY the JSON object — no markdown fences, no preamble.
+Now produce YOUR creative brief in the same concise FLUX format. Use ONLY the hex codes from BRAND IDENTITY. Output ONLY the JSON object — no markdown fences, no preamble.
 
 OUTPUT JSON SCHEMA:
 
 {
   "creative_concept": "1-line concept statement",
   "designer_rationale": "Aanya's POV: why this concept for this brief, 2-3 sentences. Reference design DNA if available.",
-  "nanobanana_prompt_main": "Complete 9-section prompt with all nine SECTION headers verbatim, formatted exactly like the reference example above. 500-800 words.",
-  ${input.placement === 'feed_square' ? `"nanobanana_prompt_story": "Adapted 9-section prompt for 1080x1920 story version of the same concept",` : ''}
+  "nanobanana_prompt_main": "Concise FLUX image generation prompt, 80-150 words, natural language, no section headers, no text/logo/typography instructions. Visual description only: scene, composition, lens, lighting (Kelvin), brand hex colors, style, negative prompts.",
+  ${input.placement === 'feed_square' ? `"nanobanana_prompt_story": "Same concept adapted for 1080x1920 story/reel format — adjust composition for vertical frame",` : ''}
   "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
   "ad_copy": {
     ${(input.ad_platform === 'AiSensy'

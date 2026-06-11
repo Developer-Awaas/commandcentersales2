@@ -40,6 +40,9 @@ interface AiSession {
   session_type: string;
   input_summary: string | null;
   tokens_used: number;
+  claude_input_tokens: number;
+  claude_output_tokens: number;
+  gemini_images_generated: number;
   created_at: string;
 }
 
@@ -291,7 +294,7 @@ export function Reports() {
     setAiLoading(true);
     const { data } = await supabase
       .from('ai_sessions')
-      .select('id,session_type,input_summary,tokens_used,created_at')
+      .select('id,session_type,input_summary,tokens_used,claude_input_tokens,claude_output_tokens,gemini_images_generated,created_at')
       .eq('org_id', getOrgId())
       .order('created_at', { ascending: false })
       .limit(20);
@@ -544,18 +547,20 @@ export function Reports() {
                   <th className={TH}>Date</th>
                   <th className={TH}>Type</th>
                   <th className={TH}>Summary</th>
-                  <th className={TH}>Tokens Used</th>
+                  <th className={TH}>In Tokens</th>
+                  <th className={TH}>Out Tokens</th>
+                  <th className={TH}>Images</th>
                 </tr>
               </thead>
               <tbody>
                 {aiLoading ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center">
+                    <td colSpan={6} className="px-4 py-6 text-center">
                       <Spinner size="sm" />
                     </td>
                   </tr>
                 ) : aiSessions.length === 0 ? (
-                  <EmptyRow cols={4} message="No AI sessions yet." />
+                  <EmptyRow cols={6} message="No AI sessions yet." />
                 ) : (
                   aiSessions.map((s) => (
                     <tr key={s.id} className="hover:bg-surface-hover transition-colors">
@@ -568,7 +573,15 @@ export function Reports() {
                       <td className={`${TD} text-text-tertiary max-w-xs truncate`}>
                         {s.input_summary ?? '—'}
                       </td>
-                      <td className={`${TD} text-text-tertiary`}>{fmt(s.tokens_used)}</td>
+                      <td className={`${TD} text-text-tertiary tabular-nums`}>
+                        {s.claude_input_tokens > 0 ? fmt(s.claude_input_tokens) : '—'}
+                      </td>
+                      <td className={`${TD} text-text-tertiary tabular-nums`}>
+                        {s.claude_output_tokens > 0 ? fmt(s.claude_output_tokens) : '—'}
+                      </td>
+                      <td className={`${TD} text-text-tertiary tabular-nums`}>
+                        {s.gemini_images_generated > 0 ? s.gemini_images_generated : '—'}
+                      </td>
                     </tr>
                   ))
                 )}

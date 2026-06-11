@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { Card } from './ui/Card';
 import { MetricsFreshnessBadge } from './MetricsFreshnessBadge';
-import { TrendingUp } from 'lucide-react';
+import { RefreshCw, TrendingUp } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 
 interface CampaignMetric {
@@ -38,6 +38,8 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
   const resolvedOrgId = orgId ?? getOrgId();
   const [rows, setRows] = useState<CampaignMetric[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   async function fetchMetrics() {
     setLoading(true);
@@ -71,6 +73,24 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
     return () => { supabase.removeChannel(channel); };
   }, [resolvedOrgId, campaignId]);
 
+  async function handleSyncNow() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const { error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
+      if (error) {
+        setSyncMsg('Sync failed: ' + error.message);
+      } else {
+        setSyncMsg('Sync triggered — data will refresh shortly.');
+        await fetchMetrics();
+      }
+    } catch (err: unknown) {
+      setSyncMsg('Sync failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(null), 6000);
+  }
+
   // Aggregate totals
   const totals = rows.reduce(
     (acc, r) => ({
@@ -93,16 +113,31 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
     return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   }
 
+  const header = (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <TrendingUp size={16} className="text-brand" />
+        <span className="text-sm font-semibold text-text-primary">Auto-Synced Meta Metrics</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSyncNow}
+          disabled={syncing}
+          title="Pull latest data from Meta now"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-[11px] transition-all disabled:opacity-50"
+        >
+          {syncing ? <Spinner size="sm" /> : <RefreshCw size={11} />}
+          {syncing ? 'Syncing…' : 'Sync Now'}
+        </button>
+        <MetricsFreshnessBadge orgId={resolvedOrgId} />
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="flex flex-col gap-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={16} className="text-brand" />
-            <span className="text-sm font-semibold text-text-primary">Auto-Synced Meta Metrics</span>
-          </div>
-          <MetricsFreshnessBadge orgId={resolvedOrgId} />
-        </div>
+        {header}
         <div className="flex items-center gap-2 py-4">
           <Spinner size="sm" />
           <span className="text-xs text-text-tertiary">Loading metrics…</span>
@@ -114,16 +149,13 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
   if (rows.length === 0) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={16} className="text-brand" />
-            <span className="text-sm font-semibold text-text-primary">Auto-Synced Meta Metrics</span>
-          </div>
-          <MetricsFreshnessBadge orgId={resolvedOrgId} />
-        </div>
+        {header}
+        {syncMsg && (
+          <p className="text-xs text-brand">{syncMsg}</p>
+        )}
         <div className="px-5 py-10 text-center rounded-xl border border-dashed border-border">
           <p className="text-sm text-text-tertiary">No auto-synced metrics yet.</p>
-          <p className="text-xs text-text-tertiary mt-1">Connect Meta Ads in Settings to enable automatic sync.</p>
+          <p className="text-xs text-text-tertiary mt-1">Connect Meta Ads in Settings → Meta Ads Integration, then click Sync Now.</p>
         </div>
       </div>
     );
@@ -131,14 +163,10 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <TrendingUp size={16} className="text-brand" />
-          <span className="text-sm font-semibold text-text-primary">Auto-Synced Meta Metrics</span>
-        </div>
-        <MetricsFreshnessBadge orgId={resolvedOrgId} />
-      </div>
+      {header}
+      {syncMsg && (
+        <p className="text-xs text-brand">{syncMsg}</p>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-5 gap-3">

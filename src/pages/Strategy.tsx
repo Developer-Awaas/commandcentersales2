@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Database, FolderKanban, Zap } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
@@ -96,7 +96,7 @@ const DEFAULT_FULL: FullStrategyInputs = {
 };
 
 export function Strategy() {
-  const { navigate } = useNavigation();
+  const { navigate, setGeneratingPage } = useNavigation();
   const { setCurrentData } = useChatbot();
   const [mode, setMode] = useState<StrategyMode>('quick');
   const [projects, setProjects] = useState<StrategyProject[]>([]);
@@ -114,9 +114,19 @@ export function Strategy() {
   const [fullInputs, setFullInputs] = useState<FullStrategyInputs>(DEFAULT_FULL);
 
   const [submitting, setSubmitting] = useState(false);
+  const [geminiActive, setGeminiActive] = useState(false);
   const [result, setResult] = useState<StrategyResult>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
+
+  useEffect(() => {
+    if (submitting || geminiActive) {
+      setGeneratingPage('strategy');
+    } else {
+      setGeneratingPage(null);
+    }
+    return () => { setGeneratingPage(null); };
+  }, [submitting, geminiActive, setGeneratingPage]);
 
   useEffect(() => {
     if (result) {
@@ -394,6 +404,8 @@ export function Strategy() {
           inputSummary: quickInputs.prompt || `Senior designer brief for ${projectName}`,
           inputData: { brief: quickInputs.prompt, goal: quickInputs.campaignGoal, languages: quickInputs.languages },
           outputData: parsed as Record<string, unknown>,
+          claudeInputTokens: (rawResponse._inputTokens as number) ?? 0,
+          claudeOutputTokens: (rawResponse._outputTokens as number) ?? 0,
         });
         logActivity(supabase, {
           action: 'generated_strategy',
@@ -494,6 +506,9 @@ export function Strategy() {
       } else {
         const fullParsed = res as FullAiResult;
 
+        let aanyaInputTokens = 0;
+        let aanyaOutputTokens = 0;
+
         // ── Aanya senior designer creative upgrade (mirrors Meta-path lines 537-605) ──
         try {
           console.log('🎨 [AANYA-FULL] Calling Aanya for creative prompt upgrade...');
@@ -524,6 +539,8 @@ export function Strategy() {
           console.log('🎨 [AANYA-FULL] Languages:', languages, '| Primary project:', primaryProjectId);
 
           const aanyaRes = await aiCall(aanyaUser, aanyaSystem, 16000);
+          aanyaInputTokens = (aanyaRes._inputTokens as number) ?? 0;
+          aanyaOutputTokens = (aanyaRes._outputTokens as number) ?? 0;
           console.log('🎨 [AANYA-FULL] Response keys:', Object.keys(aanyaRes));
 
           let aanyaParsed: SeniorDesignerResult;
@@ -564,6 +581,8 @@ export function Strategy() {
           inputSummary: `Full strategy: ₹${fullInputs.monthlyBudget}/mo, ${fullInputs.leadsPerMonth} leads, ${selected.length} projects`,
           inputData: { monthlyBudget: fullInputs.monthlyBudget, leadsPerMonth: fullInputs.leadsPerMonth, scale: fullInputs.scale },
           outputData: fullParsed,
+          claudeInputTokens: ((res._inputTokens as number) ?? 0) + aanyaInputTokens,
+          claudeOutputTokens: ((res._outputTokens as number) ?? 0) + aanyaOutputTokens,
         });
         logActivity(supabase, {
           action: 'generated_strategy',
@@ -876,12 +895,41 @@ export function Strategy() {
       {mode === 'quick' && (
         <button
           onClick={handleQuickSubmit}
-          disabled={submitting}
+          disabled={submitting || geminiActive}
           className="mt-4 w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
         >
-          {submitting ? <Spinner size="sm" /> : <Zap size={15} />}
-          {submitting ? 'Generating…' : 'Quick Generate Ad'}
+          {submitting ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
+          {submitting ? 'Crafting strategy…' : geminiActive ? 'Generating images…' : 'Quick Generate Ad'}
         </button>
+      )}
+
+      {/* Two-phase generation progress indicator */}
+      {(submitting || geminiActive) && mode === 'quick' && (
+        <div className="mt-3 bg-surface-elevated border border-border rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 border ${submitting ? 'border-brand/40 bg-brand/10' : 'border-emerald-500/40 bg-emerald-500/10'}`}>
+              {submitting
+                ? <Loader2 size={12} className="animate-spin text-brand" />
+                : <CheckCircle2 size={12} className="text-emerald-400" />}
+            </div>
+            <div>
+              <p className={`text-xs font-medium ${submitting ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                {submitting ? 'Aanya is crafting your campaign strategy…' : 'Strategy ready'}
+              </p>
+              {submitting && <p className="text-[11px] text-text-tertiary mt-0.5">Writing headlines, ad copy, and image brief (10–20 s)</p>}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 border ${geminiActive ? 'border-amber-500/40 bg-amber-500/10' : 'border-border bg-surface-sunken'}`}>
+              {geminiActive
+                ? <Loader2 size={12} className="animate-spin text-amber-400" />
+                : <div className="w-2 h-2 rounded-full bg-border" />}
+            </div>
+            <p className={`text-xs font-medium ${geminiActive ? 'text-text-primary' : 'text-text-tertiary'}`}>
+              {geminiActive ? 'Generating Feed + Story images with FLUX…' : 'Image generation — starts after strategy'}
+            </p>
+          </div>
+        </div>
       )}
 
       {mode === 'full' && (
@@ -905,6 +953,7 @@ export function Strategy() {
             onSaveQuick={saveQuickCampaign}
             onSaveFull={saveFullCampaigns}
             quickProject={quickProjectForReview}
+            onGeminiStateChange={setGeminiActive}
           />
         </div>
       )}

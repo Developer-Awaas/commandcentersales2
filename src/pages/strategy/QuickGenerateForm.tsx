@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Upload } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -45,6 +45,14 @@ export function QuickGenerateForm({
   brandKitDefaultLanguages,
 }: QuickGenerateFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!inputs.referenceImage) { setReferencePreviewUrl(null); return; }
+    const url = URL.createObjectURL(inputs.referenceImage);
+    setReferencePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [inputs.referenceImage]);
 
   function set<K extends keyof QuickGenerateInputs>(key: K, value: QuickGenerateInputs[K]) {
     onChange({ ...inputs, [key]: value });
@@ -195,7 +203,7 @@ export function QuickGenerateForm({
           {inputs.referenceImage ? (
             <div className="flex items-center gap-3">
               <img
-                src={URL.createObjectURL(inputs.referenceImage)}
+                src={referencePreviewUrl ?? ''}
                 alt="Reference"
                 className="w-16 h-16 object-cover rounded-lg border border-border"
               />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clock, History } from 'lucide-react';
+import { Clock, History, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { Card } from '../components/ui/Card';
@@ -16,6 +16,24 @@ interface AiSession {
   created_at: string;
   recommendations?: string[];
   actions_taken?: string[];
+  project_ids?: string[];
+}
+
+interface LeadFunnelRow {
+  project_id: string;
+  week_start: string;
+  total_leads: number | null;
+  contacted: number | null;
+  sv_done: number | null;
+  booked: number | null;
+}
+
+function isoWeekStart(dateStr: string): string {
+  const d = new Date(dateStr);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().split('T')[0];
 }
 
 const SESSION_TYPE_STYLES: Record<string, string> = {
@@ -66,6 +84,7 @@ function timeAgo(dateStr: string): string {
 
 export function AiSessions() {
   const [sessions, setSessions] = useState<AiSession[]>([]);
+  const [funnelMap, setFunnelMap] = useState<Map<string, LeadFunnelRow>>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [selected, setSelected] = useState<AiSession | null>(null);
@@ -79,7 +98,35 @@ export function AiSessions() {
         .eq('org_id', getOrgId())
         .order('created_at', { ascending: false })
         .limit(50);
-      setSessions((data ?? []) as AiSession[]);
+      const loadedSessions = (data ?? []) as AiSession[];
+      setSessions(loadedSessions);
+
+      // Fetch lead_funnel data for strategy sessions that have a project
+      const strategyTypes = new Set(['quick_generate', 'strategy', 'full_strategy']);
+      const projectIds = [
+        ...new Set(
+          loadedSessions
+            .filter((s) => strategyTypes.has(s.session_type) && s.project_ids?.length)
+            .flatMap((s) => s.project_ids ?? [])
+        ),
+      ];
+
+      if (projectIds.length > 0) {
+        const { data: funnelRows } = await supabase
+          .from('lead_funnel')
+          .select('project_id,week_start,total_leads,contacted,sv_done,booked')
+          .eq('org_id', getOrgId())
+          .in('project_id', projectIds);
+
+        const map = new Map<string, LeadFunnelRow>();
+        for (const row of (funnelRows ?? []) as LeadFunnelRow[]) {
+          if (row.project_id && row.week_start) {
+            map.set(`${row.project_id}|${row.week_start.split('T')[0]}`, row);
+          }
+        }
+        setFunnelMap(map);
+      }
+
       setLoading(false);
     }
     load();
@@ -133,6 +180,9 @@ export function AiSessions() {
             {filtered.map((s) => {
               const typeStyle = SESSION_TYPE_STYLES[s.session_type] ?? SESSION_TYPE_STYLES['strategy'];
               const typeLabel = SESSION_TYPE_LABEL[s.session_type] ?? s.session_type;
+              const projectId = s.project_ids?.[0];
+              const funnelKey = projectId ? `${projectId}|${isoWeekStart(s.created_at)}` : null;
+              const funnel = funnelKey ? funnelMap.get(funnelKey) : undefined;
               return (
                 <button
                   key={s.id}
@@ -149,6 +199,16 @@ export function AiSessions() {
                         : s.input_summary
                       : 'No summary'}
                   </p>
+                  {funnel && (
+                    <div className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                      <Users size={10} className="text-emerald-400" />
+                      <span className="text-[10px] text-emerald-400 font-medium">
+                        {funnel.total_leads ?? '—'} leads
+                        {funnel.sv_done != null ? ` · ${funnel.sv_done} SV` : ''}
+                        {funnel.booked != null ? ` · ${funnel.booked} booked` : ''}
+                      </span>
+                    </div>
+                  )}
                   {s.health_score != null && (
                     <span className="flex-shrink-0 text-xs font-semibold text-brand">
                       {s.health_score}

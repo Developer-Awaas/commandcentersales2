@@ -323,10 +323,12 @@ export function Creatives() {
   const [creativePlatform, setCreativePlatform] = useState('Nanobanana (Gemini)');
   const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
   const [image, setImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [generatingImages, setGeneratingImages] = useState(false);
+  const [brandColors, setBrandColors] = useState<{ primary: string; accent: string } | undefined>();
   const { showToast } = useToast();
   const [library, setLibrary] = useState<LibraryCreative[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
@@ -362,7 +364,19 @@ export function Creatives() {
     }
     load();
     loadLibrary();
+    supabase.from('brand_kits').select('primary_color,secondary_color').eq('org_id', getOrgId()).maybeSingle()
+      .then(({ data: bk }) => {
+        if (bk?.primary_color) setBrandColors({ primary: bk.primary_color, accent: bk.secondary_color ?? '#c9a961' });
+      });
   }, [loadLibrary]);
+
+  // Manage blob URL lifecycle — create once per file, revoke on change or unmount
+  useEffect(() => {
+    if (!image) { setImagePreviewUrl(null); return; }
+    const url = URL.createObjectURL(image);
+    setImagePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     setImage(e.target.files?.[0] ?? null);
@@ -407,6 +421,7 @@ export function Creatives() {
   }
 
   async function handleGenerate() {
+    if (submitting) return;
     setSubmitting(true);
     setResult({ status: 'idle' });
 
@@ -445,6 +460,8 @@ export function Creatives() {
         ] as const;
 
         console.log('🎨 [AANYA-VARIANTS] Generating 3 variants sequentially (avoids Anthropic API rate limits)...');
+        let variantInputTokens = 0;
+        let variantOutputTokens = 0;
         const settled: PromiseSettledResult<SeniorDesignerResult>[] = [];
         for (let i = 0; i < briefs.length; i++) {
           if (i > 0) {
@@ -474,6 +491,8 @@ export function Creatives() {
               aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000);
             }
 
+            variantInputTokens += (aanyaRes._inputTokens as number) ?? 0;
+            variantOutputTokens += (aanyaRes._outputTokens as number) ?? 0;
             console.log(`🎨 ${tag} response keys:`, Object.keys(aanyaRes));
             if (aanyaRes.error) throw new Error(String(aanyaRes.error));
 
@@ -553,14 +572,14 @@ export function Creatives() {
           // Auto-generate actual images from nanoPrompts in background
           const promptsToRender = aiVariants
             .filter((v) => v.nanoPrompt)
-            .map((v) => ({ label: v.angle, prompt: v.nanoPrompt }));
+            .map((v) => ({ label: v.angle, prompt: v.nanoPrompt, headline: v.headline, cta: v.cta }));
           if (promptsToRender.length > 0) {
             setGalleryImages([]);
             setGeneratingImages(true);
             // sessionId groups all 3 images so edits overwrite the same files (saves storage)
             const sessionId = crypto.randomUUID();
             Promise.allSettled(
-              promptsToRender.map(async ({ label, prompt }) => {
+              promptsToRender.map(async ({ label, prompt, headline, cta }) => {
                 const [img] = await generateImageWithGemini(prompt, '1:1');
                 const { url, id, storagePath } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
                   sessionId,
@@ -568,23 +587,34 @@ export function Creatives() {
                   funnelStage,
                   projectId,
                 });
-                return { url, id, label, storagePath } as GalleryImage;
+                return { url, id, label, storagePath, adCopy: { headline, cta } } as GalleryImage;
               })
             ).then((results) => {
               const imgs = results
                 .filter((r): r is PromiseFulfilledResult<GalleryImage> => r.status === 'fulfilled')
                 .map((r) => r.value);
               setGalleryImages(imgs);
-              if (imgs.length === 0) showToast('Image generation failed — check VITE_GEMINI_API_KEY.', 'error');
+              if (imgs.length === 0) showToast('Image generation failed — service may be busy, please retry.', 'error');
+              logAiSession(supabase, {
+                sessionType: 'creative',
+                projectIds: [projectId],
+                inputSummary: `Aanya 3-variant creatives for ${project?.name ?? ''} ${funnelStage}`,
+                outputData: { variants: aiVariants } as Record<string, unknown>,
+                claudeInputTokens: variantInputTokens,
+                claudeOutputTokens: variantOutputTokens,
+                geminiImagesGenerated: imgs.length,
+              });
             }).finally(() => setGeneratingImages(false));
+          } else {
+            logAiSession(supabase, {
+              sessionType: 'creative',
+              projectIds: [projectId],
+              inputSummary: `Aanya 3-variant creatives for ${project?.name ?? ''} ${funnelStage}`,
+              outputData: { variants: aiVariants } as Record<string, unknown>,
+              claudeInputTokens: variantInputTokens,
+              claudeOutputTokens: variantOutputTokens,
+            });
           }
-
-          logAiSession(supabase, {
-            sessionType: 'creative',
-            projectIds: [projectId],
-            inputSummary: `Aanya 3-variant creatives for ${project?.name ?? ''} ${funnelStage}`,
-            outputData: { variants: aiVariants } as Record<string, unknown>,
-          });
           logActivity(supabase, {
             action: 'generated_creatives',
             entityType: 'ai_session',
@@ -599,10 +629,10 @@ PROJECT: ${project?.name ?? 'Unknown'} | ${project?.locality ?? ''}, ${project?.
 VERNACULAR: Odia enabled
 ${image ? 'REFERENCE IMAGE: Analyze uploaded image style. Match it in prompts.' : ''}
 
-CRITICAL: primaryText = REAL 150-250 char copy with emojis. headline = REAL 25 chars. nanoPrompt = COMPLETE image generation prompt.
+CRITICAL: primaryText = REAL 150-250 char copy with emojis. headline = REAL 25 chars. nanoPrompt = concise FLUX image generation prompt, 80-150 words, natural language, NO section headers, NO text/logo/typography instructions — visual description only: scene, composition, lens, lighting (Kelvin), brand hex colors, style, negative prompts.
 
 Return ONLY a JSON object:
-{"strategy":"which variant first and why","variants":[{"variant":"A","angle":"angle name","why":"rationale","format":"Single Image","primaryText":"ACTUAL 150-250 CHAR COPY","odiaText":"ACTUAL ODIA","headline":"ACTUAL 25 CHAR","description":"ACTUAL 30 CHAR","cta":"Send WhatsApp Message","nanoPrompt":"COMPLETE 1080x1080 prompt with visual style, colors hex, text overlay, layout, logo top-left","nanoStory":"COMPLETE 1080x1920 prompt","hashtags":["15 real tags"],"bestTime":"time"}],"shootList":["video shot if needed"],"refresh":"when to refresh"}`;
+{"strategy":"which variant first and why","variants":[{"variant":"A","angle":"angle name","why":"rationale","format":"Single Image","primaryText":"ACTUAL 150-250 CHAR COPY","odiaText":"ACTUAL ODIA","headline":"ACTUAL 25 CHAR","description":"ACTUAL 30 CHAR","cta":"Send WhatsApp Message","nanoPrompt":"80-150 word FLUX visual prompt, no text overlays, no logos","nanoStory":"same concept vertical 1080x1920","hashtags":["15 real tags"],"bestTime":"time"}],"shootList":["video shot if needed"],"refresh":"when to refresh"}`;
         const promptText = context ? basePromptText + '\n\n' + context : basePromptText;
 
         let res: Record<string, unknown>;
@@ -696,7 +726,7 @@ Return ONLY a JSON object:
             <p className="text-[11px] text-text-tertiary -mt-0.5 mb-1">Upload a sample ad or project photo — AI will match the style</p>
             {image ? (
               <div className="flex items-center gap-4 bg-surface border border-border rounded-lg p-3">
-                <img src={URL.createObjectURL(image)} alt="Reference" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
+                <img src={imagePreviewUrl ?? ''} alt="Reference" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
                 <div className="flex flex-col gap-1 flex-1 min-w-0">
                   <span className="text-xs text-text-primary truncate">{image.name}</span>
                   <button onClick={removeImage} className="inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors w-fit">
@@ -756,6 +786,7 @@ Return ONLY a JSON object:
             <ImageGalleryViewer
               images={galleryImages}
               onClose={() => setGalleryImages([])}
+              brandColors={brandColors}
             />
           )}
         </div>

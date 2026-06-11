@@ -1,12 +1,6 @@
 import { supabase } from './supabase';
 import { getOrgId } from './constants';
 
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-
-function getGeminiApiKey(): string {
-  return (import.meta.env.VITE_GEMINI_API_KEY as string) || '';
-}
-
 export interface GeminiGeneratedImage {
   base64: string;
   mimeType: string;
@@ -43,41 +37,25 @@ export async function generateImageWithGemini(
   prompt: string,
   aspectRatio: '1:1' | '9:16' = '1:1'
 ): Promise<GeminiGeneratedImage[]> {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) throw new Error('VITE_GEMINI_API_KEY is not set. Add it to your .env file and restart the dev server.');
+  const { width, height } = aspectRatio === '9:16'
+    ? { width: 1080, height: 1920 }
+    : { width: 1080, height: 1080 };
 
-  const url = `${GEMINI_BASE}/imagen-3.0-generate-002:predict?key=${apiKey}`;
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      instances: [{ prompt }],
-      parameters: {
-        sampleCount: 1,
-        aspectRatio,
-        addWatermark: false,
-      },
-    }),
+  const { data, error } = await supabase.functions.invoke('generate-image', {
+    body: { prompt, width, height },
   });
 
-  if (!res.ok) {
-    let msg = `Gemini API error ${res.status}`;
+  if (error) {
+    let detail = error.message ?? 'Image generation failed';
     try {
-      const err = await res.json();
-      msg = (err as { error?: { message?: string } })?.error?.message ?? msg;
-    } catch { /* ignore parse error */ }
-    throw new Error(msg);
+      const ctx = await (error as unknown as { context?: Response }).context?.json?.();
+      if (ctx?.error) detail = ctx.error;
+    } catch { /* ignore */ }
+    throw new Error(detail);
   }
+  if (!data?.base64) throw new Error(data?.error ?? 'No image returned from generation service');
 
-  const data = await res.json() as { predictions?: { bytesBase64Encoded: string; mimeType?: string }[] };
-  const predictions = data.predictions ?? [];
-  if (!predictions.length) throw new Error('Gemini returned no images.');
-
-  return predictions.map((p) => ({
-    base64: p.bytesBase64Encoded,
-    mimeType: p.mimeType ?? 'image/png',
-  }));
+  return [{ base64: data.base64 as string, mimeType: (data.mimeType as string) ?? 'image/jpeg' }];
 }
 
 /**
@@ -131,7 +109,7 @@ export async function uploadGeminiImageToSupabase(
       image_url: url,
       storage_path: filename,
       prompt_used: opts?.angleLabel ?? null,
-      model_used: 'imagen-3.0-generate-002',
+      model_used: 'nvidia-flux-schnell',
       status: 'generated',
       session_id: opts?.sessionId ?? null,
     })
@@ -139,6 +117,7 @@ export async function uploadGeminiImageToSupabase(
     .single();
 
   if (dbErr) throw new Error(`DB insert failed: ${dbErr.message}`);
+  if (!asset) throw new Error('DB insert succeeded but no row returned — check creative_assets RLS SELECT policy');
 
   return { url, id: (asset as { id: string }).id, storagePath: filename };
 }

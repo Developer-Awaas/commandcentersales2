@@ -183,16 +183,6 @@ export function UserManagement() {
     loadUsers();
   }
 
-  async function resetPassword(u: UserRow) {
-    const pwd = genPassword();
-    const { error } = await supabase.auth.admin.updateUserById(u.id, { password: pwd });
-    if (error) {
-      showToast('Password reset failed: ' + error.message, 'error');
-    } else {
-      showToast(`New password for ${u.email}: ${pwd}`, 'success');
-    }
-  }
-
   async function deleteUser(id: string) {
     await supabase.from('profiles').update({ is_active: false }).eq('id', id);
     showToast('User deactivated.', 'success');
@@ -271,7 +261,6 @@ export function UserManagement() {
                         <ActionBtn title={u.is_active ? 'Deactivate' : 'Activate'} onClick={() => toggleActive(u)}>
                           {u.is_active ? <ToggleRight size={14} className="text-emerald-400" /> : <ToggleLeft size={14} className="text-text-tertiary" />}
                         </ActionBtn>
-                        <ActionBtn title="Reset Password" onClick={() => resetPassword(u)}><RefreshCw size={13} /></ActionBtn>
                         <ActionBtn title="Delete" onClick={() => setConfirmDelete(u.id)} className="hover:text-red-400"><Trash2 size={13} /></ActionBtn>
                       </div>
                     </td>

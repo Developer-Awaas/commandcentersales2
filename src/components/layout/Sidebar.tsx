@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   FolderKanban,
+  Loader2,
   Zap,
   Target,
   Palette,
@@ -20,10 +21,11 @@ import {
   Library,
   Smartphone,
   Wand2,
+  ChevronDown,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../lib/supabase';
-import type { AppSection } from '../../contexts/NavigationContext';
+import { useNavigation, type AppSection } from '../../contexts/NavigationContext';
 import { hasModuleAccess } from '../../lib/access';
 
 interface SidebarProps {
@@ -54,8 +56,6 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
   { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
-  { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
 ];
 
 const SMM_NAV: NavItem[] = [
@@ -64,8 +64,6 @@ const SMM_NAV: NavItem[] = [
   { id: 'smm-creatives', label: 'SMM Creatives', icon: Image },
   { id: 'smm-analyzer', label: 'SMM Analyzer', icon: BarChart3 },
   { id: 'content-library', label: 'Content Library', icon: Library },
-  { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
 ];
 
 const BOTTOM_NAV: NavItem[] = [
@@ -75,7 +73,7 @@ const BOTTOM_NAV: NavItem[] = [
 ];
 
 const SECTIONS: { id: AppSection; label: string; icon: React.ElementType }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
   { id: 'lead_gen', label: 'Lead Gen', icon: Target },
   { id: 'smm', label: 'Social Media', icon: Smartphone },
 ];
@@ -89,10 +87,16 @@ export function Sidebar({
   onSectionChange,
   wizardActive: _wizardActive,
 }: SidebarProps) {
+  const { generatingPage } = useNavigation();
   const [learningMode, setLearningMode] = useState<boolean>(() => {
     return localStorage.getItem('learning_mode') !== 'false';
   });
   const [unreadCount, setUnreadCount] = useState(0);
+  const [openSections, setOpenSections] = useState<Set<AppSection>>(() => new Set([activeSection]));
+
+  useEffect(() => {
+    setOpenSections(prev => new Set([...prev, activeSection]));
+  }, [activeSection]);
 
   useEffect(() => {
     fetchUnreadCount();
@@ -122,20 +126,30 @@ export function Sidebar({
     }
   }
 
+  function toggleSection(sec: AppSection) {
+    if (sec !== activeSection) {
+      onSectionChange(sec);
+      setOpenSections(new Set([sec]));
+    } else {
+      setOpenSections(prev => {
+        const next = new Set(prev);
+        if (next.has(sec)) next.delete(sec); else next.add(sec);
+        return next;
+      });
+    }
+  }
+
   const isWizardMode = activePage === 'campaign-wizard';
   const WIZARD_NAV: NavItem[] = [
     { id: 'campaign-wizard', label: 'Campaign Wizard', icon: Wand2 },
     { id: 'projects', label: 'Projects', icon: FolderKanban },
     { id: 'notifications', label: 'Notifications', icon: Bell },
   ];
-  const rawNavItems =
-    activeSection === 'lead_gen' ? LEAD_GEN_NAV : activeSection === 'smm' ? SMM_NAV : DASHBOARD_NAV;
-  const sectionItems = isWizardMode && activeSection === 'lead_gen' ? WIZARD_NAV : rawNavItems;
-  const navItems = sectionItems.filter((item) => hasModuleAccess(profile, item.id));
 
   function renderNavItem(item: NavItem) {
     const Icon = item.icon;
     const isActive = activePage === item.id;
+    const isGenerating = generatingPage === item.id;
     return (
       <button
         key={item.id + '-' + activeSection}
@@ -144,12 +158,15 @@ export function Sidebar({
           'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
           isActive
             ? 'bg-brand-subtle text-brand-text'
-            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+            : 'text-text-secondary hover:bg-surface-sidebar-hover hover:text-text-primary',
         ].join(' ')}
       >
         <Icon size={18} className="flex-shrink-0" />
         <span className="flex-1 text-left text-[13px]">{item.label}</span>
-        {item.id === 'notifications' && unreadCount > 0 && (
+        {isGenerating && (
+          <Loader2 size={12} className="animate-spin text-amber-400 flex-shrink-0" />
+        )}
+        {!isGenerating && item.id === 'notifications' && unreadCount > 0 && (
           <span className="flex items-center justify-center rounded-full bg-danger text-white text-[10px] font-bold flex-shrink-0 min-w-[18px] h-[18px] px-1">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
@@ -170,7 +187,7 @@ export function Sidebar({
 
   return (
     <aside
-      className="fixed top-0 left-0 h-screen flex flex-col bg-surface-elevated border-r border-border z-40"
+      className="fixed top-0 left-0 h-screen flex flex-col bg-surface-sidebar border-r border-border z-40"
       style={{ width: 220 }}
     >
       {/* Logo */}
@@ -184,51 +201,63 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Section Toggle */}
-      <div className="flex-shrink-0 px-3 py-2 border-b border-border">
-        <p className="px-1 pt-1 pb-1.5 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
-          Workspace
-        </p>
-        <div className="flex flex-col gap-0.5">
-          {SECTIONS.map((sec) => {
-            const Icon = sec.icon;
-            const isActive = activeSection === sec.id;
-            return (
+      {/* Main Nav — collapsible sections */}
+      <nav className="flex-1 overflow-y-auto py-2 px-3">
+        {SECTIONS.map((sec) => {
+          const Icon = sec.icon;
+          const isActive = activeSection === sec.id;
+          const isOpen = openSections.has(sec.id);
+
+          const rawItems =
+            sec.id === 'lead_gen' ? LEAD_GEN_NAV :
+            sec.id === 'smm'      ? SMM_NAV      : DASHBOARD_NAV;
+          const items = (isWizardMode && sec.id === 'lead_gen' ? WIZARD_NAV : rawItems)
+            .filter(item => hasModuleAccess(profile, item.id));
+
+          return (
+            <div key={sec.id} className="mb-1">
+              {/* Section header */}
               <button
-                key={sec.id}
-                onClick={() => onSectionChange(sec.id)}
+                onClick={() => toggleSection(sec.id)}
                 className={[
                   'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150',
                   isActive
-                    ? 'bg-brand text-white shadow-sm'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover',
+                    ? 'text-brand-text bg-brand-subtle'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-sidebar-hover',
                 ].join(' ')}
               >
                 <Icon size={14} className="flex-shrink-0" />
-                {sec.label}
+                <span className="flex-1 text-left">{sec.label}</span>
+                <ChevronDown
+                  size={13}
+                  className={[
+                    'flex-shrink-0 transition-transform duration-200',
+                    isOpen ? 'rotate-0' : '-rotate-90',
+                  ].join(' ')}
+                />
               </button>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* Main Nav */}
-      <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-0.5">
-        {isWizardMode && activeSection === 'lead_gen' && (
-          <div className="mx-0 mb-3 mt-1 px-3 py-2.5 rounded-lg bg-brand-subtle border border-brand-border">
-            <p className="text-[10px] font-semibold text-brand-text leading-snug">Wizard mode active</p>
-            <p className="text-[9px] text-text-tertiary leading-snug mt-0.5">
-              Sidebar simplified while wizard is in progress.
-            </p>
-            <button
-              onClick={() => document.dispatchEvent(new CustomEvent('wizard-exit-requested'))}
-              className="text-[10px] text-danger hover:text-danger/80 text-left transition-colors mt-1"
-            >
-              Exit Wizard
-            </button>
-          </div>
-        )}
-        {navItems.map(renderNavItem)}
+              {/* Section items */}
+              {isOpen && (
+                <div className="mt-0.5 ml-2 pl-2 border-l border-border space-y-0.5">
+                  {isWizardMode && sec.id === 'lead_gen' && (
+                    <div className="mb-2 px-2 py-2 rounded-lg bg-brand-subtle border border-brand-border">
+                      <p className="text-[10px] font-semibold text-brand-text leading-snug">Wizard mode active</p>
+                      <p className="text-[9px] text-text-tertiary leading-snug mt-0.5">Sidebar simplified while wizard is in progress.</p>
+                      <button
+                        onClick={() => document.dispatchEvent(new CustomEvent('wizard-exit-requested'))}
+                        className="text-[10px] text-danger hover:text-danger/80 text-left transition-colors mt-1"
+                      >
+                        Exit Wizard
+                      </button>
+                    </div>
+                  )}
+                  {items.map(item => renderNavItem(item))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* Bottom */}
