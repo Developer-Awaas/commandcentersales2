@@ -17,6 +17,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
+import { supabase } from '../../lib/supabase';
 import { getOrgId, getUserId } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
