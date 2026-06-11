@@ -91,6 +91,7 @@ export default function App() {
   const { session, profile, loading, signOut } = useAuth();
   const [wizardActive, setWizardActive] = useState(false);
   const [generatingPage, setGeneratingPage] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<number | null>(null);
 
   const [activePage, setActivePage] = useState<string>(() => {
     return localStorage.getItem('active_page') ?? 'dashboard';
@@ -140,7 +141,7 @@ export default function App() {
   return (
     <ToastProvider>
       <ChatbotProvider>
-        <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage }}>
+        <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage, generationProgress, setGenerationProgress }}>
           <Layout activePage={activePage} onNavigate={navigate} profile={profile} onSignOut={signOut} activeSection={activeSection} onSectionChange={setSection} wizardActive={wizardActive}>
             <PageContent page={activePage} profile={profile} wizardActive={wizardActive} onWizardEnd={() => { setWizardActive(false); navigate('strategy'); }} onWizardStart={() => setWizardActive(true)} />
           </Layout>

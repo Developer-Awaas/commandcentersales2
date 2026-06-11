@@ -96,7 +96,7 @@ const DEFAULT_FULL: FullStrategyInputs = {
 };
 
 export function Strategy() {
-  const { navigate, setGeneratingPage } = useNavigation();
+  const { navigate, setGeneratingPage, setGenerationProgress } = useNavigation();
   const { setCurrentData } = useChatbot();
   const [mode, setMode] = useState<StrategyMode>('quick');
   const [projects, setProjects] = useState<StrategyProject[]>([]);
@@ -120,13 +120,21 @@ export function Strategy() {
   const { showToast } = useToast();
 
   useEffect(() => {
-    if (submitting || geminiActive) {
+    if (submitting) {
       setGeneratingPage('strategy');
+      setGenerationProgress(30);
+    } else if (geminiActive) {
+      setGeneratingPage('strategy');
+      setGenerationProgress(65);
     } else {
       setGeneratingPage(null);
+      setGenerationProgress(null);
     }
-    return () => { setGeneratingPage(null); };
-  }, [submitting, geminiActive, setGeneratingPage]);
+    return () => {
+      setGeneratingPage(null);
+      setGenerationProgress(null);
+    };
+  }, [submitting, geminiActive, setGeneratingPage, setGenerationProgress]);
 
   useEffect(() => {
     if (result) {

@@ -9,6 +9,8 @@ interface NavigationContextValue {
   setSection: (section: AppSection) => void;
   generatingPage: string | null;
   setGeneratingPage: (page: string | null) => void;
+  generationProgress: number | null;
+  setGenerationProgress: (progress: number | null) => void;
 }
 
 export const NavigationContext = createContext<NavigationContextValue>({
@@ -18,6 +20,8 @@ export const NavigationContext = createContext<NavigationContextValue>({
   setSection: () => {},
   generatingPage: null,
   setGeneratingPage: () => {},
+  generationProgress: null,
+  setGenerationProgress: () => {},
 });
 
 export function useNavigation() {

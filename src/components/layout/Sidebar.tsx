@@ -87,7 +87,7 @@ export function Sidebar({
   onSectionChange,
   wizardActive: _wizardActive,
 }: SidebarProps) {
-  const { generatingPage } = useNavigation();
+  const { generatingPage, generationProgress } = useNavigation();
   const [learningMode, setLearningMode] = useState<boolean>(() => {
     return localStorage.getItem('learning_mode') !== 'false';
   });
@@ -150,28 +150,44 @@ export function Sidebar({
     const Icon = item.icon;
     const isActive = activePage === item.id;
     const isGenerating = generatingPage === item.id;
+    // Lock all items that aren't the currently generating page
+    const isLocked = !!generatingPage && item.id !== generatingPage;
+
     return (
-      <button
-        key={item.id + '-' + activeSection}
-        onClick={() => onNavigate(item.id)}
-        className={[
-          'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
-          isActive
-            ? 'bg-brand-subtle text-brand-text'
-            : 'text-text-secondary hover:bg-surface-sidebar-hover hover:text-text-primary',
-        ].join(' ')}
-      >
-        <Icon size={18} className="flex-shrink-0" />
-        <span className="flex-1 text-left text-[13px]">{item.label}</span>
-        {isGenerating && (
-          <Loader2 size={12} className="animate-spin text-amber-400 flex-shrink-0" />
+      <div key={item.id + '-' + activeSection}>
+        <button
+          onClick={() => !isLocked && onNavigate(item.id)}
+          disabled={isLocked}
+          title={isLocked ? 'Generation in progress — please wait' : undefined}
+          className={[
+            'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
+            isActive
+              ? 'bg-brand-subtle text-brand-text'
+              : isLocked
+              ? 'text-text-tertiary opacity-40 cursor-not-allowed'
+              : 'text-text-secondary hover:bg-surface-sidebar-hover hover:text-text-primary',
+          ].join(' ')}
+        >
+          <Icon size={18} className="flex-shrink-0" />
+          <span className="flex-1 text-left text-[13px]">{item.label}</span>
+          {isGenerating && (
+            <Loader2 size={12} className="animate-spin text-amber-400 flex-shrink-0" />
+          )}
+          {!isGenerating && item.id === 'notifications' && unreadCount > 0 && (
+            <span className="flex items-center justify-center rounded-full bg-danger text-white text-[10px] font-bold flex-shrink-0 min-w-[18px] h-[18px] px-1">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
+        {isGenerating && generationProgress !== null && (
+          <div className="mx-3 mb-1 h-[3px] bg-border rounded-full overflow-hidden">
+            <div
+              className="h-full bg-amber-400 rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${generationProgress}%` }}
+            />
+          </div>
         )}
-        {!isGenerating && item.id === 'notifications' && unreadCount > 0 && (
-          <span className="flex items-center justify-center rounded-full bg-danger text-white text-[10px] font-bold flex-shrink-0 min-w-[18px] h-[18px] px-1">
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        )}
-      </button>
+      </div>
     );
   }
 
@@ -218,11 +234,15 @@ export function Sidebar({
             <div key={sec.id} className="mb-1">
               {/* Section header */}
               <button
-                onClick={() => toggleSection(sec.id)}
+                onClick={() => !generatingPage && toggleSection(sec.id)}
+                disabled={!!generatingPage && sec.id !== activeSection}
+                title={generatingPage && sec.id !== activeSection ? 'Generation in progress — please wait' : undefined}
                 className={[
                   'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150',
                   isActive
                     ? 'text-brand-text bg-brand-subtle'
+                    : generatingPage && sec.id !== activeSection
+                    ? 'text-text-tertiary opacity-40 cursor-not-allowed'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-sidebar-hover',
                 ].join(' ')}
               >
