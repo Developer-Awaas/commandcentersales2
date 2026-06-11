@@ -1475,6 +1475,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               angleLabel: data.creative_concept ? `${data.creative_concept}-${angleLabel}` : angleLabel,
               funnelStage: funnelStage ?? 'BOFU',
               projectId,
+              creativeId: savedId,
             });
             url = uploaded.url;
             id = uploaded.id;

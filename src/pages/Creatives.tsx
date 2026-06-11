@@ -335,6 +335,8 @@ export function Creatives() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  // Tracks the current generation's session ID so saveVariant can backfill creative_id on assets
+  const currentSessionIdRef = useRef<string | null>(null);
 
   const loadLibrary = useCallback(async () => {
     setLibraryLoading(true);
@@ -410,12 +412,23 @@ export function Creatives() {
         platform_used: creativePlatform,
         status: 'draft',
       })
-      .then(({ error }) => {
-        if (error) {
+      .select('id')
+      .single()
+      .then(({ data: saved, error }) => {
+        if (error || !saved) {
           showToast('Failed to save creative', 'error');
-        } else {
-          showToast('Creative saved to library!', 'success');
-          loadLibrary();
+          return;
+        }
+        showToast('Creative saved to library!', 'success');
+        loadLibrary();
+        // Backfill creative_id on the generated images for this session
+        const sessionId = currentSessionIdRef.current;
+        if (sessionId) {
+          supabase
+            .from('creative_assets')
+            .update({ creative_id: saved.id })
+            .eq('session_id', sessionId)
+            .then(({ error: upErr }) => { if (upErr) console.warn('[saveVariant] backfill creative_id failed:', upErr.message); });
         }
       });
   }
@@ -578,6 +591,7 @@ export function Creatives() {
             setGeneratingImages(true);
             // sessionId groups all 3 images so edits overwrite the same files (saves storage)
             const sessionId = crypto.randomUUID();
+            currentSessionIdRef.current = sessionId;
             Promise.allSettled(
               promptsToRender.map(async ({ label, prompt, headline, cta }) => {
                 const [img] = await generateImageWithGemini(prompt, '1:1');

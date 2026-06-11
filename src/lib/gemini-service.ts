@@ -70,6 +70,7 @@ export async function uploadGeminiImageToSupabase(
     angleLabel?: string;
     funnelStage?: string;
     projectId?: string;
+    creativeId?: string;
   }
 ): Promise<GeminiUploadResult> {
   const orgId = getOrgId() || 'shared';
@@ -112,6 +113,7 @@ export async function uploadGeminiImageToSupabase(
       model_used: 'nvidia-flux-schnell',
       status: 'generated',
       session_id: opts?.sessionId ?? null,
+      creative_id: opts?.creativeId ?? null,
     })
     .select('id')
     .single();
