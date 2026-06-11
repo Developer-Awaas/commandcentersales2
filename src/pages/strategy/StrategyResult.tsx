@@ -1683,7 +1683,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       {data.post_production_notes && (
         <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-5">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-400 mb-2">Post-Production Notes</div>
-          <p className="text-sm text-black leading-relaxed">{data.post_production_notes}</p>
+          <p className="text-sm text-text-primary leading-relaxed">{String(data.post_production_notes)}</p>
         </div>
       )}
 

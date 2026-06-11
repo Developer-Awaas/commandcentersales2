@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAuth } from './hooks/useAuth';
 import { Layout } from './components/layout/Layout';
 import { Spinner } from './components/ui/Spinner';
@@ -143,7 +144,9 @@ export default function App() {
       <ChatbotProvider>
         <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage, generationProgress, setGenerationProgress }}>
           <Layout activePage={activePage} onNavigate={navigate} profile={profile} onSignOut={signOut} activeSection={activeSection} onSectionChange={setSection} wizardActive={wizardActive}>
-            <PageContent page={activePage} profile={profile} wizardActive={wizardActive} onWizardEnd={() => { setWizardActive(false); navigate('strategy'); }} onWizardStart={() => setWizardActive(true)} />
+            <ErrorBoundary key={activePage}>
+              <PageContent page={activePage} profile={profile} wizardActive={wizardActive} onWizardEnd={() => { setWizardActive(false); navigate('strategy'); }} onWizardStart={() => setWizardActive(true)} />
+            </ErrorBoundary>
           </Layout>
           <AIChatbot />
           <ToastContainer />
