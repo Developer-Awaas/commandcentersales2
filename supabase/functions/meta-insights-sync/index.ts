@@ -1,10 +1,14 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import type { Database, Json } from '../_shared/database.types.ts'
+
+type DB = SupabaseClient<Database>
+type SyncStatus = Database['public']['Tables']['integration_sync_log']['Insert']['status']
 
 const META_API_BASE = 'https://graph.facebook.com/v21.0'
 const INSIGHTS_FIELDS = 'campaign_id,campaign_name,impressions,clicks,spend,ctr,frequency,reach,actions,cost_per_action_type,date_start,date_stop'
 
 Deno.serve(async (_req) => {
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
@@ -40,7 +44,7 @@ Deno.serve(async (_req) => {
 })
 
 async function syncOrgMetrics(
-  supabase: ReturnType<typeof createClient>,
+  supabase: DB,
   integration: { id: string; org_id: string; meta_ad_account_id: string | null; meta_access_token: string | null }
 ) {
   const { org_id, meta_ad_account_id, meta_access_token } = integration
@@ -151,12 +155,11 @@ async function syncOrgMetrics(
       frequency: parseFloat(String(row.frequency ?? '0')) || 0,
       leads: leadsAction ? parseInt(leadsAction.value) || 0 : 0,
       cpl: cplAction ? parseFloat(cplAction.value) || null : null,
-      platform: 'meta',
+      platform: 'meta' as const,
       synced_at: new Date().toISOString(),
-      raw_payload: row,
+      raw_payload: row as unknown as Json,
     }
   })
-
   if (upsertRows.length > 0) {
     const { error: upsertErr } = await supabase
       .from('campaign_metrics')
@@ -170,9 +173,9 @@ async function syncOrgMetrics(
 }
 
 async function logSync(
-  supabase: ReturnType<typeof createClient>,
+  supabase: DB,
   orgId: string,
-  status: string,
+  status: SyncStatus,
   rowsSynced: number,
   error?: string,
   throttlePct?: number,

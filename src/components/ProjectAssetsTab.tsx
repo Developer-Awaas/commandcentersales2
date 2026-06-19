@@ -59,6 +59,7 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
 
@@ -80,29 +81,36 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
   async function upload(files: FileList | null, assetType: string) {
     if (!files || files.length === 0) return;
     setUploading(assetType);
+    setUploadError(null);
 
     for (const file of Array.from(files)) {
       const ext = file.name.split('.').pop();
       const filename = `${orgId}/${projectId}/${assetType}_${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
 
       const { error: upErr } = await supabase.storage
-        .from('project-assets')
-        .upload(filename, file, { upsert: false });
+        .from('brand-assets')
+        .upload(`project-assets/${filename}`, file, { upsert: false });
 
       if (upErr) {
         console.error('Upload error:', upErr);
-        continue;
+        if (upErr.message?.toLowerCase().includes('bucket')) {
+          setUploadError('Storage bucket not found. Go to Supabase → Storage → New bucket → name it brand-assets → set Public.');
+        } else {
+          setUploadError(`Upload failed: ${upErr.message}`);
+        }
+        setUploading(null);
+        return;
       }
 
       const { data: { publicUrl } } = supabase.storage
-        .from('project-assets')
-        .getPublicUrl(filename);
+        .from('brand-assets')
+        .getPublicUrl(`project-assets/${filename}`);
 
       // Check if this is the first asset of this type — if so, mark as primary
       const existingOfType = assets.filter(a => a.asset_type === assetType);
       const isFirstOfType = existingOfType.length === 0;
 
-      await supabase.from('project_assets').insert({
+      const { error: dbErr } = await supabase.from('project_assets').insert({
         project_id: projectId,
         org_id: orgId,
         asset_type: assetType,
@@ -111,6 +119,13 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
         is_primary: isFirstOfType,
         display_order: existingOfType.length,
       });
+
+      if (dbErr) {
+        console.error('DB insert error:', dbErr);
+        setUploadError(`Image uploaded but failed to save record: ${dbErr.message}`);
+        setUploading(null);
+        return;
+      }
     }
 
     setUploading(null);
@@ -120,10 +135,13 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
   async function deleteAsset(asset: Asset) {
     if (!confirm(`Delete ${asset.title || 'this asset'}?`)) return;
 
-    // Extract storage path from URL
-    const urlParts = asset.asset_url.split('/project-assets/');
-    if (urlParts.length === 2) {
-      await supabase.storage.from('project-assets').remove([urlParts[1]]);
+    // Extract storage path from URL — works for both old `project-assets` bucket and new `brand-assets/project-assets/` path
+    const brandAssetsMatch = asset.asset_url.match(/\/brand-assets\/(.+)$/);
+    const legacyMatch = asset.asset_url.split('/project-assets/');
+    if (brandAssetsMatch) {
+      await supabase.storage.from('brand-assets').remove([brandAssetsMatch[1]]);
+    } else if (legacyMatch.length === 2) {
+      await supabase.storage.from('project-assets').remove([legacyMatch[1]]);
     }
 
     await supabase.from('project_assets').delete().eq('id', asset.id);
@@ -174,6 +192,18 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
           Total: {assets.length} assets · Primary assets are marked with ⭐ and used by default in generation.
         </p>
       </div>
+
+      {/* Error banner */}
+      {uploadError && (
+        <div className="mb-4 p-4 bg-danger/10 border border-danger/30 rounded-lg flex items-start gap-3">
+          <span className="text-danger text-lg">⚠</span>
+          <div className="flex-1">
+            <p className="text-sm text-danger font-medium">Upload failed</p>
+            <p className="text-xs text-danger/80 mt-0.5">{uploadError}</p>
+          </div>
+          <button onClick={() => setUploadError(null)} className="text-danger/60 hover:text-danger text-xs">✕</button>
+        </div>
+      )}
 
       {/* Upload area — by category */}
       <div className="space-y-6 mb-8">

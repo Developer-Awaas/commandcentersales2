@@ -30,8 +30,11 @@ import ContentLibrary from './pages/ContentLibrary';
 import { Campaigns } from './pages/Campaigns';
 import { CampaignWizard } from './pages/CampaignWizard';
 import BrandKit from './pages/BrandKit';
+import AanyaMemory from './pages/AanyaMemory';
+import LeadGenV2 from './pages/leadgen-v2';
 import type { Profile } from './lib/supabase';
 import { hasModuleAccess } from './lib/access';
+import { LEADGEN_V2_ENABLED } from './lib/feature-flags';
 
 function AccessDenied() {
   return (
@@ -63,7 +66,9 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'users': return <UserManagement />;
     case 'settings': return <SettingsPage />;
     case 'brand-kit': return <BrandKit />;
+    case 'aanya-memory': return <AanyaMemory />;
     case 'campaigns': return <Campaigns />;
+    case 'leadgen-v2': return LEADGEN_V2_ENABLED ? <LeadGenV2 /> : <Dashboard />;
     case 'campaign-wizard': return <CampaignWizard onWizardEnd={onWizardEnd} onWizardStart={onWizardStart} wizardActive={wizardActive} />;
     case 'smm-planner': return <SMMPlanner />;
     case 'smm-calendar': return <SMMCalendar />;
@@ -76,7 +81,7 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
 
 function getSectionFromPage(page: string): AppSection {
   const smmPages = ['smm-planner', 'smm-calendar', 'smm-creatives', 'smm-analyzer', 'content-library'];
-  const leadGenPages = ['strategy', 'campaign-wizard', 'ad-config', 'creatives', 'ad-review', 'analyzer', 'organic', 'campaigns'];
+  const leadGenPages = ['strategy', 'campaign-wizard', 'ad-config', 'creatives', 'aanya-memory', 'ad-review', 'analyzer', 'organic', 'campaigns', 'leadgen-v2'];
   if (smmPages.includes(page)) return 'smm';
   if (leadGenPages.includes(page)) return 'lead_gen';
   return 'dashboard';
@@ -93,6 +98,7 @@ export default function App() {
   const [wizardActive, setWizardActive] = useState(false);
   const [generatingPage, setGeneratingPage] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState<number | null>(null);
+  const [hasUnsavedCreatives, setHasUnsavedCreatives] = useState(false);
 
   const [activePage, setActivePage] = useState<string>(() => {
     return localStorage.getItem('active_page') ?? 'dashboard';
@@ -105,6 +111,11 @@ export default function App() {
   });
 
   function navigate(page: string) {
+    if (hasUnsavedCreatives && page !== activePage) {
+      const ok = window.confirm('You have unsaved creatives. Leave without saving?');
+      if (!ok) return;
+      setHasUnsavedCreatives(false);
+    }
     setActivePage(page);
     localStorage.setItem('active_page', page);
   }
@@ -142,7 +153,7 @@ export default function App() {
   return (
     <ToastProvider>
       <ChatbotProvider>
-        <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage, generationProgress, setGenerationProgress }}>
+        <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage, generationProgress, setGenerationProgress, hasUnsavedCreatives, setHasUnsavedCreatives }}>
           <Layout activePage={activePage} onNavigate={navigate} profile={profile} onSignOut={signOut} activeSection={activeSection} onSectionChange={setSection} wizardActive={wizardActive}>
             <ErrorBoundary key={activePage}>
               <PageContent page={activePage} profile={profile} wizardActive={wizardActive} onWizardEnd={() => { setWizardActive(false); navigate('strategy'); }} onWizardStart={() => setWizardActive(true)} />

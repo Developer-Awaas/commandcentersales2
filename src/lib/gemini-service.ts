@@ -35,14 +35,20 @@ const FUNNEL_MAP: Record<string, string> = {
 
 export async function generateImageWithGemini(
   prompt: string,
-  aspectRatio: '1:1' | '9:16' = '1:1'
+  aspectRatio: '1:1' | '9:16' | '4:5' = '1:1',
+  quality?: 'low' | 'medium' | 'high'
 ): Promise<GeminiGeneratedImage[]> {
-  const { width, height } = aspectRatio === '9:16'
-    ? { width: 1080, height: 1920 }
-    : { width: 1080, height: 1080 };
+  const dimensionMap: Record<string, { width: number; height: number }> = {
+    '9:16': { width: 1080, height: 1920 },
+    '4:5':  { width: 1080, height: 1350 },
+    '1:1':  { width: 1080, height: 1080 },
+  };
+  const { width, height } = dimensionMap[aspectRatio] ?? { width: 1080, height: 1080 };
+  // Always high quality — production-grade images required for customer-facing use
+  const resolvedQuality = quality ?? 'high';
 
   const { data, error } = await supabase.functions.invoke('generate-image', {
-    body: { prompt, width, height },
+    body: { prompt, width, height, quality: resolvedQuality },
   });
 
   if (error) {
@@ -110,7 +116,7 @@ export async function uploadGeminiImageToSupabase(
       image_url: url,
       storage_path: filename,
       prompt_used: opts?.angleLabel ?? null,
-      model_used: 'nvidia-flux-schnell',
+      model_used: 'gpt-image-1',
       status: 'generated',
       session_id: opts?.sessionId ?? null,
       creative_id: opts?.creativeId ?? null,

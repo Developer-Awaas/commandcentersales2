@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { X, Upload } from 'lucide-react';
+import { useState } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -32,7 +31,6 @@ interface QuickGenerateFormProps {
   projectsLoading: boolean;
   inputs: QuickGenerateInputs;
   onChange: (inputs: QuickGenerateInputs) => void;
-  orgId: string;
   brandKitDefaultLanguages?: string[];
 }
 
@@ -41,19 +39,8 @@ export function QuickGenerateForm({
   projectsLoading,
   inputs,
   onChange,
-  orgId,
   brandKitDefaultLanguages,
 }: QuickGenerateFormProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [referencePreviewUrl, setReferencePreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!inputs.referenceImage) { setReferencePreviewUrl(null); return; }
-    const url = URL.createObjectURL(inputs.referenceImage);
-    setReferencePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [inputs.referenceImage]);
-
   function set<K extends keyof QuickGenerateInputs>(key: K, value: QuickGenerateInputs[K]) {
     onChange({ ...inputs, [key]: value });
   }
@@ -63,16 +50,6 @@ export function QuickGenerateForm({
     value: string
   ) {
     onChange({ ...inputs, customProject: { ...inputs.customProject, [key]: value } });
-  }
-
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    set('referenceImage', file);
-  }
-
-  function removeImage() {
-    set('referenceImage', null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   const projectOptions = [
@@ -179,62 +156,23 @@ export function QuickGenerateForm({
       </Card>
 
       {/* Platform selectors */}
-      <div className="grid grid-cols-2 gap-5">
-        <Card className="p-5 flex flex-col gap-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Platform & Objective</p>
+      <Card className="p-5 flex flex-col gap-4">
+        <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Platform & Objective</p>
+        <Select
+          label="Ad Platform"
+          options={AD_PLATFORM_OPTIONS}
+          value={inputs.adPlatform}
+          onChange={(e) => set('adPlatform', e.target.value)}
+        />
+        {isMeta && (
           <Select
-            label="Ad Platform"
-            options={AD_PLATFORM_OPTIONS}
-            value={inputs.adPlatform}
-            onChange={(e) => set('adPlatform', e.target.value)}
+            label="Objective"
+            options={OBJECTIVE_OPTIONS}
+            value={inputs.objective}
+            onChange={(e) => set('objective', e.target.value)}
           />
-          {isMeta && (
-            <Select
-              label="Objective"
-              options={OBJECTIVE_OPTIONS}
-              value={inputs.objective}
-              onChange={(e) => set('objective', e.target.value)}
-            />
-          )}
-        </Card>
-
-        <Card className="p-5 flex flex-col gap-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Reference Image</p>
-          {inputs.referenceImage ? (
-            <div className="flex items-center gap-3">
-              <img
-                src={referencePreviewUrl ?? ''}
-                alt="Reference"
-                className="w-16 h-16 object-cover rounded-lg border border-border"
-              />
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-text-primary truncate max-w-[140px]">{inputs.referenceImage.name}</span>
-                <button
-                  onClick={removeImage}
-                  className="inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors"
-                >
-                  <X size={12} /> Remove
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex flex-col items-center justify-center gap-2 py-5 rounded-lg border border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all"
-            >
-              <Upload size={16} className="text-text-tertiary" />
-              <span className="text-xs text-text-tertiary">Click to upload image</span>
-            </button>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageChange}
-            className="hidden"
-          />
-        </Card>
-      </div>
+        )}
+      </Card>
 
       {/* Language Selector */}
       <LanguageSelector
@@ -245,7 +183,6 @@ export function QuickGenerateForm({
 
       {/* Quick Reference Uploader */}
       <QuickReferenceUploader
-        orgId={orgId}
         onChange={(refs) => set('quickRefs', refs)}
         maxFiles={5}
       />

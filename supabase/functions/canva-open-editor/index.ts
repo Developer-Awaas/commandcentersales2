@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import type { Database } from '../_shared/database.types.ts'
 
 const CANVA_API_BASE = 'https://api.canva.com/rest/v1'
 
@@ -7,7 +8,7 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders() })
   }
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )

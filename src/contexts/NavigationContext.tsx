@@ -11,6 +11,8 @@ interface NavigationContextValue {
   setGeneratingPage: (page: string | null) => void;
   generationProgress: number | null;
   setGenerationProgress: (progress: number | null) => void;
+  hasUnsavedCreatives: boolean;
+  setHasUnsavedCreatives: (v: boolean) => void;
 }
 
 export const NavigationContext = createContext<NavigationContextValue>({
@@ -22,6 +24,8 @@ export const NavigationContext = createContext<NavigationContextValue>({
   setGeneratingPage: () => {},
   generationProgress: null,
   setGenerationProgress: () => {},
+  hasUnsavedCreatives: false,
+  setHasUnsavedCreatives: () => {},
 });
 
 export function useNavigation() {

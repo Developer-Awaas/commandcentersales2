@@ -19,6 +19,7 @@ import {
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { supabase } from '../../lib/supabase';
 import { getOrgId, getUserId } from '../../lib/constants';
+import { useNavigation } from '../../contexts/NavigationContext';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
 import { TargetingVerifier } from '../../components/TargetingVerifier';
@@ -1314,14 +1315,20 @@ interface GeneratedImageState {
   publicUrl?: string;
   assetId?: string;
   storagePath?: string;
-  aspectRatio: '1:1' | '9:16';
+  aspectRatio: '1:1' | '9:16' | '4:5';
 }
+
+const ASPECT_LABELS: Record<string, string> = {
+  '9:16': 'Story (1080×1920)',
+  '4:5':  'Portrait Feed (1080×1350)',
+  '1:1':  'Feed (1080×1080)',
+};
 
 function GeminiImageCard({ img }: { img: GeneratedImageState }) {
   const [urlCopied, setUrlCopied] = useState(false);
   const [canvaLoading, setCanvaLoading] = useState(false);
   const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
-  const label = img.aspectRatio === '9:16' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
+  const label = ASPECT_LABELS[img.aspectRatio] ?? 'Feed (1080×1080)';
 
   function download() {
     const a = document.createElement('a');
@@ -1412,17 +1419,29 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   const [geminiGenerating, setGeminiGenerating] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
-  const [brandColors, setBrandColors] = useState<{ primary: string; accent: string } | undefined>();
+  const [creativesSaved, setCreativesSaved] = useState(false);
+  const [savingCreatives, setSavingCreatives] = useState(false);
   // Stable session ID groups the feed+story pair in creative_assets
   const sessionIdRef = useRef(crypto.randomUUID());
+  const { setHasUnsavedCreatives } = useNavigation();
 
+  // Sync unsaved state into NavigationContext so App.tsx can guard in-app navigation
   useEffect(() => {
-    supabase.from('brand_kits').select('primary_color,secondary_color').eq('org_id', getOrgId()).maybeSingle()
-      .then(({ data: bk }) => {
-        if (bk?.primary_color) setBrandColors({ primary: bk.primary_color, accent: bk.secondary_color ?? '#c9a961' });
-      });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const unsaved = galleryImages.length > 0 && !creativesSaved;
+    setHasUnsavedCreatives(unsaved);
+    return () => setHasUnsavedCreatives(false); // clear on unmount
+  }, [galleryImages.length, creativesSaved, setHasUnsavedCreatives]);
+
+  // Also block browser/tab close
+  useEffect(() => {
+    if (galleryImages.length === 0 || creativesSaved) return;
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [galleryImages.length, creativesSaved]);
 
   // Auto-generate images as soon as Aanya's prompt is available
   useEffect(() => {
@@ -1444,22 +1463,30 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     onGeminiStateChange?.(true);
     setGeminiError(null);
     setGalleryImages([]);
+    setCreativesSaved(false);
     // New regeneration gets a fresh session ID so storage paths don't collide
     sessionIdRef.current = crypto.randomUUID();
 
     try {
-      const [feedResult, storyResult] = await Promise.allSettled([
-        generateImageWithGemini(data.nanobanana_prompt_main, '1:1'),
-        generateImageWithGemini(data.nanobanana_prompt_main, '9:16'),
+      // Each aspect ratio uses its own distinct layout paradigm prompt
+      const promptFeed    = data.nanobanana_prompt_main ?? '';
+      const promptPortrait = data.nanobanana_prompt_portrait ?? data.nanobanana_prompt_main ?? '';
+      const promptStory   = data.nanobanana_prompt_story    ?? data.nanobanana_prompt_main ?? '';
+
+      const [feedResult, portraitResult, storyResult] = await Promise.allSettled([
+        generateImageWithGemini(promptFeed,    '1:1'),
+        generateImageWithGemini(promptPortrait,'4:5'),
+        generateImageWithGemini(promptStory,   '9:16'),
       ]);
 
       const collected: GalleryImage[] = [];
       const generationErrors: string[] = [];
 
-      for (const [result, ratio, label, angleLabel] of [
-        [feedResult, '1:1', 'Feed (1080×1080)', 'feed'],
-        [storyResult, '9:16', 'Story (1080×1920)', 'story'],
-      ] as [PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, '1:1' | '9:16', string, string][]) {
+      for (const [result, ratio, label, angleLabel, promptUsedForThisSlot] of [
+        [feedResult,    '1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
+        [portraitResult,'4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],
+        [storyResult,   '9:16', 'Story (1080×1920)',         'story',    promptStory],
+      ] as [PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, '1:1' | '4:5' | '9:16', string, string, string][]) {
         if (result.status === 'rejected') {
           generationErrors.push(String(result.reason instanceof Error ? result.reason.message : result.reason));
         }
@@ -1485,7 +1512,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           }
           collected.push({
             id, url, label, storagePath,
-            promptUsed: data.nanobanana_prompt_main,
+            promptUsed: promptUsedForThisSlot,
             adCopy: {
               headline: data.ad_copy?.headline_english,
               cta: data.ad_copy?.cta,
@@ -1505,6 +1532,21 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     } finally {
       setGeminiGenerating(false);
       onGeminiStateChange?.(false);
+    }
+  }
+
+  async function saveCreatives() {
+    const idsToSave = galleryImages.map(img => img.id).filter(Boolean) as string[];
+    if (idsToSave.length === 0) { setCreativesSaved(true); return; }
+    setSavingCreatives(true);
+    try {
+      await supabase
+        .from('creative_assets')
+        .update({ status: 'approved' })
+        .in('id', idsToSave);
+      setCreativesSaved(true);
+    } finally {
+      setSavingCreatives(false);
     }
   }
 
@@ -1531,7 +1573,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         <div className="flex items-center gap-3 px-5 py-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
           <Loader2 size={16} className="animate-spin text-amber-400 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-amber-300">Generating Feed + Story images with FLUX…</p>
+            <p className="text-sm font-medium text-amber-300">Generating Feed + Portrait + Story images with GPT-Image-1…</p>
             <p className="text-xs text-text-tertiary mt-0.5">This usually takes 10–20 seconds.</p>
           </div>
         </div>
@@ -1577,7 +1619,30 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Generated Creatives</span>
             <div className="h-px flex-1 bg-surface-elevated" />
           </div>
-          <ImageGalleryViewer images={galleryImages} brandColors={brandColors} />
+          <ImageGalleryViewer images={galleryImages} />
+          {/* Save Creative — marks all images as approved in creative_assets */}
+          <div className={`flex items-center justify-between px-4 py-3 rounded-xl border ${creativesSaved ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
+            <div className="flex items-center gap-2">
+              {creativesSaved
+                ? <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                : <ImageIcon size={14} className="text-amber-400 flex-shrink-0" />}
+              <span className={`text-xs font-medium ${creativesSaved ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {creativesSaved ? 'Creatives saved to your library' : 'Unsaved — save before switching pages'}
+              </span>
+            </div>
+            {!creativesSaved && (
+              <button
+                onClick={saveCreatives}
+                disabled={savingCreatives}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30 transition-all disabled:opacity-60"
+              >
+                {savingCreatives
+                  ? <span className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  : <Save size={12} />}
+                {savingCreatives ? 'Saving…' : 'Save Creative'}
+              </button>
+            )}
+          </div>
           {data.nanobanana_prompt_main && (
             <div className="rounded-xl border border-border overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2.5 bg-surface-elevated">
