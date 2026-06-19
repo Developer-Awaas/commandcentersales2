@@ -328,7 +328,6 @@ export function Creatives() {
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [generatingImages, setGeneratingImages] = useState(false);
-  const [brandColors, setBrandColors] = useState<{ primary: string; accent: string } | undefined>();
   const { showToast } = useToast();
   const [library, setLibrary] = useState<LibraryCreative[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
@@ -366,10 +365,6 @@ export function Creatives() {
     }
     load();
     loadLibrary();
-    supabase.from('brand_kits').select('primary_color,secondary_color').eq('org_id', getOrgId()).maybeSingle()
-      .then(({ data: bk }) => {
-        if (bk?.primary_color) setBrandColors({ primary: bk.primary_color, accent: bk.secondary_color ?? '#c9a961' });
-      });
   }, [loadLibrary]);
 
   // Manage blob URL lifecycle — create once per file, revoke on change or unmount
@@ -499,9 +494,9 @@ export function Creatives() {
                   ],
                 },
               ];
-              aanyaRes = await aiVision(messages, brief.systemPrompt);
+              aanyaRes = await aiVision(messages, brief.systemPrompt, { traceName: 'creatives-variant-generate' });
             } else {
-              aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000);
+              aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000, { traceName: 'creatives-variant-generate' });
             }
 
             variantInputTokens += (aanyaRes._inputTokens as number) ?? 0;
@@ -662,9 +657,9 @@ Return ONLY a JSON object:
               ],
             },
           ];
-          res = await aiVision(messages, 'You are a real estate ad creative director. Analyze reference image. Respond ONLY in valid JSON.');
+          res = await aiVision(messages, 'You are a real estate ad creative director. Analyze reference image. Respond ONLY in valid JSON.', { traceName: 'creatives-reference-analysis' });
         } else {
-          res = await aiCall(promptText);
+          res = await aiCall(promptText, undefined, 16000, { traceName: 'creatives-reference-analysis' });
         }
 
         if (res.error) {
@@ -800,7 +795,6 @@ Return ONLY a JSON object:
             <ImageGalleryViewer
               images={galleryImages}
               onClose={() => setGalleryImages([])}
-              brandColors={brandColors}
             />
           )}
         </div>

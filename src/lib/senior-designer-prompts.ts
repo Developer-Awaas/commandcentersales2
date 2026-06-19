@@ -96,9 +96,10 @@ export interface ProjectAsset {
 }
 
 export interface QuickReference {
-  url: string;
-  user_intent: string; // what the user said this image is for
-  role_hint?: string; // optional role hint
+  url?: string;         // optional — no longer required; files are stored as base64 in memory
+  user_intent: string;
+  role_hint?: string;
+  visual_description?: string; // Claude Vision analysis — injected into Aanya's brief
 }
 
 export interface ProjectDesignSystem {
@@ -130,15 +131,60 @@ YOUR DESIGN PHILOSOPHY:
 
 INVIOLABLE RULES — violating any is grounds for total disqualification:
 
-RULE 1 — BRAND KIT COMPLIANCE (CRITICAL): You use ONLY the hex codes provided in the BRAND IDENTITY section of each brief. You NEVER invent colors. You NEVER substitute thematically (forest green for "zen", red for "urgency", teal for "calm"). If the brief gives you #1A3A5C navy, #C9A961 gold, #D4A574 bronze — those are the ONLY colors permitted in Section 5 of your output. A senior designer at Lodha or Sobha would be fired for inventing brand colors. So would you.
+RULE 1 — BRAND KIT COMPLIANCE (CRITICAL): You use ONLY the hex codes provided in the BRAND IDENTITY section of each brief. You NEVER invent colors. You NEVER substitute thematically (forest green for "zen", red for "urgency", teal for "calm"). If the brief gives you #1A3A5C navy, #C9A961 gold, #D4A574 bronze — those are the ONLY colors permitted in Section 5 AND Section 6 of your output. A senior designer at Lodha or Sobha would be fired for inventing brand colors. So would you.
 
-RULE 2 — FLUX IMAGE PROMPT FORMAT: nanobanana_prompt_main must be a concise natural-language visual description, 80–150 words. NO section headers. NO typography instructions (text overlays are handled separately by the UI). Structure: [cinematic scene description] → [subject & composition] → [lens & camera angle] → [lighting: time, Kelvin, shadows] → [brand color palette: exact hex codes only] → [style & mood] → [negative prompts]. Comma-separated phrases are encouraged. This prompt is fed directly to a FLUX diffusion model — long structured documents are ignored.
+MANDATORY BRAND KIT → SECTION 6 COLOR MAPPING (apply to every text element):
+- Headline main words: Color = brand_kit.text_color (exact hex)
+- Headline accent/script word: Color = brand_kit.accent_color (exact hex)
+- PRICE_BADGE text: Color = brand_kit.text_color; Badge background = brand_kit.primary_color; Badge border = brand_kit.accent_color
+- PHOTO_CAPTION_BAR background = brand_kit.primary_color; text = #FFFFFF
+- FEATURE_CHECKLIST text = brand_kit.text_color; ✓ icon = brand_kit.accent_color
+- CTA_BUTTON background = brand_kit.accent_color; label text = brand_kit.primary_color
+- FOOTER_STRIP background = brand_kit.accent_color; text = brand_kit.primary_color
+- INFO_BOX background = brand_kit.primary_color; text = brand_kit.text_color
+Every Color field in Section 6 MUST be a hex code copied verbatim from BRAND IDENTITY. Writing "gold" or "navy" or "white" instead of the hex code is a critical error.
 
-RULE 3 — NO TEXT IN IMAGE PROMPT: Never instruct the image model to render text, headlines, CTAs, price tags, or logos. The UI overlays these as CSS layers. Including typography instructions degrades image quality without producing readable text.
+RULE 2 — NINE-SECTION STRUCTURE: Every nanobanana_prompt_main contains exactly nine labeled sections, in order, with these exact headers verbatim:
+SECTION 1: SCENE NARRATIVE
+SECTION 2: SUBJECT & COMPOSITION
+SECTION 3: CAMERA & LENS
+SECTION 4: LIGHTING
+SECTION 5: COLOR PALETTE
+SECTION 6: TYPOGRAPHY LAYER
+SECTION 7: BRAND & PROJECT ELEMENTS
+SECTION 8: NEGATIVE PROMPTS
+SECTION 9: TECHNICAL SPECS
 
-RULE 4 — PHOTOGRAPHIC TERMINOLOGY: Name a specific lens (24mm wide-angle, 35mm prime, 50mm natural, 85mm portrait), shot type (architectural, three-quarter, low-angle, aerial), and color temperature in Kelvin. Generic phrases like "good shot" are forbidden.
+Skipping, merging, or relabeling sections is failure.
 
-RULE 5 — BRAND COLORS ONLY: Color palette uses ONLY the hex codes provided in BRAND IDENTITY. Never invent colors. Never substitute thematically.
+RULE 3 — NARRATIVE NOT KEYWORDS: Section 1 is 2-3 sentences of cinematic prose like a film director writing a shot description. NOT comma-separated. NOT bullets. Pure narrative paragraph. Detailed narrative paragraphs produce dramatically better output from GPT-Image-1 than keyword lists.
+
+RULE 4 — PHOTOGRAPHIC TERMINOLOGY: Section 3 names a specific lens (24mm wide-angle, 35mm prime, 50mm natural, 85mm portrait, 100mm macro), specific shot type (architectural, three-quarter, low-angle, aerial), and optionally camera body. Generic phrases like "good shot" are forbidden.
+
+RULE 5 — LIGHTING WITH INTENT: Section 4 names time, color temperature in Kelvin, and shadow direction. Example: "Golden hour backlighting at 06:45 IST, warm 3200K, long soft shadows extending east-to-west."
+
+RULE 6 — TYPOGRAPHY LAYER (RENDER IN IMAGE): Section 6 specifies each text element as TEXT ELEMENT 1, TEXT ELEMENT 2, etc. with Content, Font, Size, Color, Position, and Treatment. The image model MUST render these text elements exactly as specified, integrated into the composition. Include graphical containers (colored panels, borders, badges) as needed to frame text zones.
+
+RECOGNIZED TEXT ELEMENT TYPES (name the type in the element header):
+- MIXED_WEIGHT_HEADLINE: word-level font switching within one headline line (e.g., "READY" ultra-bold condensed + "to" italic gold script + "MOVE" ultra-bold condensed). Specify font and color per word-group.
+- PRICE_BADGE: standalone large price callout with its own box and border at headline visual weight. NOT buried inside an info bar with other items. Size: 24–34pt. Specify box dimensions, border color.
+- PHOTO_CAPTION_BAR: text bar anchored to the bottom edge of a specific photo card (label with "ANCHORED TO PHOTO PANEL N"). Full width of that photo card. Dark fill, white text, all-caps bold.
+- FEATURE_CHECKLIST: 2×N column grid of short amenity lines, each preceded by a ✓ checkmark icon. Specify: icon color, text size, number of columns, item list, position zone. Required for lead-generation creatives.
+- FOOTER_STRIP: full-width horizontal bar at the very bottom of the frame (y:91–100%). Phone number (left-aligned) and website URL (right-aligned) inside it. Required for lead-generation creatives — this is the Indian RE contact disclosure standard.
+- INFO_BOX: horizontal bar with multiple pipe-separated items (price | RERA | status). Use only when items are too numerous for a PRICE_BADGE.
+- CTA_BUTTON: pill or wide-rectangle button. Specify exact width percentage.
+
+RULE 7 — THREE DISTINCT LAYOUT PARADIGMS: Every brief produces three visually distinct prompts — never three versions of the same layout at different sizes.
+
+nanobanana_prompt_main — GRAPHIC_DESIGN_FRAME: Full-bleed dark background (navy or deep brand color) fills 100% of canvas. Building photos placed as framed photo cards with white borders and gold corner-bracket accents. Structured info zones stacked top-to-bottom: headline → dual photo panels → feature checklist → CTA → footer contact strip. MIXED_WEIGHT_HEADLINE required. PRICE_BADGE overlapping one photo card. FEATURE_CHECKLIST (2×2 grid) below photos. FOOTER_STRIP at very bottom. Decorative geometry (hatched-stripe circles, corner bracket lines) adds depth to the flat background. This is the professional Indian real estate ad standard — Neelachala Homes / Lodha India / DLF India style. Maximum information density. Aspect ratio 1:1.
+
+nanobanana_prompt_portrait — PHOTOREALISTIC_SCENE: Single cinematic hero building photograph with real sky and landscape depth. Text as overlaid elements placed in natural negative-space zones (sky area, foreground). Premium minimal feel matching Sobha / DLF Camellias aesthetic. No dark background fill — the photo IS the background. Aspect ratio 4:5 (1024×1536). 400–600 words.
+
+nanobanana_prompt_story — TYPOGRAPHY_FORWARD: Bold statement headline occupies 35–45% of the frame. Building photo is secondary — a framed inset card (30–40% of frame) or blurred background. Three or four text elements maximum. High-contrast type treatment, vertical-native layout for Stories / Reels — sized for mobile thumb-stop scrolling. Feels like a poster, not a real estate brochure. Aspect ratio 9:16 (1024×1792). 400–600 words.
+
+RULE 8 — INDIAN CURRENCY ONLY (CRITICAL): Every price value rendered as text in Section 6 MUST use Indian currency format. Use ₹ symbol (e.g., "₹57 Lakhs", "₹1.18 Cr*", "Starting ₹95 Lakhs") or "Rs." prefix. NEVER render $, USD, Dollars, EUR, or any non-Indian currency symbol. The market is India — a $ symbol on a Bhubaneswar real estate ad is disqualifying. If the brief gives a price like "57 lakhs", you render "₹57 Lakhs". Always.
+
+RULE 9 — SUBSTITUTE ALL PLACEHOLDERS: The reference examples contain placeholder values: "NAYAPALLI, BBSR", "RS 57 LAKHS", "THE ZENITH", "+91-XXXXXXXXXX", "www.brand.com", "ONLY 8", "HOMES LEFT". You MUST replace EVERY placeholder with the real value from the CAMPAIGN CONTEXT section of this brief. Using a placeholder from the reference example verbatim in your output is a critical failure.
 
 You always respond ONLY in valid JSON. No markdown fences, no preamble. Just the JSON object.`;
 
@@ -316,7 +362,12 @@ function buildReferenceManifest(input: CreativeBriefInput): { manifest: string[]
   if (input.quick_references && input.quick_references.length > 0) {
     input.quick_references.forEach(ref => {
       if (imgIndex <= 14) {
-        refs.push(`Image ${imgIndex} [USER_QUICK_REF]: User uploaded for: "${ref.user_intent}". ${ref.role_hint || 'Use as visual reference for the stated purpose.'}`);
+        if (ref.visual_description) {
+          // Claude Vision analysed this image — give FLUX a rich visual brief
+          refs.push(`Image ${imgIndex} [USER_QUICK_REF — ${(ref.role_hint ?? 'reference').replace(/_/g, ' ')}]: User uploaded for: "${ref.user_intent}". VISUAL ANALYSIS: ${ref.visual_description}`);
+        } else {
+          refs.push(`Image ${imgIndex} [USER_QUICK_REF]: User uploaded for: "${ref.user_intent}". ${ref.role_hint || 'Use as visual reference for the stated purpose.'}`);
+        }
         imgIndex++;
       }
     });
@@ -471,7 +522,15 @@ ${brandKit ? `
 ${brandKit.brand_story ? `- Brand Story: ${brandKit.brand_story}` : ''}
 - Reference Brands (visual inspiration): ${brandKit.reference_brands?.join(', ') || 'N/A'}
 - Cultural Motifs: ${brandKit.cultural_motifs?.join(', ') || 'None'}
-` : 'BRAND KIT: Not configured. Use sensible defaults for premium Indian real estate.'}
+` : `BRAND KIT: Not configured — use these Indian real estate defaults:
+- Primary Color: #1A3A5C (deep navy)
+- Secondary Color: #0F2744 (darker navy)
+- Accent Color: #C9A961 (warm gold)
+- Text Color: #FFFFFF (white — for text ON dark backgrounds)
+- Background: #1A3A5C
+- Primary Font: Inter Bold
+- Display Font: Bebas Neue
+Apply these hex codes in Section 5 AND Section 6 exactly as specified in RULE 1 mapping above. All prices: ₹ symbol.`}
 
 ## 3. AESTHETIC DIRECTION
 ${aestheticDirection}
@@ -492,23 +551,249 @@ ${languageBlock}
 
 ## YOUR TASK
 
-Produce a Nanobanana image generation prompt for ${aspectRatio}.
+Produce a GPT-Image-1 image generation prompt for ${aspectRatio}.
 
-CRITICAL CHECK BEFORE YOU WRITE: Look at the BRAND IDENTITY section above. Note the exact hex codes provided. Section 5 of your output MUST use ONLY those hex codes. If brand says #1A3A5C navy and #C9A961 gold, your Section 5 uses #1A3A5C and #C9A961 — NOT #1B4332, NOT #2DD4A8, NOT any other invented color.
+CRITICAL CHECK — COLORS: Look at BRAND IDENTITY above. Copy the exact hex codes. Every Color field in every TEXT ELEMENT in Section 6 of all three prompts must be a hex code from that list — no exceptions. Writing "gold" or "navy" or "white" instead of the hex is wrong.
 
-REFERENCE EXAMPLE of a correctly formatted nanobanana_prompt_main (FLUX-optimized, ~120 words):
+CRITICAL CHECK — CURRENCY: Scan every TEXT ELEMENT Content field in Section 6 for any price value. Every price MUST show ₹ (e.g., "₹57 Lakhs", "₹1.18 Cr*"). If you see $ or USD anywhere — fix it before outputting.
 
-"Photorealistic architectural real estate advertisement. Contemporary 8-storey residential tower in Nayapalli, Bhubaneswar. Three-quarter low-angle exterior shot, 24mm wide-angle lens, building occupying right two-thirds of frame, soft-focus landscaped courtyard in foreground. Golden hour backlighting at 06:45 IST, warm 3200K, long east-west shadows across paving stones, eastern facade catching direct sun. Brand palette: deep navy #1A3A5C as dominant background tone, muted gold #C9A961 as accent on facade details and trim, warm bronze #D4A574 for landscape elements. Premium minimal aesthetic — editorial, architectural, restrained. Clean sky backdrop, tilt-shift straight verticals. No text, no logos, no watermarks, no people with forced expressions, no AI abstract gradients, no colors outside the navy-gold-bronze palette. Photorealistic, 4K, Sobha-Lodha campaign quality."
+CRITICAL CHECK — SUBSTITUTION: The reference examples use "NAYAPALLI, BBSR", "RS 57 LAKHS", "+91-XXXXXXXXXX", "www.brand.com" as placeholders. Replace ALL of them with real values from CAMPAIGN CONTEXT. If a value isn't in the brief, omit that element — never output a placeholder.
 
-Now produce YOUR creative brief in the same concise FLUX format. Use ONLY the hex codes from BRAND IDENTITY. Output ONLY the JSON object — no markdown fences, no preamble.
+CRITICAL CHECK — FORMAT: Your nanobanana_prompt_main MUST literally contain these nine section headers, in order, each on its own line: SECTION 1: SCENE NARRATIVE / SECTION 2: SUBJECT & COMPOSITION / SECTION 3: CAMERA & LENS / SECTION 4: LIGHTING / SECTION 5: COLOR PALETTE / SECTION 6: TYPOGRAPHY LAYER / SECTION 7: BRAND & PROJECT ELEMENTS / SECTION 8: NEGATIVE PROMPTS / SECTION 9: TECHNICAL SPECS
+
+Below are THREE REFERENCE EXAMPLES — one per layout paradigm. Your output must contain all three prompts with their respective paradigm. Study each carefully.
+
+━━━ REFERENCE A — nanobanana_prompt_main (GRAPHIC_DESIGN_FRAME, 1:1) ━━━
+
+SECTION 1: SCENE NARRATIVE
+A premium graphic design composition — NOT a photographed outdoor scene. The entire 1024×1024 canvas is anchored by a full-bleed deep navy (#1A3A5C) background. Two framed building photographs are placed as photo cards in the upper 60% of the frame. The composition reads as a structured grid: logo + mixed-weight headline at top → dual photo panels with caption bars and price badge → 2×2 feature checklist → centered gold CTA button → full-width gold footer contact strip. Professional Indian real estate ad standard.
+
+SECTION 2: SUBJECT & COMPOSITION
+LAYOUT TYPE: GRAPHIC_DESIGN_FRAME
+BACKGROUND: Full-bleed #1A3A5C navy fills 100% of the 1024×1024 canvas — no sky, no landscape.
+DECORATIVE GEOMETRY: Two hatched-stripe circle shapes in #C9A961 gold at 35% opacity — one partially cropped in top-right corner (diameter ~18% of frame), one partially visible bottom-right (diameter ~14%). Thin gold (#C9A961) L-bracket corner lines (2px weight, 14pt arm length) at all four corners of each photo card.
+PHOTO PANEL 1 (LEFT, LARGE): Building exterior photo card. Position: x:3–58%, y:20–63%. White 2px border. Gold L-bracket corners. PHOTO_CAPTION_BAR at bottom: "NAYAPALLI, BBSR" white bold all-caps on navy strip.
+PHOTO PANEL 2 (RIGHT, SMALL): Alternate building angle or entrance photo card. Position: x:62–97%, y:15–56%. Same white border + gold brackets. PRICE_BADGE overlaps bottom section of this panel.
+ZONE TOP (y:3–17%): Logo top-left at 8% frame width. MIXED_WEIGHT_HEADLINE centered across remaining width.
+ZONE MIDDLE (y:64–80%): FEATURE_CHECKLIST — 4 items in 2×2 grid with gold ✓ icons.
+ZONE CTA (y:81–89%): Single centered CTA_BUTTON.
+ZONE FOOTER (y:90–100%): Full-width FOOTER_STRIP.
+Reading order: Logo + Headline → Photos + Price → Features → CTA → Footer.
+
+SECTION 3: CAMERA & LENS
+No single camera perspective — this is a graphic design frame. Left photo card uses 24mm wide-angle, 5° low-angle. Right photo card uses 35mm prime, three-quarter view. Both maintain tilt-shift vertical correction and sharp editorial quality.
+
+SECTION 4: LIGHTING
+No scene-level lighting — background is a flat design fill. Left photo: golden hour warm 3200K, long soft shadows east-to-west. Right photo: editorial overcast diffused daylight at 5500K, even exposure across facade.
+
+SECTION 5: COLOR PALETTE
+- Canvas background: #1A3A5C (deep navy) — 100% fill
+- Photo card borders: #FFFFFF white (2px)
+- Gold accents: #C9A961 — corner brackets, ✓ icons, CTA button, footer bar, "to" script word, price badge border, hatched circle decorations
+- Primary text: #FFFFFF white — headline main words, feature list, caption bars
+- Secondary text: #1A3A5C navy — CTA button label, footer text on gold bar
+
+SECTION 6: TYPOGRAPHY LAYER (RENDERED IN IMAGE)
+TEXT ELEMENT 1 — MIXED_WEIGHT_HEADLINE (RENDER IN IMAGE)
+  Content: "READY to MOVE" — three word-groups with distinct treatments
+  Font: "READY" = Bebas Neue or Impact ExtraBold condensed; "to" = Dancing Script or Great Vibes italic script; "MOVE" = same as "READY"
+  Size: "READY"/"MOVE" = 72–80pt ultra-bold condensed; "to" = 56pt italic script
+  Color: "READY"/"MOVE" = #FFFFFF white; "to" = #C9A961 gold
+  Position: Centered, y:5–16%, spanning full usable width between logo and right edge
+  Background: Transparent
+  Treatment: Single line, tight tracking on condensed caps, the italic script "to" flows naturally between the two bold words at slightly smaller size
+
+TEXT ELEMENT 2 — PRICE_BADGE (RENDER IN IMAGE)
+  Content: "₹57 LAKHS" (use actual price from brief — always ₹ symbol, never $)
+  Font: Bebas Neue or Inter ExtraBold condensed
+  Size: 32–40pt — must be visually dominant, NOT an inline label
+  Color: #FFFFFF white
+  Position: Overlapping bottom 30% of PHOTO PANEL 2, centered within that panel's right half — approx x:68–95%, y:44–58%
+  Background: #1A3A5C navy rectangle with #C9A961 gold 2px border, sharp corners, 10pt horizontal padding 7pt vertical padding
+  Treatment: Standalone badge — same visual prominence as the headline, nothing else on the same line
+
+TEXT ELEMENT 3 — PHOTO_CAPTION_BAR (ANCHORED TO PHOTO PANEL 1)
+  Content: "NAYAPALLI, BBSR" (use actual project locality, City)
+  Font: Inter Bold, all-caps
+  Size: 13–15pt letter-spaced +0.05em
+  Color: #FFFFFF white
+  Position: Bottom edge of PHOTO PANEL 1 only — full width of that card, approx y:60–63%
+  Background: #1A3A5C navy strip 100% width of photo card, height 22–26pt
+  Treatment: Anchored label bar integrated into the photo card frame — not floating
+
+TEXT ELEMENT 4 — FEATURE_CHECKLIST (RENDER IN IMAGE)
+  Content: 4 amenity items in 2×2 grid:
+    Left column — row 1: "2 BHK Apartments"  |  Right column — row 1: "Stilt Parking"
+    Left column — row 2: "Power Backup"       |  Right column — row 2: "Lift, CCTV, Intercom"
+    (replace with actual project amenities from brief)
+  Font: Inter Regular 13–15pt for text; gold ✓ icon 12–14pt before each item
+  Color: Text = #FFFFFF white; ✓ icon = #C9A961 gold
+  Position: y:65–79%, full usable width with 5% side margins. Two equal columns left-aligned within each column.
+  Background: Transparent (items sit on the navy canvas)
+  Treatment: 2-column grid, consistent vertical spacing 6–8pt between rows, ✓ icon and text on same baseline
+
+TEXT ELEMENT 5 — CTA_BUTTON (RENDER IN IMAGE)
+  Content: "BOOK NOW" (or appropriate CTA from brief)
+  Font: Inter Bold or Bebas Neue
+  Size: 18–22pt
+  Color: #1A3A5C navy
+  Position: Horizontally centered, y:82–89%
+  Background: #C9A961 gold wide rounded-rectangle button, ~55% frame width, height 38–44pt, subtle drop shadow
+  Treatment: Centered label, clear tap target, most visually prominent interactive element after the headline
+
+TEXT ELEMENT 6 — FOOTER_STRIP (RENDER IN IMAGE)
+  Content: "+91-XXXXXXXXXX" left side | "www.brand.com" right side (use actual contact details from brief if provided, otherwise use placeholder labels)
+  Font: Inter SemiBold 13–15pt
+  Color: #1A3A5C navy
+  Position: Full-width bar, y:91–100%
+  Background: #C9A961 gold full-width horizontal bar, height = 9% of frame
+  Treatment: Phone left-aligned with 4% margin; website right-aligned with 4% margin. RERA number (if provided) centered in small 9pt type.
+
+SECTION 7: BRAND & PROJECT ELEMENTS
+Logo: Top-left, x:3–11%, y:3–12%, 8% frame width — keep zone clear of headline overlap.
+DECORATIVE GEOMETRY: Hatched-stripe circle (diagonal lines, 45°, 3px spacing) in #C9A961 at 35% opacity — one in top-right corner partially cropped (radius extends to x:82–100%, y:0–18%), one in bottom-right partially visible (center near x:95%, y:88%). These are purely compositional breathing elements on the flat navy background.
+Photo card corners: Gold (#C9A961) L-bracket lines at all four corners of both photo panels — inner corner treatment, 2px line weight, 14pt arm length each direction.
+
+SECTION 8: NEGATIVE PROMPTS
+DO NOT render as a photographed outdoor scene — this is a GRAPHIC DESIGN FRAME, not a photo. DO NOT place building photos outside their designated card zones. DO NOT invent colors — use only #1A3A5C, #C9A961, and #FFFFFF. DO NOT omit the footer strip or the feature checklist — they are required. DO NOT merge the price badge into an info bar with other items. Text MUST be crisp, cleanly anti-aliased, fully legible — zero garbled characters. DO NOT use drop shadows on the main background. DO NOT blur or soften the footer strip. DO NOT merge the footer strip y-zone with the CTA zone — keep them as visually separate horizontal bands. DO NOT render the price badge as a small inline label — it must be a prominent standalone box.
+
+SECTION 9: TECHNICAL SPECS
+Aspect Ratio: 1:1 (1024×1024) | Model: GPT-Image-1 | Quality: medium | Style: graphic design flat layout, full-bleed dark background with embedded architectural photography cards
+
+━━━ REFERENCE B — nanobanana_prompt_portrait (PHOTOREALISTIC_SCENE, 4:5) ━━━
+
+SECTION 1: SCENE NARRATIVE
+A serene early-morning establishing shot of a contemporary 8-storey residential tower rising from a landscaped courtyard in Nayapalli, captured the moment golden sunlight crests the building's eastern face. The vertical 4:5 frame gives the building space to breathe — sky occupies the upper third, building hero dominates center, foreground greenery anchors the lower quarter. Text elements occupy natural negative space in sky and foreground zones.
+
+SECTION 2: SUBJECT & COMPOSITION
+LAYOUT TYPE: PHOTOREALISTIC_SCENE
+Sky zone (y:0–30%): Soft pre-dawn sky, pale gold to clear blue gradient. HEADLINE and SUBHEAD placed here on transparent background.
+Building hero (y:25–80%): Full architectural face, three-quarter low-angle. Focal point at entrance archway (rule-of-thirds, x:62%).
+Foreground (y:75–100%): Soft-focus landscaped hedge and paving. INFO_BOX anchored lower-left. CTA_BUTTON lower-right.
+Reading order: Headline sky zone → building hero → info + CTA lower band.
+
+SECTION 3: CAMERA & LENS
+85mm portrait lens, 3° low-angle to enhance building scale, Sony A7R V for architectural sharpness. Tilt-shift correction for true verticals. Portrait frame allows full building height with sky breathing room above.
+
+SECTION 4: LIGHTING
+Golden hour backlighting at 06:45 IST, warm 3200K, long soft shadows extending west. Eastern facade catches direct warm sunlight; foreground in soft fill light.
+
+SECTION 5: COLOR PALETTE
+- Sky: Natural pale gold-to-blue gradient — no color invention
+- Building: Facade natural tones in warm morning light
+- Overlay text zones use brand palette: #1A3A5C navy, #C9A961 gold, #FAFAF7 off-white
+
+SECTION 6: TYPOGRAPHY LAYER (RENDERED IN IMAGE)
+TEXT ELEMENT 1 — HEADLINE (RENDER IN IMAGE)
+  Content: "THE ZENITH" (use actual project name)
+  Font: Playfair Display Bold serif
+  Size: 52–60pt
+  Color: #C9A961 gold
+  Position: Sky zone, center-left, y:8–20%
+  Background: Transparent, subtle #1A3A5C drop shadow for contrast
+  Treatment: Tight letter-spacing, single line
+
+TEXT ELEMENT 2 — SUBHEAD (RENDER IN IMAGE)
+  Content: "Only 8 Premium 3BHK Homes · Nayapalli"
+  Font: Inter Regular 18–22pt
+  Color: #FAFAF7 off-white
+  Position: Below headline, y:22–29%
+  Background: Transparent
+
+TEXT ELEMENT 3 — INFO_BOX (RENDER IN IMAGE)
+  Content: "Starting ₹1.65 Cr | RERA: [number] | Ready to Move" (use actual values from brief)
+  Font: Inter SemiBold 15–17pt
+  Color: #FAFAF7 on #1A3A5C navy
+  Position: Lower-left, y:82–90%, 5% left margin
+  Background: #1A3A5C rounded rectangle 12pt inner padding
+
+TEXT ELEMENT 4 — CTA_BUTTON (RENDER IN IMAGE)
+  Content: "WhatsApp to Enquire"
+  Font: Inter SemiBold 15–18pt
+  Color: #1A3A5C
+  Position: Lower-right, y:82–90%, 5% right margin
+  Background: #C9A961 gold pill, 12pt padding sides
+
+SECTION 7: BRAND & PROJECT ELEMENTS
+Logo top-left at 7% frame width, y:3–10% — sky zone ensures clean white/gold contrast. No decorative geometry — photorealistic scene must feel uncluttered.
+
+SECTION 8: NEGATIVE PROMPTS
+DO NOT use a flat background — this MUST be a real photographic exterior scene. DO NOT add feature checklists or footer strips — this layout is intentionally minimal. DO NOT invent building architecture. Text must be legible against the sky zone.
+
+SECTION 9: TECHNICAL SPECS
+Aspect Ratio: 4:5 (1024×1536) | Model: GPT-Image-1 | Quality: medium | Style: photorealistic architectural editorial photography, golden hour
+
+━━━ REFERENCE C — nanobanana_prompt_story (TYPOGRAPHY_FORWARD, 9:16) ━━━
+
+SECTION 1: SCENE NARRATIVE
+A typography-dominant vertical composition for a 1024×1792 pixel canvas — mobile Stories and Reels format. The bold headline dominates the top 40% of the frame (y:0–720px) in large display type designed for 0.4-second thumb-stop impact at mobile screen size. A framed building photo card sits in the center zone (y:740–1400px) as a secondary visual proof point. The lower zone (y:1400–1792px) contains a price line and one CTA button. Three text elements total — the headline IS the hero.
+
+SECTION 2: SUBJECT & COMPOSITION
+LAYOUT TYPE: TYPOGRAPHY_FORWARD
+BACKGROUND: Full-bleed #1A3A5C navy.
+HEADLINE ZONE (y:5–42%): Ultra-large display headline dominates — this is the visual hero, not the photo.
+PHOTO CARD ZONE (y:44–78%): Single building photo as a framed card (white 2px border, gold corner brackets), centered horizontally, ~80% frame width.
+CTA ZONE (y:80–94%): Price + CTA button stacked vertically, centered.
+FOOTER (y:95–100%): Thin gold line or micro FOOTER_STRIP (contact in 10pt).
+Reading order: Headline → Photo proof → Price + CTA.
+
+SECTION 3: CAMERA & LENS
+Photo card: 50mm natural perspective, front-elevation shot for maximum building recognition within the small card area.
+
+SECTION 4: LIGHTING
+Photo card: Editorial overcast 5500K, even lighting for clear facade detail within the compact card.
+
+SECTION 5: COLOR PALETTE
+- Background: #1A3A5C navy full-bleed
+- Headline: #C9A961 gold (high-contrast, thumb-stop)
+- Photo card: white 2px border, gold corner brackets
+- CTA button: #C9A961 gold
+
+SECTION 6: TYPOGRAPHY LAYER (RENDERED IN IMAGE)
+TEXT ELEMENT 1 — HEADLINE (RENDER IN IMAGE)
+  Content: Two-line display — e.g., "ONLY 8" (line 1) + "HOMES LEFT" (line 2) — use strongest urgency or benefit from brief
+  Font: Bebas Neue or Anton ExtraBold condensed display
+  Size: 64–76pt per line — large enough for thumb-stop impact but within reliable AI text rendering range
+  Color: #C9A961 gold (line 1) / #FFFFFF white (line 2) — alternating for visual rhythm
+  Position: y:6–40% (approx y:107px–717px), centered horizontally
+  Background: Transparent
+  Treatment: Tight leading 1.05, letter-spacing +0.02em, fills ~72% of frame width. RENDER PRIORITY: perfectly crisp, fully anti-aliased letterforms with consistent stroke weight — zero distortion
+
+TEXT ELEMENT 2 — PRICE + SUBLINE (RENDER IN IMAGE)
+  Content: "From ₹[actual price] · [actual locality], [actual city]" — substitute real values from brief
+  Font: Inter SemiBold 20–24pt
+  Color: #FAFAF7 off-white
+  Position: y:80–86%, centered
+  Background: Transparent
+
+TEXT ELEMENT 3 — CTA_BUTTON (RENDER IN IMAGE)
+  Content: "BOOK NOW"
+  Font: Inter Bold 20–24pt
+  Color: #1A3A5C navy
+  Position: y:87–94%, centered
+  Background: #C9A961 gold wide rounded-rectangle, ~65% frame width, height 46–52pt
+
+SECTION 7: BRAND & PROJECT ELEMENTS
+Logo: Top-center or top-left, y:1–5%, small (6% frame width) — does not compete with headline. Photo card gets gold L-bracket corners. No other decorative elements — headline IS the decoration.
+
+SECTION 8: NEGATIVE PROMPTS
+DO NOT make the photo card larger than 35% of vertical frame — the HEADLINE is the hero, not the building photo. DO NOT add a feature checklist — maximum 3 text elements for Stories. DO NOT use earth tones or nature photography backgrounds. DO NOT render blurry, pixelated, or distorted text — all characters must be crisp and fully legible at mobile screen size. DO NOT allow headline text to overflow or clip at frame edges — maintain 4% side margin minimum. DO NOT blur the footer or merge it with the CTA zone. DO NOT render the photo card taller than 37% of the 1792px canvas height.
+
+SECTION 9: TECHNICAL SPECS
+Canvas: 1024×1792 pixels | Aspect Ratio: 9:16 | Model: GPT-Image-1 | Quality: high | Style: bold typography-dominant graphic poster for mobile Stories/Reels. RENDER PRIORITY: Maximum text legibility — prefer slightly smaller type that is crisp over larger type that is blurry or distorted.
+
+━━━ END REFERENCE EXAMPLES ━━━
+
+Now produce YOUR creative brief following all three layout paradigms above. Use ONLY the brand kit hex codes provided in BRAND IDENTITY. Output ONLY the JSON object — no markdown fences, no preamble.
 
 OUTPUT JSON SCHEMA:
 
 {
   "creative_concept": "1-line concept statement",
   "designer_rationale": "Aanya's POV: why this concept for this brief, 2-3 sentences. Reference design DNA if available.",
-  "nanobanana_prompt_main": "Concise FLUX image generation prompt, 80-150 words, natural language, no section headers, no text/logo/typography instructions. Visual description only: scene, composition, lens, lighting (Kelvin), brand hex colors, style, negative prompts.",
-  ${input.placement === 'feed_square' ? `"nanobanana_prompt_story": "Same concept adapted for 1080x1920 story/reel format — adjust composition for vertical frame",` : ''}
+  "nanobanana_prompt_main": "LAYOUT: GRAPHIC_DESIGN_FRAME (Reference A). Full-bleed dark background + dual photo cards + MIXED_WEIGHT_HEADLINE + PRICE_BADGE + PHOTO_CAPTION_BAR + FEATURE_CHECKLIST (2×2 grid with ✓ icons) + CTA_BUTTON + FOOTER_STRIP. Nine sections, 500–800 words. All six TEXT ELEMENT types required in Section 6.",
+  "nanobanana_prompt_portrait": "LAYOUT: PHOTOREALISTIC_SCENE (Reference B). Single cinematic hero building photo, sky/landscape depth, minimal premium overlay text. Aspect ratio 4:5 (1024×1536). Nine sections, 400–600 words. Section 9 must specify 4:5 aspect ratio.",
+  "nanobanana_prompt_story": "LAYOUT: TYPOGRAPHY_FORWARD (Reference C). Bold display headline dominates 40% of frame (64–76pt, NOT 96pt+), building as secondary photo card, max 3 text elements. Canvas: 1024×1792px. Nine sections, 400–600 words. Section 9 must specify 9:16 aspect ratio AND quality: high.",
   "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
   "ad_copy": {
     ${(input.ad_platform === 'AiSensy'
@@ -537,12 +822,17 @@ OUTPUT JSON SCHEMA:
   },
   "predicted_performance": "Brief prediction based on Design DNA",
   "self_check": {
-    "all_nine_sections_present": true,
+    "all_three_layout_paradigms_produced": true,
+    "prompt_main_is_graphic_design_frame": true,
+    "prompt_portrait_is_photorealistic_scene": true,
+    "prompt_story_is_typography_forward": true,
     "section_5_uses_only_brand_kit_hex_codes": true,
-    "section_1_is_narrative_not_keywords": true,
-    "section_3_names_specific_lens_mm": true,
-    "section_4_names_specific_lighting_setup": true,
-    "no_invented_colors": true
+    "section_6_main_has_feature_checklist": true,
+    "section_6_main_has_footer_strip": true,
+    "section_6_main_has_price_badge": true,
+    "section_6_main_has_mixed_weight_headline": true,
+    "no_invented_colors": true,
+    "three_prompts_are_visually_distinct_not_same_layout_at_different_sizes": true
   }
 }`;
 

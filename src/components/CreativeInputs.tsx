@@ -3,18 +3,20 @@
 //   1. QuickReferenceUploader — drag-and-drop ad-hoc reference uploads with intent labels
 //   2. LanguageSelector — multi-select language picker with primary/secondary ordering
 
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { useState, useEffect, useRef } from 'react';
 
 // ============================================================
 // 1. QUICK REFERENCE UPLOADER
 // ============================================================
 
 export interface QuickReferenceUpload {
-  url: string;
+  preview_url: string;  // blob URL for <img> thumbnail (revoked on unmount)
+  base64: string;       // raw base64 image data (no data: prefix) — passed to Claude Vision
+  mimeType: string;     // e.g. 'image/jpeg'
   user_intent: string;
   role_hint?: string;
   filename?: string;
+  visual_description?: string;  // filled by Strategy.tsx after Claude Vision analysis
 }
 
 const QUICK_REF_ROLES = [
@@ -28,53 +30,68 @@ const QUICK_REF_ROLES = [
 ];
 
 export function QuickReferenceUploader({
-  orgId,
   onChange,
   maxFiles = 5,
 }: {
-  orgId: string;
   onChange: (refs: QuickReferenceUpload[]) => void;
   maxFiles?: number;
 }) {
   const [refs, setRefs] = useState<QuickReferenceUpload[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Track blob URLs separately so we can revoke them on unmount
+  const blobUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    return () => { blobUrlsRef.current.forEach(u => URL.revokeObjectURL(u)); };
+  }, []);
 
   async function handleUpload(files: FileList | null) {
     if (!files || files.length === 0) return;
     if (refs.length + files.length > maxFiles) {
-      alert(`Maximum ${maxFiles} reference images per generation.`);
+      setUploadError(`Maximum ${maxFiles} reference images allowed.`);
       return;
     }
-
     setUploading(true);
+    setUploadError(null);
     const newRefs: QuickReferenceUpload[] = [];
 
     for (const file of Array.from(files)) {
-      const ext = file.name.split('.').pop();
-      const filename = `${orgId}/quick_${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
-
-      const { error } = await supabase.storage
-        .from('quick-references')
-        .upload(filename, file);
-
-      if (error) { console.error(error); continue; }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('quick-references')
-        .getPublicUrl(filename);
-
-      newRefs.push({
-        url: publicUrl,
-        user_intent: '',
-        role_hint: 'reference_design',
-        filename: file.name,
-      });
+      try {
+        const { base64, mimeType } = await readFileAsBase64(file);
+        const previewUrl = URL.createObjectURL(file);
+        blobUrlsRef.current.push(previewUrl);
+        newRefs.push({
+          preview_url: previewUrl,
+          base64,
+          mimeType,
+          user_intent: '',
+          role_hint: 'reference_design',
+          filename: file.name,
+        });
+      } catch {
+        setUploadError(`Could not read ${file.name}`);
+      }
     }
 
     const updated = [...refs, ...newRefs];
     setRefs(updated);
     onChange(updated);
     setUploading(false);
+  }
+
+  function readFileAsBase64(file: File): Promise<{ base64: string; mimeType: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const [header, base64] = result.split(',');
+        const mimeType = header.split(':')[1].split(';')[0];
+        resolve({ base64, mimeType });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   function updateRef(index: number, updates: Partial<QuickReferenceUpload>) {
@@ -84,6 +101,7 @@ export function QuickReferenceUploader({
   }
 
   function removeRef(index: number) {
+    URL.revokeObjectURL(refs[index].preview_url);
     const updated = refs.filter((_, i) => i !== index);
     setRefs(updated);
     onChange(updated);
@@ -96,37 +114,74 @@ export function QuickReferenceUploader({
         <span className="text-xs text-text-tertiary">{refs.length}/{maxFiles}</span>
       </div>
       <p className="text-xs text-text-tertiary -mt-2">
-        Upload logo, project images, mood references, or competitor designs. Aanya uses them as designed inputs.
+        Upload logo, project images, mood references, or competitor designs. Aanya's AI will analyze each image and inject a visual description into her brief.
       </p>
 
       {refs.length < maxFiles && (
         <label className="block">
-          <div className="border-2 border-dashed border-border rounded p-4 text-center cursor-pointer hover:border-brand hover:bg-brand-subtle transition">
-            <div className="text-sm text-text-tertiary">
-              {uploading ? 'Uploading...' : 'Click to upload reference images'}
-            </div>
-            <div className="text-xs text-text-disabled mt-1">PNG, JPG, WEBP — max 10MB each</div>
+          <div className={`border-2 border-dashed rounded p-4 text-center cursor-pointer transition ${uploading ? 'border-brand bg-brand-subtle' : 'border-border hover:border-brand hover:bg-brand-subtle'}`}>
+            {uploading ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-brand">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                </svg>
+                Uploading…
+              </div>
+            ) : (
+              <>
+                <div className="text-sm text-text-tertiary">Click to upload reference images</div>
+                <div className="text-xs text-text-disabled mt-1">PNG, JPG, WEBP — max 10MB each</div>
+              </>
+            )}
           </div>
           <input type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden"
             onChange={e => handleUpload(e.target.files)} disabled={uploading} />
         </label>
       )}
 
+      {uploadError && (
+        <p className="text-xs text-red-400">{uploadError}</p>
+      )}
+
       {refs.length > 0 && (
         <div className="space-y-2">
+          {/* Aanya-will-use banner */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+            </svg>
+            <p className="text-xs text-emerald-400">
+              {refs.length === 1 ? '1 reference uploaded' : `${refs.length} references uploaded`} — Aanya will run Claude Vision analysis on {refs.length === 1 ? 'it' : 'each'} before generating
+            </p>
+          </div>
+
           {refs.map((ref, i) => (
             <div key={i} className="flex gap-3 p-3 bg-surface-elevated border border-border rounded">
-              <img src={ref.url} alt="" className="w-16 h-16 object-cover rounded" />
-              <div className="flex-1 space-y-2">
+              <img
+                src={ref.preview_url}
+                alt={ref.filename ?? 'reference'}
+                className="w-16 h-16 object-cover rounded flex-shrink-0"
+              />
+              <div className="flex-1 space-y-2 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3 text-emerald-400 flex-shrink-0">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-[10px] text-emerald-400 font-medium truncate">
+                    {ref.filename ?? 'image'} · uploaded
+                  </span>
+                </div>
                 <select value={ref.role_hint} onChange={e => updateRef(i, { role_hint: e.target.value })}
                   className="w-full bg-surface-sunken border border-border rounded px-2 py-1 text-xs">
                   {QUICK_REF_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
-                <input type="text" value={ref.user_intent} placeholder="What is this image for? (e.g., 'Use as the project hero')"
+                <input type="text" value={ref.user_intent}
+                  placeholder="What is this for? e.g. 'Use as the project building hero'"
                   onChange={e => updateRef(i, { user_intent: e.target.value })}
                   className="w-full bg-surface-sunken border border-border rounded px-2 py-1 text-xs" />
               </div>
-              <button onClick={() => removeRef(i)} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+              <button onClick={() => removeRef(i)} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0 self-start pt-0.5">✕</button>
             </div>
           ))}
         </div>

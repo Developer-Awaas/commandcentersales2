@@ -25,6 +25,7 @@ export const PAGE_TO_MODULE: Record<string, string> = {
   'brand-kit': 'brand_kit',
   settings: 'settings',
   users: 'user_management',
+  'leadgen-v2': 'strategy_quick',
 };
 
 export function hasModuleAccess(profile: Profile | null, pageId: string): boolean {

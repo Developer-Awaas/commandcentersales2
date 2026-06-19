@@ -20,6 +20,64 @@ function getUserEmail(): string {
   return localStorage.getItem('user_email') || '';
 }
 
+// Groups all Claude calls from the same browser tab into one Langfuse
+// Session so multi-step flows (e.g. Strategy's brief -> Aanya prompt) show
+// up together in the Sessions view rather than as unrelated traces.
+function getBrowserSessionId(): string {
+  const KEY = 'langfuse_session_id';
+  let id = sessionStorage.getItem(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
+export interface TraceOptions {
+  traceName?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Vision call messages embed base64 image bytes — strip those before
+// sending to Langfuse so traces stay small and don't ship raw image data.
+function redactImages(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactImages);
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    if (obj.type === 'image') return { type: 'image', source: '[redacted image data]' };
+    return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, redactImages(v)]));
+  }
+  return value;
+}
+
+// Fire-and-forget: tracing must never slow down or fail a real AI call.
+// The Langfuse SECRET key never reaches the browser — this calls a Supabase
+// Edge Function proxy (langfuse-ingest) that holds the secret server-side.
+export function logToLangfuse(
+  traceName: string,
+  params: {
+    input?: unknown;
+    output?: unknown;
+    model: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    level?: 'DEFAULT' | 'ERROR';
+    statusMessage?: string;
+    metadata?: Record<string, unknown>;
+  }
+): void {
+  supabase.functions
+    .invoke('langfuse-ingest', {
+      body: {
+        traceName,
+        sessionId: getBrowserSessionId(),
+        tags: ['client'],
+        ...params,
+      },
+    })
+    .catch(() => { /* tracing must never surface as a user-facing error */ });
+}
+
 export function setUserEmail(email: string): void {
   localStorage.setItem('user_email', email);
 }
@@ -99,6 +157,31 @@ export function isAiEnabled(): boolean {
   return typeof key === 'string' && key.trim().length > 0;
 }
 
+// Escape literal control characters (newline, tab, CR) inside JSON string values.
+// Claude sometimes emits multi-line prose inside a JSON string without escaping the newlines,
+// which produces "Expected ',' or '}' after property value" parse errors.
+function sanitizeJsonControlChars(text: string): string {
+  let inString = false;
+  let escape = false;
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const code = text.charCodeAt(i);
+    if (escape) { escape = false; result += ch; continue; }
+    if (ch === '\\') { escape = true; result += ch; continue; }
+    if (ch === '"') { inString = !inString; result += ch; continue; }
+    if (inString && code < 0x20) {
+      if (ch === '\n') result += '\\n';
+      else if (ch === '\r') result += '\\r';
+      else if (ch === '\t') result += '\\t';
+      else result += `\\u${code.toString(16).padStart(4, '0')}`;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
 function repairTruncatedJSON(text: string): unknown | null {
   if (!text) return null;
 
@@ -149,6 +232,7 @@ function repairTruncatedJSON(text: string): unknown | null {
 function extractJson(text: string): unknown | null {
   if (!text) return null;
 
+  // Pass 1: raw attempts
   try { return JSON.parse(text); } catch { /* continue */ }
 
   let cleaned = text.trim();
@@ -166,7 +250,15 @@ function extractJson(text: string): unknown | null {
     try { return JSON.parse(fenceMatch[1].trim()); } catch { /* continue */ }
   }
 
-  const repaired = repairTruncatedJSON(text);
+  // Pass 2: sanitize literal control characters in string values (e.g. unescaped newlines
+  // inside the nanobanana_prompt_main field), then retry the same sequence.
+  const sanitized = sanitizeJsonControlChars(cleaned);
+  try { return JSON.parse(sanitized); } catch { /* continue */ }
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    try { return JSON.parse(sanitizeJsonControlChars(cleaned.substring(firstBrace, lastBrace + 1))); } catch { /* continue */ }
+  }
+
+  const repaired = repairTruncatedJSON(sanitized);
   if (repaired) return repaired;
 
   return null;
@@ -175,8 +267,10 @@ function extractJson(text: string): unknown | null {
 export async function aiCall(
   prompt: string,
   system?: string,
-  maxTokens: number = 16000
+  maxTokens: number = 16000,
+  trace: TraceOptions = {}
 ): Promise<Record<string, unknown>> {
+  const traceName = trace.traceName ?? 'claude-call';
   const apiKey = getApiKey();
   if (!apiKey) {
     return { error: 'API key not configured. Go to Settings to add your Claude API key.' };
@@ -211,6 +305,7 @@ export async function aiCall(
       } catch {
         // ignore
       }
+      logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: errMsg, metadata: trace.metadata });
       return { error: errMsg };
     }
 
@@ -224,19 +319,87 @@ export async function aiCall(
       .join('');
 
     const parsed = extractJson(rawText);
+    logToLangfuse(traceName, { input: prompt, output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
+
     if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 
     return { raw: rawText, _inputTokens: inputTokens, _outputTokens: outputTokens };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
+    logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: msg, metadata: trace.metadata });
     return { error: msg };
+  }
+}
+
+/**
+ * Uses Claude Haiku vision to produce a rich visual description of an image
+ * suitable for injection into a FLUX text-to-image prompt.
+ * Returns null on any failure so callers can fall back gracefully.
+ */
+export async function describeImageForFlux(
+  image: string | { base64: string; mimeType: string }
+): Promise<string | null> {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+
+  const imageSource = typeof image === 'string'
+    ? { type: 'url' as const, url: image }
+    : { type: 'base64' as const, media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: image.base64 };
+
+  try {
+    const res = await fetch(CLAUDE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: imageSource },
+            {
+              type: 'text',
+              text: 'Describe this image in 3–4 sentences for use as a text-to-image model reference. Cover: the architectural subject and its visual characteristics (materials, style, color, scale), the composition and camera angle, the lighting quality (time of day, approximate Kelvin, shadow direction), the dominant color palette (hex codes if clearly identifiable), and the overall aesthetic style and mood. Do NOT mention any visible text, logos, watermarks, or people by name. Output only the visual description — no preamble, no labels.',
+            },
+          ],
+        }],
+      }),
+    });
+
+    if (!res.ok) {
+      logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: `API error ${res.status}` });
+      return null;
+    }
+    const data = await res.json() as { content?: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+    const text = (data?.content ?? [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('')
+      .trim();
+    logToLangfuse('claude-vision-describe-image', {
+      output: text,
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: data?.usage?.input_tokens,
+      outputTokens: data?.usage?.output_tokens,
+    });
+    return text || null;
+  } catch (err) {
+    logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
+    return null;
   }
 }
 
 export async function aiVision(
   messages: unknown[],
-  system: string
+  system: string,
+  trace: TraceOptions = {}
 ): Promise<Record<string, unknown>> {
+  const traceName = trace.traceName ?? 'claude-vision';
   const apiKey = getApiKey();
   if (!apiKey) {
     return { error: 'API key not configured. Go to Settings to add your Claude API key.' };
@@ -271,6 +434,7 @@ export async function aiVision(
       } catch {
         // ignore
       }
+      logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: errMsg, metadata: trace.metadata });
       return { error: errMsg };
     }
 
@@ -284,11 +448,14 @@ export async function aiVision(
       .join('');
 
     const parsed = extractJson(rawText);
+    logToLangfuse(traceName, { input: redactImages(messages), output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
+
     if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 
     return { raw: rawText, _inputTokens: inputTokens, _outputTokens: outputTokens };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
+    logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: msg, metadata: trace.metadata });
     return { error: msg };
   }
 }

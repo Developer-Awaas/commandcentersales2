@@ -1,4 +1,9 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import type { Database } from '../_shared/database.types.ts'
+
+type DB = SupabaseClient<Database>
+type FunnelStage = Database['public']['Tables']['creative_assets']['Row']['funnel_stage']
+type CreativeAngle = Database['public']['Tables']['creative_assets']['Row']['angle']
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 
@@ -33,7 +38,7 @@ interface ProjectContext {
 interface RequestBody {
   orgId: string
   campaignId: string
-  funnelStage: string
+  funnelStage: FunnelStage
   brandKit: BrandKit
   projectContext: ProjectContext
 }
@@ -43,7 +48,7 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders() })
   }
 
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
@@ -87,12 +92,12 @@ Deno.serve(async (req) => {
 })
 
 async function generateAndStore(
-  supabase: ReturnType<typeof createClient>,
+  supabase: DB,
   apiKey: string,
   orgId: string,
   campaignId: string,
-  funnelStage: string,
-  angle: string,
+  funnelStage: FunnelStage,
+  angle: CreativeAngle,
   brandKit: BrandKit,
   projectContext: ProjectContext
 ): Promise<Record<string, unknown>> {
@@ -160,8 +165,8 @@ async function generateAndStore(
 function buildImagePrompt(
   brandKit: BrandKit,
   project: ProjectContext,
-  funnelStage: string,
-  angle: string
+  funnelStage: FunnelStage,
+  angle: CreativeAngle
 ): string {
   const tone = TONE_MAP[funnelStage] ?? 'aspirational, high quality'
   const angleDesc = ANGLE_MAP[angle] ?? angle

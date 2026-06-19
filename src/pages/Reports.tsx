@@ -57,6 +57,22 @@ function fmt(n: number) {
   return new Intl.NumberFormat('en-IN').format(n);
 }
 
+// Claude Sonnet 4.6 pricing: $3/MTok input, $15/MTok output
+// GPT-Image-1 medium avg: $0.07/image (1024×1024), high: $0.14/image
+function calcSessionCost(s: AiSession): number {
+  const textCost = (s.claude_input_tokens * 3 + s.claude_output_tokens * 15) / 1_000_000;
+  const imageCost = (s.gemini_images_generated ?? 0) * 0.10; // blended rate across sizes
+  return textCost + imageCost;
+}
+
+const USD_TO_INR = 84; // approximate fixed rate
+
+function fmtInr(usd: number): string {
+  const inr = usd * USD_TO_INR;
+  if (inr < 1) return `₹${inr.toFixed(2)}`;
+  return `₹${new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(inr)}`;
+}
+
 function fmtRs(n: number) {
   return `₹${fmt(Math.round(n))}`;
 }
@@ -540,6 +556,20 @@ export function Reports() {
             <SectionLabel>AI Activity</SectionLabel>
             {aiLoading && <Spinner size="sm" />}
           </div>
+          {!aiLoading && aiSessions.length > 0 && (() => {
+            const totalCost = aiSessions.reduce((sum, s) => sum + calcSessionCost(s), 0);
+            const totalIn = aiSessions.reduce((sum, s) => sum + (s.claude_input_tokens ?? 0), 0);
+            const totalOut = aiSessions.reduce((sum, s) => sum + (s.claude_output_tokens ?? 0), 0);
+            const totalImages = aiSessions.reduce((sum, s) => sum + (s.gemini_images_generated ?? 0), 0);
+            return (
+              <div className="px-5 py-3 bg-surface-elevated border-b border-border flex flex-wrap items-center gap-x-6 gap-y-1">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Cumulative (last 20 sessions)</span>
+                <span className="text-xs text-text-primary tabular-nums">{fmt(totalIn + totalOut)} tokens</span>
+                <span className="text-xs text-text-tertiary tabular-nums">{totalImages > 0 ? `${totalImages} images` : null}</span>
+                <span className="text-sm font-semibold text-emerald-400 tabular-nums ml-auto">{fmtInr(totalCost)} total cost</span>
+              </div>
+            );
+          })()}
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -547,43 +577,42 @@ export function Reports() {
                   <th className={TH}>Date</th>
                   <th className={TH}>Type</th>
                   <th className={TH}>Summary</th>
-                  <th className={TH}>In Tokens</th>
-                  <th className={TH}>Out Tokens</th>
                   <th className={TH}>Images</th>
+                  <th className={TH}>Cost (INR)</th>
                 </tr>
               </thead>
               <tbody>
                 {aiLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center">
+                    <td colSpan={5} className="px-4 py-6 text-center">
                       <Spinner size="sm" />
                     </td>
                   </tr>
                 ) : aiSessions.length === 0 ? (
-                  <EmptyRow cols={6} message="No AI sessions yet." />
+                  <EmptyRow cols={5} message="No AI sessions yet." />
                 ) : (
-                  aiSessions.map((s) => (
-                    <tr key={s.id} className="hover:bg-surface-hover transition-colors">
-                      <td className={`${TD} text-text-tertiary`}>{fmtDate(s.created_at)}</td>
-                      <td className={TD}>
-                        <span className="px-2 py-0.5 rounded-md text-[11px] border bg-brand-subtle text-brand-text border-brand-border capitalize">
-                          {s.session_type.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className={`${TD} text-text-tertiary max-w-xs truncate`}>
-                        {s.input_summary ?? '—'}
-                      </td>
-                      <td className={`${TD} text-text-tertiary tabular-nums`}>
-                        {s.claude_input_tokens > 0 ? fmt(s.claude_input_tokens) : '—'}
-                      </td>
-                      <td className={`${TD} text-text-tertiary tabular-nums`}>
-                        {s.claude_output_tokens > 0 ? fmt(s.claude_output_tokens) : '—'}
-                      </td>
-                      <td className={`${TD} text-text-tertiary tabular-nums`}>
-                        {s.gemini_images_generated > 0 ? s.gemini_images_generated : '—'}
-                      </td>
-                    </tr>
-                  ))
+                  aiSessions.map((s) => {
+                    const cost = calcSessionCost(s);
+                    return (
+                      <tr key={s.id} className="hover:bg-surface-hover transition-colors">
+                        <td className={`${TD} text-text-tertiary`}>{fmtDate(s.created_at)}</td>
+                        <td className={TD}>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] border bg-brand-subtle text-brand-text border-brand-border capitalize">
+                            {s.session_type.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className={`${TD} text-text-tertiary max-w-xs truncate`}>
+                          {s.input_summary ?? '—'}
+                        </td>
+                        <td className={`${TD} text-text-tertiary tabular-nums`}>
+                          {s.gemini_images_generated > 0 ? s.gemini_images_generated : '—'}
+                        </td>
+                        <td className={`${TD} tabular-nums ${cost > 0 ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                          {cost > 0 ? fmtInr(cost) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

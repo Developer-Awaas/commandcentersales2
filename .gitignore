@@ -22,3 +22,7 @@ dist-ssr
 *.sw?
 .env
 vite.config.ts.timestamp-*.mjs
+
+# Benchmark output (generated images, results) — regenerate via
+# `deno run -A benchmark/image-providers.ts`, don't commit run artifacts.
+benchmark/output/

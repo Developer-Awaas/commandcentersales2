@@ -25,14 +25,13 @@ export interface QuickGenerateInputs {
   objective: string;
   creativePlatform: string;
   adPlatform: string;
-  referenceImage: File | null;
   competitorAnalysis: string;
   includePerSqft: boolean;
   perSqftRate: string;
   // Senior designer fields
   campaignGoal: string;
   languages: string[];
-  quickRefs: { url: string; user_intent: string; role_hint?: string; filename?: string }[];
+  quickRefs: { preview_url: string; base64: string; mimeType: string; user_intent: string; role_hint?: string; filename?: string; visual_description?: string }[];
 }
 
 export interface FullStrategyInputs {
@@ -181,7 +180,9 @@ export interface MetaAiResult {
 export interface SeniorDesignerResult {
   creative_concept?: string;
   designer_rationale?: string;
-  nanobanana_prompt_main?: string;
+  nanobanana_prompt_main?: string;        // GRAPHIC_DESIGN_FRAME — 1:1 feed
+  nanobanana_prompt_portrait?: string;    // PHOTOREALISTIC_SCENE — 4:5 portrait feed
+  nanobanana_prompt_story?: string;       // TYPOGRAPHY_FORWARD — 9:16 story/reel
   reference_image_manifest?: { role: string; instruction: string; [key: string]: unknown }[];
   ad_copy?: Record<string, string>;
   post_production_notes?: string;

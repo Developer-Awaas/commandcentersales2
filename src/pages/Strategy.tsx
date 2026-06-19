@@ -4,7 +4,7 @@ import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
-import { aiCall, isAiEnabled } from '../lib/ai-service';
+import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -74,7 +74,6 @@ const DEFAULT_QUICK: QuickGenerateInputs = {
   objective: 'Lead Generation',
   creativePlatform: 'Nanobanana (Gemini)',
   adPlatform: 'AiSensy',
-  referenceImage: null,
   competitorAnalysis: '',
   includePerSqft: false,
   perSqftRate: '',
@@ -294,6 +293,17 @@ export function Strategy() {
             ? 'MOFU'
             : 'BOFU';
 
+        // Enrich uploaded reference images with Claude Vision descriptions so
+        // FLUX gets rich visual context instead of a bare URL text hint.
+        const enrichedRefs = quickInputs.quickRefs.length > 0
+          ? await Promise.all(
+              quickInputs.quickRefs.map(async (ref) => {
+                const desc = await describeImageForFlux({ base64: ref.base64, mimeType: ref.mimeType });
+                return desc ? { ...ref, visual_description: desc } : ref;
+              })
+            )
+          : quickInputs.quickRefs;
+
         const { systemPrompt, userPrompt } = await buildQuickGenerateBrief({
           user_brief: quickInputs.prompt,
           project_id: quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined,
@@ -313,7 +323,7 @@ export function Strategy() {
           funnel_stage: funnel,
           placement: 'feed_square',
           languages: quickInputs.languages,
-          quick_references: quickInputs.quickRefs,
+          quick_references: enrichedRefs,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
         });
 
@@ -334,7 +344,7 @@ export function Strategy() {
         console.log('  - User prompt contains "SECTION 1: SCENE NARRATIVE":', userPrompt.includes('SECTION 1: SCENE NARRATIVE'));
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-        const rawResponse = await aiCall(userPrompt, systemPrompt, 16000);
+        const rawResponse = await aiCall(userPrompt, systemPrompt, 16000, { traceName: 'strategy-quick-generate' });
 
         console.log('🎨 [DIAGNOSTIC] AI raw response type:', typeof rawResponse);
         console.log('🎨 [DIAGNOSTIC] AI response keys:', Object.keys(rawResponse));
@@ -506,7 +516,7 @@ export function Strategy() {
     const fullPrompt = context ? prompt + '\n\n' + context : prompt;
 
     try {
-      const res = await aiCall(fullPrompt);
+      const res = await aiCall(fullPrompt, undefined, 16000, { traceName: 'strategy-full-strategy' });
       if (res.error) {
         setResult({ type: 'full', inputs: fullInputs, projects, error: String(res.error) });
       } else if (res.raw) {
@@ -546,7 +556,7 @@ export function Strategy() {
           console.log('🎨 [AANYA-FULL] System prompt length:', aanyaSystem.length);
           console.log('🎨 [AANYA-FULL] Languages:', languages, '| Primary project:', primaryProjectId);
 
-          const aanyaRes = await aiCall(aanyaUser, aanyaSystem, 16000);
+          const aanyaRes = await aiCall(aanyaUser, aanyaSystem, 16000, { traceName: 'strategy-full-aanya-creative' });
           aanyaInputTokens = (aanyaRes._inputTokens as number) ?? 0;
           aanyaOutputTokens = (aanyaRes._outputTokens as number) ?? 0;
           console.log('🎨 [AANYA-FULL] Response keys:', Object.keys(aanyaRes));
@@ -738,7 +748,6 @@ export function Strategy() {
             projectsLoading={projectsLoading}
             inputs={quickInputs}
             onChange={setQuickInputs}
-            orgId={getOrgId()}
             brandKitDefaultLanguages={brandKit?.default_languages}
           />
         </div>
