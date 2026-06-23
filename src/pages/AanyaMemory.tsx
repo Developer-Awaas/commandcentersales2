@@ -1,14 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Brain, Upload, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, Image as ImageIcon, TrendingUp, Eye, Copy, Check, Bot } from 'lucide-react';
+import { Brain, Upload, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, Image as ImageIcon, TrendingUp, Eye, Copy, Check, Bot, Zap, Download, X, Layers } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, logToLangfuse } from '../lib/ai-service';
+import { generateImageWithGemini } from '../lib/gemini-service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Source = 'own_ad' | 'competitor' | 'industry_reference' | 'winning_template';
 type Platform = 'meta_feed' | 'meta_story' | 'instagram_feed' | 'instagram_story' | 'whatsapp' | 'google_display';
 type PerformanceTier = 'top_performer' | 'good_performer' | 'average' | 'underperformer' | 'reference_only';
+
+interface VisionAnalysis {
+  description?: string;
+  patterns?: string[];
+  section_1_scene_type?: string;
+  section_3_lens?: string;
+  section_4_lighting?: string;
+  section_5_hex_colors?: string[];
+  section_6_typography_elements?: string[];
+  composition_split?: string;
+  competitive_strengths?: string[];
+  avoid_reasons?: string[];
+}
 
 interface TrainingCreative {
   id: string;
@@ -20,8 +34,9 @@ interface TrainingCreative {
   cpl: number | null;
   ctr: number | null;
   notes: string | null;
-  vision_analysis: { description?: string; patterns?: string[] } | null;
+  vision_analysis: VisionAnalysis | null;
   extracted_patterns: Record<string, unknown> | null;
+  is_live: boolean;
   created_at: string;
   project_id: string | null;
 }
@@ -38,6 +53,14 @@ interface DesignDNA {
   best_performing_angles: unknown[] | null;
   best_performing_compositions: unknown[] | null;
   best_performing_color_treatments: unknown[] | null;
+}
+
+interface BatchFile {
+  id: string;
+  file: File;
+  preview: string;
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  error?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -76,57 +99,49 @@ const PLATFORM_LABELS: Record<Platform, string> = {
 
 // ─── Vision analysis via Claude Haiku ─────────────────────────────────────────
 
-async function analyzeCreativeWithVision(imageUrl: string): Promise<{ description: string; patterns: string[] } | null> {
-  const apiKey = localStorage.getItem('claude_api_key') || (import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined) || '';
-  if (!apiKey) return null;
-
+async function analyzeCreativeWithVision(imageUrl: string): Promise<VisionAnalysis | null> {
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase.functions.invoke('claude-proxy', {
+      body: {
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 600,
+        max_tokens: 800,
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'url', url: imageUrl } },
             {
               type: 'text',
-              text: `You are Aanya Mehta, Senior Creative Director. Analyze this real estate ad creative.
+              text: `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising. Analyze this ad creative and extract structured design intelligence for image generation.
 
 Return a JSON object with exactly these fields:
 {
-  "description": "2-3 sentence visual description: layout type, dominant visual element, color palette (include hex if readable), typography style, and overall mood",
-  "patterns": ["pattern1", "pattern2", "pattern3", "pattern4", "pattern5"]
+  "description": "2-3 sentence visual summary: layout type, dominant visual, color palette, typography style, mood",
+  "patterns": ["layout: ...", "color: ...", "typography: ...", "composition: ...", "mood: ..."],
+  "section_1_scene_type": "one of: GRAPHIC_DESIGN_FRAME | PHOTOREALISTIC_SCENE | TYPOGRAPHY_FORWARD",
+  "section_3_lens": "e.g. 24mm wide-angle low-angle | 85mm portrait three-quarter | 35mm eye-level",
+  "section_4_lighting": "e.g. Golden hour 3200K directional east shadows | Overcast diffused 5500K | Studio soft 4000K",
+  "section_5_hex_colors": ["#RRGGBB", "#RRGGBB", "#RRGGBB"],
+  "section_6_typography_elements": ["ELEMENT_TYPE: style description"],
+  "composition_split": "e.g. 60% visual / 40% info zone | 70% hero photo / 30% text overlay",
+  "competitive_strengths": ["specific element that makes this ad effective"],
+  "avoid_reasons": ["element that weakens this ad, if any"]
 }
 
-For "patterns", extract 4-6 specific design/copy patterns like:
-- Layout: "dark background with dual photo cards"
-- Color: "gold accent on navy base"
-- Typography: "bold sans-serif headline + light subtext"
-- Copy angle: "price + urgency CTA"
-- Composition: "architectural hero shot + feature checklist"
-- Mood: "aspirational luxury"
-
+For section_6_typography_elements use these element type names: MIXED_WEIGHT_HEADLINE | PRICE_BADGE | PHOTO_CAPTION_BAR | FEATURE_CHECKLIST | FOOTER_STRIP | CTA_BUTTON | SUBHEADLINE | TAGLINE.
+For section_5_hex_colors: read or estimate the 3-5 most dominant hex values visible in the image.
 Return ONLY the JSON object, no markdown, no preamble.`,
             },
           ],
         }],
-      }),
+      },
     });
 
-    if (!res.ok) {
-      logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: `API error ${res.status}` });
+    if (error) {
+      logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: error.message });
       return null;
     }
-    const data = await res.json() as { content?: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
-    const text = (data?.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    const text = ((data?.content ?? []) as { type: string; text: string }[])
+      .filter(b => b.type === 'text').map(b => b.text).join('').trim();
     const parsed = JSON.parse(text.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim());
     logToLangfuse('aanya-memory-vision-analysis', {
       output: parsed,
@@ -134,7 +149,7 @@ Return ONLY the JSON object, no markdown, no preamble.`,
       inputTokens: data?.usage?.input_tokens,
       outputTokens: data?.usage?.output_tokens,
     });
-    return parsed as { description: string; patterns: string[] };
+    return parsed as VisionAnalysis;
   } catch (err) {
     logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
     return null;
@@ -151,36 +166,88 @@ async function synthesizeDNA(
   const topPerformers = creatives.filter(c => c.performance_tier === 'top_performer' || c.performance_tier === 'good_performer');
   const underperformers = creatives.filter(c => c.performance_tier === 'underperformer');
 
-  const topPatterns = topPerformers.flatMap(c => c.vision_analysis?.patterns ?? []).filter(Boolean);
+  // Separate by source: own performance vs competitor intelligence
+  const ownTopPerformers = topPerformers.filter(c => c.source === 'own_ad' || c.source === 'winning_template');
+  const competitorCreatives = creatives.filter(c => c.source === 'competitor' || c.source === 'industry_reference');
+
+  const topPatterns = ownTopPerformers.flatMap(c => c.vision_analysis?.patterns ?? []).filter(Boolean);
   const badPatterns = underperformers.flatMap(c => c.vision_analysis?.patterns ?? []).filter(Boolean);
-  const topDescriptions = topPerformers
+  const topDescriptions = ownTopPerformers
     .map(c => c.vision_analysis?.description).filter(Boolean).slice(0, 6).join('\n');
+
+  // Structured 9-section signals from own top performers
+  const winningHex = [...new Set(ownTopPerformers.flatMap(c => c.vision_analysis?.section_5_hex_colors ?? []))].slice(0, 8);
+  const winningTypography = [...new Set(ownTopPerformers.flatMap(c => c.vision_analysis?.section_6_typography_elements ?? []))].slice(0, 8);
+  const winningLens = ownTopPerformers.map(c => c.vision_analysis?.section_3_lens).filter(Boolean).slice(0, 4);
+  const winningLighting = ownTopPerformers.map(c => c.vision_analysis?.section_4_lighting).filter(Boolean).slice(0, 4);
+  const sceneTypes = ownTopPerformers.map(c => c.vision_analysis?.section_1_scene_type).filter(Boolean);
+  const ownStrengths = ownTopPerformers.flatMap(c => c.vision_analysis?.competitive_strengths ?? []).slice(0, 6);
+  const avoidReasons = [
+    ...underperformers.flatMap(c => c.vision_analysis?.avoid_reasons ?? []),
+    ...underperformers.flatMap(c => c.vision_analysis?.patterns ?? []),
+  ].filter(Boolean).slice(0, 6);
+
+  // Competitor intelligence (from Diya's analysis)
+  const competitorStrengths = competitorCreatives.flatMap(c => c.vision_analysis?.competitive_strengths ?? []).slice(0, 6);
+  const competitorHex = [...new Set(competitorCreatives.flatMap(c => c.vision_analysis?.section_5_hex_colors ?? []))].slice(0, 6);
+  const competitorTypography = [...new Set(competitorCreatives.flatMap(c => c.vision_analysis?.section_6_typography_elements ?? []))].slice(0, 6);
+  const competitorWeaknesses = competitorCreatives.flatMap(c => c.vision_analysis?.avoid_reasons ?? []).slice(0, 4);
 
   const prompt = `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising.
 
 Project: ${projectName}
-Training creatives: ${creatives.length} total — ${topPerformers.length} top/good performers, ${underperformers.length} underperformers
+Training data: ${creatives.length} total — ${ownTopPerformers.length} own top/good performers, ${underperformers.length} underperformers, ${competitorCreatives.length} competitor references
 
-TOP PERFORMER VISUAL PATTERNS (what works):
+OWN TOP PERFORMER PATTERNS (proven to work for this project):
 ${topPatterns.length > 0 ? topPatterns.map(p => `- ${p}`).join('\n') : 'None tagged yet'}
 
-TOP PERFORMER DESCRIPTIONS:
+OWN TOP PERFORMER DESCRIPTIONS:
 ${topDescriptions || 'None available yet'}
 
-UNDERPERFORMER PATTERNS (what to avoid):
-${badPatterns.length > 0 ? badPatterns.map(p => `- ${p}`).join('\n') : 'None tagged yet'}
+WINNING COLOR PALETTE (hex from own top performers):
+${winningHex.length > 0 ? winningHex.join(', ') : 'Not yet extracted'}
 
-Based on this training data, synthesize the Design DNA for this project.
+WINNING TYPOGRAPHY (Section 6 element types from top performers):
+${winningTypography.length > 0 ? winningTypography.map(t => `- ${t}`).join('\n') : 'Not yet extracted'}
+
+WINNING LENS / SHOT (Section 3):
+${winningLens.length > 0 ? winningLens.map(l => `- ${l}`).join('\n') : 'Not yet extracted'}
+
+WINNING LIGHTING (Section 4):
+${winningLighting.length > 0 ? winningLighting.map(l => `- ${l}`).join('\n') : 'Not yet extracted'}
+
+PREFERRED SCENE TYPES: ${sceneTypes.length > 0 ? [...new Set(sceneTypes)].join(', ') : 'None extracted'}
+
+OWN AD STRENGTHS: ${ownStrengths.length > 0 ? ownStrengths.map(s => `- ${s}`).join('\n') : 'None tagged'}
+
+WHAT TO AVOID (underperformers):
+${[...badPatterns, ...avoidReasons].length > 0 ? [...new Set([...badPatterns, ...avoidReasons])].map(p => `- ${p}`).join('\n') : 'None tagged yet'}
+
+COMPETITOR INTELLIGENCE (${competitorCreatives.length} competitor/industry references analyzed):
+${competitorStrengths.length > 0 ? `Competitor strengths to adopt:\n${competitorStrengths.map(s => `- ${s}`).join('\n')}` : 'No competitor creatives analyzed yet'}
+${competitorHex.length > 0 ? `Competitor color palette: ${competitorHex.join(', ')}` : ''}
+${competitorTypography.length > 0 ? `Competitor typography elements:\n${competitorTypography.map(t => `- ${t}`).join('\n')}` : ''}
+${competitorWeaknesses.length > 0 ? `Competitor weaknesses (avoid copying):\n${competitorWeaknesses.map(w => `- ${w}`).join('\n')}` : ''}
+
+Based on this data, synthesize the Design DNA AND section-level prompt fragments.
 
 Return a JSON object:
 {
-  "dna_summary": "3-5 sentence paragraph describing the winning creative formula for this project — layout style, color approach, copy angle, typography, mood. Written as a briefing note Aanya would use when generating new creatives.",
-  "best_performing_angles": ["angle1", "angle2", "angle3"],
-  "best_performing_compositions": ["composition1", "composition2"],
-  "best_performing_color_treatments": ["treatment1", "treatment2"],
-  "best_performing_copy_angles": ["copyangle1", "copyangle2"],
-  "underperforming_patterns": ["badpattern1", "badpattern2"],
-  "confidence_level": "low|medium|high"
+  "dna_summary": "3-5 sentence brief: winning creative formula including specific hex colors, preferred scene type, lens, typography element types, and how we differentiate from competitors.",
+  "best_performing_angles": ["angle1", "angle2"],
+  "best_performing_compositions": ["composition with lens + split e.g. 85mm portrait + 60/40 dual-photo-card"],
+  "best_performing_color_treatments": ["treatment with hex codes e.g. navy #1A3A5C + gold #C9A961 on white"],
+  "best_performing_copy_angles": ["copy angle1", "copy angle2"],
+  "underperforming_patterns": ["specific pattern to avoid"],
+  "confidence_level": "low|medium|high|very_high",
+  "prompt_fragments": {
+    "section_1": "Preferred scene type and opening description for Section 1 of the image prompt",
+    "section_3": "Preferred lens mm + shot type for Section 3",
+    "section_4": "Preferred lighting time + Kelvin + shadow direction for Section 4",
+    "section_5_hex": ["#RRGGBB"],
+    "section_6_elements": ["ELEMENT_TYPE: style description"],
+    "section_8_avoid": ["specific visual pattern to exclude from negative prompts"]
+  }
 }
 
 Return ONLY the JSON object.`;
@@ -202,6 +269,14 @@ Return ONLY the JSON object.`;
     best_performing_copy_angles?: string[];
     underperforming_patterns?: string[];
     confidence_level?: string;
+    prompt_fragments?: {
+      section_1?: string;
+      section_3?: string;
+      section_4?: string;
+      section_5_hex?: string[];
+      section_6_elements?: string[];
+      section_8_avoid?: string[];
+    };
   };
 
   const orgId = getOrgId();
@@ -216,22 +291,26 @@ Return ONLY the JSON object.`;
     underperforming_patterns: (parsed.underperforming_patterns ?? []).map(p => ({ pattern: p, sample_size: 1 })),
     confidence_level: parsed.confidence_level ?? 'low',
     total_creatives_analyzed: creatives.length,
+    prompt_fragments: parsed.prompt_fragments ?? null,
     last_recomputed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }, { onConflict: 'project_id' });
 
   if (error) return { success: false, summary: `DB error: ${error.message}`, cleared: 0 };
 
-  // ── Cleanup: delete source records and storage files after successful synthesis ──
-  // Only the distilled DNA in project_design_systems is kept; raw training data is disposable.
-  const storagePaths = creatives.map(c => c.storage_path).filter((p): p is string => Boolean(p));
+  // ── Cleanup: only delete non-live rows (manually uploaded training data).
+  // is_live=true rows are auto-promoted by Arjun from live campaigns — they persist
+  // so their patterns remain available for future synthesis passes.
+  const toDelete = creatives.filter(c => !c.is_live);
+  const storagePaths = toDelete.map(c => c.storage_path).filter((p): p is string => Boolean(p));
   if (storagePaths.length > 0) {
     await supabase.storage.from('brand-assets').remove(storagePaths);
   }
-  const ids = creatives.map(c => c.id);
-  await supabase.from('aanya_training_creatives').delete().in('id', ids);
+  if (toDelete.length > 0) {
+    await supabase.from('aanya_training_creatives').delete().in('id', toDelete.map(c => c.id));
+  }
 
-  return { success: true, summary: parsed.dna_summary ?? 'DNA synthesized.', cleared: creatives.length };
+  return { success: true, summary: parsed.dna_summary ?? 'DNA synthesized.', cleared: toDelete.length };
 }
 
 // ─── Upload card component ─────────────────────────────────────────────────────
@@ -242,6 +321,9 @@ interface UploadCardProps {
 }
 
 function UploadCard({ projects, onUploaded }: UploadCardProps) {
+  const [tab, setTab] = useState<'single' | 'batch'>('single');
+
+  // ── Single upload state ──────────────────────────────────────────────────────
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [projectId, setProjectId] = useState('');
@@ -277,67 +359,35 @@ function UploadCard({ projects, onUploaded }: UploadCardProps) {
     setUploading(true);
     setError('');
     try {
-      // Force-refresh the session so the JWT sent to Postgres is always valid.
-      // getSession() alone reads from localStorage and may be stale; refreshSession()
-      // hits the Supabase auth server and returns a fresh access token.
       const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession();
       const session = refreshData?.session;
       if (refreshErr || !session) throw new Error('Session expired — please sign out and sign back in.');
-
-      // Read org_id from the live authenticated profile (not localStorage fallback)
-      const { data: profile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('org_id')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
+      const { data: profile, error: profileErr } = await supabase.from('profiles').select('org_id').eq('id', session.user.id).maybeSingle();
       if (profileErr) throw new Error(`Profile error: ${profileErr.message}`);
       if (!profile?.org_id) throw new Error('Could not load your organisation profile. Contact admin.');
       const orgId = profile.org_id;
 
       const ext = file.type.split('/')[1] ?? 'jpg';
       const path = `aanya-training/${orgId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
       const { error: storErr } = await supabase.storage.from('brand-assets').upload(path, file, { contentType: file.type, upsert: false });
       if (storErr) {
         const msg = storErr.message ?? '';
-        if (msg.toLowerCase().includes('bucket') || msg.toLowerCase().includes('not found')) {
-          throw new Error('Storage: bucket "brand-assets" not found — create it in Supabase → Storage.');
-        }
-        if (msg.toLowerCase().includes('security') || msg.toLowerCase().includes('rls') || msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('violates')) {
-          throw new Error('Storage upload blocked by RLS — run storage policy SQL in Supabase SQL Editor (see docs/aanya-memory-schema.md).');
-        }
+        if (msg.toLowerCase().includes('bucket') || msg.toLowerCase().includes('not found')) throw new Error('Storage: bucket "brand-assets" not found — create it in Supabase → Storage.');
+        if (msg.toLowerCase().includes('security') || msg.toLowerCase().includes('rls') || msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('violates')) throw new Error('Storage upload blocked by RLS — check bucket policies.');
         throw new Error(`Storage upload failed: ${msg}`);
       }
-
       const { data: urlData } = supabase.storage.from('brand-assets').getPublicUrl(path);
       const imageUrl = urlData.publicUrl;
-
-      // Vision analysis in background
       const visionResult = await analyzeCreativeWithVision(imageUrl);
-
       const { error: dbErr } = await supabase.from('aanya_training_creatives').insert({
-        org_id: orgId,
-        project_id: projectId || null,
-        image_url: imageUrl,
-        storage_path: path,
-        source,
-        platform: platform || null,
-        performance_tier: tier,
-        cpl: cpl ? parseFloat(cpl) : null,
-        ctr: ctr ? parseFloat(ctr) : null,
-        notes: notes || null,
-        vision_analysis: visionResult,
+        org_id: orgId, project_id: projectId || null, image_url: imageUrl, storage_path: path,
+        source, platform: platform || null, performance_tier: tier,
+        cpl: cpl ? parseFloat(cpl) : null, ctr: ctr ? parseFloat(ctr) : null,
+        notes: notes || null, vision_analysis: visionResult,
         extracted_patterns: visionResult ? { patterns: visionResult.patterns } : null,
       });
-
       if (dbErr) throw new Error(dbErr.message);
-
-      // Reset form
-      setFile(null);
-      setPreview(null);
-      setCpl(''); setCtr(''); setNotes('');
-      setTier('reference_only');
+      setFile(null); setPreview(null); setCpl(''); setCtr(''); setNotes(''); setTier('reference_only');
       onUploaded();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
@@ -346,105 +396,320 @@ function UploadCard({ projects, onUploaded }: UploadCardProps) {
     }
   }
 
+  // ── Batch upload state ───────────────────────────────────────────────────────
+  const [batchFiles, setBatchFiles] = useState<BatchFile[]>([]);
+  const [batchProjectId, setBatchProjectId] = useState('');
+  const [batchSource, setBatchSource] = useState<Source>('own_ad');
+  const [batchPlatform, setBatchPlatform] = useState<Platform | null>(null);
+  const [batchTier, setBatchTier] = useState<PerformanceTier>('top_performer');
+  const [batchCpl, setBatchCpl] = useState('');
+  const [batchCtr, setBatchCtr] = useState('');
+  const [batchUploading, setBatchUploading] = useState(false);
+  const [batchSummary, setBatchSummary] = useState<{ ok: number; fail: number } | null>(null);
+  const batchBlobsRef = useRef<string[]>([]);
+
+  useEffect(() => () => { batchBlobsRef.current.forEach(u => URL.revokeObjectURL(u)); }, []);
+
+  function addBatchFiles(newFiles: FileList | File[]) {
+    const imgs = Array.from(newFiles).filter(f => f.type.startsWith('image/'));
+    const added: BatchFile[] = imgs.map(f => {
+      const url = URL.createObjectURL(f);
+      batchBlobsRef.current.push(url);
+      return { id: Math.random().toString(36).slice(2), file: f, preview: url, status: 'pending' };
+    });
+    setBatchFiles(prev => [...prev, ...added]);
+    setBatchSummary(null);
+  }
+
+  function removeBatchFile(id: string) {
+    setBatchFiles(prev => prev.filter(f => f.id !== id));
+  }
+
+  function updateBatchFile(id: string, status: BatchFile['status'], error?: string) {
+    setBatchFiles(prev => prev.map(f => f.id === id ? { ...f, status, error } : f));
+  }
+
+  async function uploadBatch() {
+    const pending = batchFiles.filter(f => f.status === 'pending');
+    if (pending.length === 0) return;
+    setBatchUploading(true);
+    setBatchSummary(null);
+
+    const { data: refreshData, error: refreshErr } = await supabase.auth.refreshSession();
+    const session = refreshData?.session;
+    if (refreshErr || !session) {
+      setBatchFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'error', error: 'Session expired' } : f));
+      setBatchUploading(false);
+      return;
+    }
+    const { data: profile } = await supabase.from('profiles').select('org_id').eq('id', session.user.id).maybeSingle();
+    if (!profile?.org_id) {
+      setBatchFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'error', error: 'Profile error' } : f));
+      setBatchUploading(false);
+      return;
+    }
+    const orgId = profile.org_id;
+
+    let ok = 0, fail = 0;
+    for (const bf of pending) {
+      updateBatchFile(bf.id, 'uploading');
+      try {
+        const ext = bf.file.type.split('/')[1] ?? 'jpg';
+        const path = `aanya-training/${orgId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: storErr } = await supabase.storage.from('brand-assets').upload(path, bf.file, { contentType: bf.file.type, upsert: false });
+        if (storErr) throw new Error(storErr.message);
+        const { data: urlData } = supabase.storage.from('brand-assets').getPublicUrl(path);
+        const imageUrl = urlData.publicUrl;
+        const visionResult = await analyzeCreativeWithVision(imageUrl);
+        const { error: dbErr } = await supabase.from('aanya_training_creatives').insert({
+          org_id: orgId, project_id: batchProjectId || null, image_url: imageUrl, storage_path: path,
+          source: batchSource, platform: batchPlatform || null, performance_tier: batchTier,
+          cpl: batchCpl ? parseFloat(batchCpl) : null, ctr: batchCtr ? parseFloat(batchCtr) : null,
+          notes: null, vision_analysis: visionResult,
+          extracted_patterns: visionResult ? { patterns: visionResult.patterns } : null,
+        });
+        if (dbErr) throw new Error(dbErr.message);
+        updateBatchFile(bf.id, 'done');
+        ok++;
+      } catch (err) {
+        updateBatchFile(bf.id, 'error', err instanceof Error ? err.message : 'Failed');
+        fail++;
+      }
+    }
+
+    setBatchSummary({ ok, fail });
+    setBatchUploading(false);
+    if (ok > 0) onUploaded();
+  }
+
+  const pendingCount = batchFiles.filter(f => f.status === 'pending').length;
+
   return (
     <div className="bg-surface-card border border-border rounded-xl p-5 space-y-4">
-      <h3 className="font-semibold text-text-primary flex items-center gap-2">
-        <Upload className="w-4 h-4 text-accent" />
-        Add Training Creative
-      </h3>
-
-      {/* Drop zone */}
-      <div
-        ref={dropRef}
-        onDragOver={e => e.preventDefault()}
-        onDrop={handleDrop}
-        onClick={() => document.getElementById('atc-file-input')?.click()}
-        className="border-2 border-dashed border-border rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-accent/60 hover:bg-surface-subtle/40 transition-colors min-h-[120px]"
-      >
-        {preview ? (
-          <img src={preview} alt="preview" className="max-h-28 max-w-full object-contain rounded" />
-        ) : (
-          <>
-            <ImageIcon className="w-8 h-8 text-text-muted" />
-            <p className="text-sm text-text-secondary">Drag & drop or click to select image</p>
-            <p className="text-xs text-text-muted">JPG, PNG, WebP</p>
-          </>
-        )}
-      </div>
-      <input
-        id="atc-file-input"
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
-      />
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs text-text-secondary mb-1 block">Project</label>
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-            <option value="">No project</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary mb-1 block">Source</label>
-          <select value={source} onChange={e => setSource(e.target.value as Source)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-            {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary mb-1 block">Platform</label>
-          <select value={platform ?? ''} onChange={e => setPlatform(e.target.value as Platform || null)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-            <option value="">Any</option>
-            {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary mb-1 block">Performance Tier</label>
-          <select value={tier} onChange={e => setTier(e.target.value as PerformanceTier)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-            {Object.entries(TIER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary mb-1 block">CPL (₹, optional)</label>
-          <input type="number" value={cpl} onChange={e => setCpl(e.target.value)} placeholder="e.g. 420" className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary" />
-        </div>
-        <div>
-          <label className="text-xs text-text-secondary mb-1 block">CTR (%, optional)</label>
-          <input type="number" step="0.01" value={ctr} onChange={e => setCtr(e.target.value)} placeholder="e.g. 1.8" className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary" />
+      {/* Header with tab switcher */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-text-primary flex items-center gap-2">
+          {tab === 'single' ? <Upload className="w-4 h-4 text-accent" /> : <Layers className="w-4 h-4 text-accent" />}
+          {tab === 'single' ? 'Add Training Creative' : 'Batch Upload'}
+        </h3>
+        <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+          <button
+            onClick={() => setTab('single')}
+            className={`px-2.5 py-1 transition-colors ${tab === 'single' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-subtle'}`}
+          >Single</button>
+          <button
+            onClick={() => setTab('batch')}
+            className={`px-2.5 py-1 border-l border-border transition-colors ${tab === 'batch' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-surface-subtle'}`}
+          >Batch</button>
         </div>
       </div>
 
-      <div>
-        <label className="text-xs text-text-secondary mb-1 block">Notes (optional)</label>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="What made this work / not work?"
-          rows={2}
-          className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary resize-none"
-        />
-      </div>
+      {tab === 'single' ? (
+        <>
+          {/* Drop zone */}
+          <div
+            ref={dropRef}
+            onDragOver={e => e.preventDefault()}
+            onDrop={handleDrop}
+            onClick={() => document.getElementById('atc-file-input')?.click()}
+            className="border-2 border-dashed border-border rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-accent/60 hover:bg-surface-subtle/40 transition-colors min-h-[120px]"
+          >
+            {preview ? (
+              <img src={preview} alt="preview" className="max-h-28 max-w-full object-contain rounded" />
+            ) : (
+              <>
+                <ImageIcon className="w-8 h-8 text-text-muted" />
+                <p className="text-sm text-text-secondary">Drag & drop or click to select image</p>
+                <p className="text-xs text-text-muted">JPG, PNG, WebP</p>
+              </>
+            )}
+          </div>
+          <input id="atc-file-input" type="file" accept="image/*" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }} />
 
-      {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 leading-relaxed">
-          {error}
-        </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Project</label>
+              <select value={projectId} onChange={e => setProjectId(e.target.value)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                <option value="">No project</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Source</label>
+              <select value={source} onChange={e => setSource(e.target.value as Source)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Platform</label>
+              <select value={platform ?? ''} onChange={e => setPlatform(e.target.value as Platform || null)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                <option value="">Any</option>
+                {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Performance Tier</label>
+              <select value={tier} onChange={e => setTier(e.target.value as PerformanceTier)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                {Object.entries(TIER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">CPL (₹, optional)</label>
+              <input type="number" value={cpl} onChange={e => setCpl(e.target.value)} placeholder="e.g. 420" className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary" />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">CTR (%, optional)</label>
+              <input type="number" step="0.01" value={ctr} onChange={e => setCtr(e.target.value)} placeholder="e.g. 1.8" className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-text-secondary mb-1 block">Notes (optional)</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What made this work / not work?"
+              rows={2} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary resize-none" />
+          </div>
+
+          {error && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 leading-relaxed">{error}</div>}
+          {!file && <p className="text-xs text-text-muted text-center">Select an image above to enable upload</p>}
+
+          <button onClick={upload} disabled={!file || uploading}
+            style={{ backgroundColor: file ? '#18181B' : '#A1A1AA', color: '#ffffff', cursor: file ? 'pointer' : 'not-allowed' }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading + Analysing...</> : <><Upload className="w-4 h-4" /> Upload & Analyse</>}
+          </button>
+        </>
+      ) : (
+        <>
+          {/* Batch settings */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Project</label>
+              <select value={batchProjectId} onChange={e => setBatchProjectId(e.target.value)} disabled={batchUploading}
+                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                <option value="">No project</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Source</label>
+              <select value={batchSource} onChange={e => setBatchSource(e.target.value as Source)} disabled={batchUploading}
+                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Performance Tier</label>
+              <select value={batchTier} onChange={e => setBatchTier(e.target.value as PerformanceTier)} disabled={batchUploading}
+                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                {Object.entries(TIER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Platform</label>
+              <select value={batchPlatform ?? ''} onChange={e => setBatchPlatform(e.target.value as Platform || null)} disabled={batchUploading}
+                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
+                <option value="">Any</option>
+                {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">CPL ₹ (optional)</label>
+              <input type="number" value={batchCpl} onChange={e => setBatchCpl(e.target.value)} placeholder="e.g. 420" disabled={batchUploading}
+                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary" />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">CTR % (optional)</label>
+              <input type="number" step="0.01" value={batchCtr} onChange={e => setBatchCtr(e.target.value)} placeholder="e.g. 1.8" disabled={batchUploading}
+                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary" />
+            </div>
+          </div>
+
+          {/* Multi-file drop zone */}
+          <div
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); if (!batchUploading) addBatchFiles(e.dataTransfer.files); }}
+            onClick={() => !batchUploading && document.getElementById('batch-file-input')?.click()}
+            className="border-2 border-dashed border-border rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-accent/60 hover:bg-surface-subtle/40 transition-colors min-h-[90px]"
+          >
+            <ImageIcon className="w-6 h-6 text-text-muted" />
+            <p className="text-sm text-text-secondary text-center">Drop multiple images or click to select</p>
+            <p className="text-xs text-text-muted">{batchFiles.length > 0 ? `${batchFiles.length} file${batchFiles.length !== 1 ? 's' : ''} queued — drop more to add` : 'Select multiple files at once'}</p>
+          </div>
+          <input id="batch-file-input" type="file" accept="image/*" multiple className="hidden"
+            onChange={e => { if (e.target.files) addBatchFiles(e.target.files); e.target.value = ''; }} />
+
+          {/* File grid with status overlays */}
+          {batchFiles.length > 0 && (
+            <div className="grid grid-cols-4 gap-1.5">
+              {batchFiles.map(bf => (
+                <div key={bf.id} className="relative group aspect-square">
+                  <img src={bf.preview} alt="" className="w-full h-full object-cover rounded-md border border-border" />
+                  {bf.status === 'uploading' && (
+                    <div className="absolute inset-0 bg-black/50 rounded-md flex items-center justify-center">
+                      <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    </div>
+                  )}
+                  {bf.status === 'done' && (
+                    <div className="absolute inset-0 bg-emerald-500/70 rounded-md flex items-center justify-center">
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  {bf.status === 'error' && (
+                    <div className="absolute inset-0 bg-red-500/70 rounded-md flex items-center justify-center" title={bf.error}>
+                      <AlertCircle className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  {bf.status === 'pending' && !batchUploading && (
+                    <button
+                      onClick={e => { e.stopPropagation(); removeBatchFile(bf.id); }}
+                      className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-2.5 h-2.5 text-white" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Progress bar while uploading */}
+          {batchUploading && batchFiles.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-text-secondary">
+                <span>Uploading & analysing...</span>
+                <span>{batchFiles.filter(f => f.status === 'done' || f.status === 'error').length} / {batchFiles.length}</span>
+              </div>
+              <div className="h-1.5 bg-surface-subtle rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent rounded-full transition-all duration-300"
+                  style={{ width: `${(batchFiles.filter(f => f.status === 'done' || f.status === 'error').length / batchFiles.length) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Summary */}
+          {batchSummary && (
+            <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${batchSummary.fail === 0 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              {batchSummary.ok} uploaded{batchSummary.fail > 0 ? `, ${batchSummary.fail} failed` : ' — ready for DNA synthesis'}
+            </div>
+          )}
+
+          <button
+            onClick={uploadBatch}
+            disabled={pendingCount === 0 || batchUploading}
+            style={{ backgroundColor: pendingCount > 0 && !batchUploading ? '#18181B' : '#A1A1AA', color: '#ffffff', cursor: pendingCount > 0 && !batchUploading ? 'pointer' : 'not-allowed' }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            {batchUploading
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading + Analysing...</>
+              : <><Layers className="w-4 h-4" /> Upload {pendingCount > 0 ? `${pendingCount} Image${pendingCount !== 1 ? 's' : ''}` : 'Images'}</>
+            }
+          </button>
+        </>
       )}
-
-      {!file && (
-        <p className="text-xs text-text-muted text-center">Select an image above to enable upload</p>
-      )}
-
-      <button
-        onClick={upload}
-        disabled={!file || uploading}
-        style={{ backgroundColor: file ? '#18181B' : '#A1A1AA', color: '#ffffff', cursor: file ? 'pointer' : 'not-allowed' }}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-      >
-        {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading + Analysing...</> : <><Upload className="w-4 h-4" /> Upload & Analyse</>}
-      </button>
     </div>
   );
 }
@@ -899,6 +1164,235 @@ function CrawlParametersPanel({ creatives, selectedProject, projects }: CrawlPar
   );
 }
 
+// ─── Generate from DNA Panel ─────────────────────────────────────────────────
+
+interface FullDesignDNA {
+  dna_summary: string | null;
+  confidence_level: string | null;
+  best_performing_compositions: unknown[] | null;
+  underperforming_patterns: unknown[] | null;
+  prompt_fragments: {
+    section_1?: string;
+    section_3?: string;
+    section_4?: string;
+    section_5_hex?: string[];
+    section_6_elements?: string[];
+    section_8_avoid?: string[];
+  } | null;
+}
+
+interface GenerateFromDNAPanelProps {
+  projectId: string;
+  projectName: string;
+}
+
+function GenerateFromDNAPanel({ projectId, projectName }: GenerateFromDNAPanelProps) {
+  const [dna, setDna] = useState<FullDesignDNA | null>(null);
+  const [brief, setBrief] = useState('');
+  const [ratio, setRatio] = useState<'1:1' | '4:5' | '9:16'>('1:1');
+  const [platform, setPlatform] = useState<'meta' | 'aisensy'>('meta');
+  const [phase, setPhase] = useState<'idle' | 'writing-prompt' | 'generating' | 'done' | 'error'>('idle');
+  const [error, setError] = useState('');
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [imageMime, setImageMime] = useState<string>('image/jpeg');
+
+  useEffect(() => {
+    supabase
+      .from('project_design_systems')
+      .select('dna_summary,confidence_level,best_performing_compositions,underperforming_patterns,prompt_fragments')
+      .eq('project_id', projectId)
+      .maybeSingle()
+      .then(({ data }) => setDna(data as FullDesignDNA | null));
+  }, [projectId]);
+
+  function buildDNABlock(d: FullDesignDNA): string {
+    if (!d.dna_summary && !d.prompt_fragments) return 'No DNA synthesized yet — apply standard Indian real estate creative best practices.';
+    const f = d.prompt_fragments;
+    let block = `DESIGN DNA (from real ad performance — treat as hard constraints):\n`;
+    if (d.dna_summary) block += `\nSUMMARY: ${d.dna_summary}\n`;
+    if (f) {
+      if (f.section_1) block += `\nSection 1 (scene): ${f.section_1}`;
+      if (f.section_3) block += `\nSection 3 (camera/lens): ${f.section_3}`;
+      if (f.section_4) block += `\nSection 4 (lighting): ${f.section_4}`;
+      if (f.section_5_hex?.length) block += `\nSection 5 (color palette — use exactly): ${f.section_5_hex.join(', ')}`;
+      if (f.section_6_elements?.length) block += `\nSection 6 (typography elements to render): ${f.section_6_elements.join(' | ')}`;
+      if (f.section_8_avoid?.length) block += `\nSection 8 (negatives — exclude): ${f.section_8_avoid.join(', ')}`;
+    }
+    const comps = (d.best_performing_compositions as Array<{ composition?: string }> | null)?.map(c => c?.composition).filter(Boolean) ?? [];
+    if (comps.length) block += `\nTop compositions: ${comps.slice(0, 2).join(' | ')}`;
+    return block;
+  }
+
+  async function handleGenerate() {
+    if (!brief.trim()) { setError('Enter a brief describing the property or campaign.'); return; }
+    setError('');
+    setImageUrl(null);
+    setImageBase64(null);
+    setPhase('writing-prompt');
+
+    const dnaBlock = dna ? buildDNABlock(dna) : 'No DNA yet — apply Indian real estate best practices.';
+    const platformGuidance = platform === 'aisensy'
+      ? 'AiSensy/WhatsApp: conversational tone, clear CTA, clean layout optimised for mobile viewing'
+      : 'Meta Ads Manager: headline ≤40 chars, hook in first line, strong visual hierarchy';
+
+    const systemPrompt = `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising.
+Write a 9-section image generation prompt for GPT-Image-1.
+Return ONLY the prompt text — no JSON, no headers, no explanation.`;
+
+    const userPrompt = `Project: ${projectName}
+Brief: ${brief}
+Platform: ${platform === 'meta' ? 'Meta Ads' : 'AiSensy (WhatsApp)'} — ${platformGuidance}
+Aspect ratio: ${ratio} (${ratio === '1:1' ? '1080×1080' : ratio === '4:5' ? '1080×1350' : '1080×1920'})
+
+${dnaBlock}
+
+Write the 9-section GPT-Image-1 prompt as flowing prose (500–800 words):
+SECTION 1 → scene narrative
+SECTION 2 → subject & composition percentages
+SECTION 3 → camera lens mm + shot type
+SECTION 4 → lighting time + Kelvin + shadow direction
+SECTION 5 → color palette with hex codes
+SECTION 6 → typography rendered IN the image: property name, price in ₹ (NEVER $), feature list, CTA
+SECTION 7 → brand elements
+SECTION 8 → negative prompts
+SECTION 9 → technical specs for ${ratio} at 1080px
+
+RULES:
+- Always ₹/Rs — NEVER $, USD, Dollars
+- SECTION 6 text must be rendered inside the image (not CSS overlay)
+- Apply DNA constraints exactly as specified`;
+
+    try {
+      const promptResult = await aiCall(userPrompt, systemPrompt, 2000, { traceName: 'aanya-memory-generate-from-dna' });
+      if (promptResult.error) throw new Error(String(promptResult.error));
+
+      const imagePrompt = ((promptResult as { content?: { type: string; text: string }[] }).content ?? [])
+        .filter(b => b.type === 'text').map(b => b.text).join('').trim()
+        || (typeof promptResult === 'string' ? promptResult : JSON.stringify(promptResult));
+
+      setPhase('generating');
+      const images = await generateImageWithGemini(imagePrompt, ratio);
+      const img = images[0];
+      setImageBase64(img.base64);
+      setImageMime(img.mimeType);
+      setImageUrl(`data:${img.mimeType};base64,${img.base64}`);
+      setPhase('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Generation failed');
+      setPhase('error');
+    }
+  }
+
+  function downloadImage() {
+    if (!imageBase64) return;
+    const link = document.createElement('a');
+    link.href = `data:${imageMime};base64,${imageBase64}`;
+    link.download = `aanya-dna-${projectName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.${imageMime.split('/')[1] ?? 'jpg'}`;
+    link.click();
+  }
+
+  const isGenerating = phase === 'writing-prompt' || phase === 'generating';
+  const hasDNA = dna?.dna_summary || dna?.prompt_fragments;
+
+  return (
+    <div className="bg-surface-card border border-border rounded-xl p-5 space-y-4">
+      <h3 className="font-semibold text-text-primary flex items-center gap-2">
+        <Zap className="w-4 h-4 text-amber-500" />
+        Generate from DNA
+      </h3>
+
+      {!hasDNA && (
+        <p className="text-sm text-text-secondary">
+          Synthesize DNA above first — then generate images that apply your learned brand formula.
+        </p>
+      )}
+
+      {hasDNA && (
+        <>
+          <div>
+            <label className="text-xs text-text-secondary mb-1 block">Property / Campaign Brief</label>
+            <textarea
+              value={brief}
+              onChange={e => setBrief(e.target.value)}
+              placeholder={`e.g. "Horizon Heights, Pune — 2BHK from ₹68L, launch offer, rooftop pool, metro nearby"`}
+              rows={3}
+              className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary resize-none"
+              disabled={isGenerating}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Format</label>
+              <div className="flex gap-1">
+                {(['1:1', '4:5', '9:16'] as const).map(r => (
+                  <button
+                    key={r}
+                    onClick={() => setRatio(r)}
+                    disabled={isGenerating}
+                    className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${ratio === r ? 'bg-accent text-white border-accent' : 'bg-surface border-border text-text-secondary hover:border-accent/50'}`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">Platform</label>
+              <div className="flex gap-1">
+                {([['meta', 'Meta'], ['aisensy', 'WhatsApp']] as const).map(([v, l]) => (
+                  <button
+                    key={v}
+                    onClick={() => setPlatform(v)}
+                    disabled={isGenerating}
+                    className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${platform === v ? 'bg-accent text-white border-accent' : 'bg-surface border-border text-text-secondary hover:border-accent/50'}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+          )}
+
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating || !brief.trim()}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            style={{ backgroundColor: '#18181B', color: '#ffffff' }}
+          >
+            {phase === 'writing-prompt' && <><Loader2 className="w-4 h-4 animate-spin" /> Writing prompt...</>}
+            {phase === 'generating' && <><Loader2 className="w-4 h-4 animate-spin" /> Generating image...</>}
+            {(phase === 'idle' || phase === 'done' || phase === 'error') && <><Sparkles className="w-4 h-4" /> Generate from DNA</>}
+          </button>
+
+          {imageUrl && (
+            <div className="space-y-2">
+              <img
+                src={imageUrl}
+                alt="Generated from DNA"
+                className="w-full rounded-lg border border-border object-cover"
+                style={{ aspectRatio: ratio === '1:1' ? '1/1' : ratio === '4:5' ? '4/5' : '9/16' }}
+              />
+              <button
+                onClick={downloadImage}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border border-border text-text-secondary hover:bg-surface-subtle transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download Image
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AanyaMemory() {
@@ -1008,6 +1502,12 @@ export default function AanyaMemory() {
               projectName={projectForDNA?.name ?? projects[0]?.name ?? 'All Projects'}
               creatives={creativesForDNA}
               onSynthesized={fetchCreatives}
+            />
+          )}
+          {projectForDNA && (
+            <GenerateFromDNAPanel
+              projectId={projectForDNA.id}
+              projectName={projectForDNA.name}
             />
           )}
           {selectedProject === 'all' && projects.length > 0 && (

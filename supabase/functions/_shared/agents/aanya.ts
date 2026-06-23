@@ -17,11 +17,6 @@
  * there is no code path that can loop past it, even if the analyzer always
  * rejects (best-of-N is returned instead of erroring).
  *
- * brand_check on every returned variant is a PLACEHOLDER 'pass' —
- * aarav-orchestrate always overwrites it with Diya's real verdict
- * (_shared/agents/diya.ts::runBrandCheck) before a creative reaches the
- * user. This module never calls Diya itself (Aanya has no opinion on
- * brand compliance) — orchestration order is enforced one layer up.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -59,13 +54,6 @@ export interface CreativeCopy {
   cta: string
 }
 
-// 'flag' is advisory, not a hard block (see diya.ts). Aanya only ever
-// writes the placeholder 'pass' below — the real status comes from Diya.
-export interface CreativeBrandCheck {
-  status: 'pass' | 'flag'
-  note: string
-}
-
 export interface CreativeVariant {
   id: string
   label: string
@@ -74,7 +62,6 @@ export interface CreativeVariant {
   image_url?: string
   copy?: CreativeCopy
   rationale?: string
-  brand_check?: CreativeBrandCheck
 }
 
 export interface RunAanyaInput {
@@ -88,6 +75,11 @@ export interface RunAanyaInput {
   // When set, only this angle is (re)generated — used by the per-tile
   // "Regenerate" action. Omit to generate all three.
   onlyAngle?: CreativeAngle
+  // Per-interaction budget ceiling in USD. When set, image generation is
+  // gated by a synchronous reserve-before-await pattern so no single
+  // interaction can overrun the limit. See BudgetCapError + BudgetTracker.
+  // Omit for unlimited (legacy callers / tests that don't need the cap).
+  costCeilingUsd?: number
 }
 
 export interface RunAanyaResult {
@@ -100,6 +92,8 @@ export interface RunAanyaResult {
   // what makes the provider-benchmark amendment measurable from real data.
   totalCostUsd: number
   iterationsUsed: number
+  // true when the budget ceiling truncated at least one angle's critique loop.
+  capHit: boolean
 }
 
 export class AanyaOutputError extends Error {
@@ -110,6 +104,47 @@ export class AanyaOutputError extends Error {
     this.usage = usage
   }
 }
+
+// Thrown synchronously by the budget-reservation wrapper inside generateFn
+// when the per-interaction cost ceiling would be exceeded by the next image
+// generation. _runAnglePipeline catches this from generateFn and either
+// returns best-of-current (if any prior image exists) or re-throws (no image
+// yet for this angle, so the angle fails gracefully via Promise.allSettled).
+export class BudgetCapError extends Error {
+  constructor() {
+    super('Interaction budget cap reached')
+    this.name = 'BudgetCapError'
+  }
+}
+
+// Simple mutable budget tracker. Mutations are synchronous so they are
+// race-free inside Deno's single-threaded isolate — no atomic/lock needed.
+// The caller reserves a CONSERVATIVE (rounded-up) estimate BEFORE each
+// await, then reconciles the actual cost after.
+interface BudgetTracker {
+  reserve(amountUsd: number): boolean
+  reconcile(reservedUsd: number, actualUsd: number): void
+}
+
+function createBudgetTracker(ceilingUsd: number): BudgetTracker {
+  let remaining = ceilingUsd
+  return {
+    reserve(amount) {
+      if (amount > remaining) return false
+      remaining -= amount
+      return true
+    },
+    reconcile(reserved, actual) {
+      // Refund over-reservation (actual ≤ reserved because we round up).
+      remaining += Math.max(0, reserved - actual)
+    },
+  }
+}
+
+// Conservative per-image reserve: GPT-Image-1 high-quality list price $0.167,
+// rounded up 25% to account for size overages and pricing drift.
+// Never under-reserve — the spec requires that the reserve never under-estimates.
+const CONSERVATIVE_IMAGE_RESERVE_USD = 0.21
 
 interface IdeatedVariant {
   angle: CreativeAngle
@@ -219,6 +254,9 @@ export interface _AnglePipelineResult {
   inputTokens: number
   outputTokens: number
   iterationsUsed: number
+  // true when a BudgetCapError from generateFn cut the loop short but a
+  // prior-iteration image was available (graceful truncation, no error thrown).
+  budgetCapped: boolean
 }
 
 // _runAnglePipeline is the critique loop for a single angle. It is
@@ -244,11 +282,26 @@ export async function _runAnglePipeline(
   let imageCostUsd = 0
   let inputTokens = 0
   let outputTokens = 0
+  let budgetCapped = false
 
   for (let attempt = 1; attempt <= maxIterations; attempt++) {
-    iterations = attempt
-
-    const imageResult = await deps.generateFn(imagePrompt)
+    // Try to generate. Catch BudgetCapError specifically so a depleted budget
+    // gracefully returns best-so-far instead of surfacing an error to the user.
+    // All other errors propagate (image gen outage, etc.).
+    let imageResult: { imageBase64: string; mimeType: string; costUsd: number } | null = null
+    try {
+      imageResult = await deps.generateFn(imagePrompt)
+    } catch (err) {
+      if (err instanceof BudgetCapError && bestImageBase64) {
+        // Cap hit, but we already have an image from a prior iteration → stop.
+        budgetCapped = true
+        break
+      }
+      throw err // no prior image OR non-budget error → propagate
+    }
+    // imageResult is non-null here (catch block always throws or breaks).
+    if (!imageResult) break // unreachable; satisfies TypeScript
+    iterations = attempt  // only count an iteration where the gen succeeded
     imageCostUsd += imageResult.costUsd
 
     const critiqueUserPrompt = [
@@ -296,7 +349,7 @@ export async function _runAnglePipeline(
     })
   }
 
-  return { bestImageBase64, bestMimeType, imageCostUsd, inputTokens, outputTokens, iterationsUsed: iterations }
+  return { bestImageBase64, bestMimeType, imageCostUsd, inputTokens, outputTokens, iterationsUsed: iterations, budgetCapped }
 }
 
 export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
@@ -349,6 +402,14 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
   )
   const runId = crypto.randomUUID()
 
+  // Shared budget tracker. The ceiling is optional — when omitted (legacy
+  // callers, tests) a very large ceiling effectively means unlimited.
+  // Mutations are synchronous, making reservation race-free in Deno's
+  // single-threaded isolate: all three parallel angle pipelines share this
+  // object, and each reserves before its await so no two angles can
+  // double-reserve the same slice of budget.
+  const budget = createBudgetTracker(input.costCeilingUsd ?? Number.MAX_SAFE_INTEGER)
+
   // Process all angles in parallel via _runAnglePipeline. Each angle's
   // critique loop is sequential within the angle (iteration N depends on
   // N-1's critique), but angles are independent of each other.
@@ -367,14 +428,31 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
       const deps: _AnglePipelineDeps = {
         generateFn: async (prompt) => {
           angleAttempt++
-          const r = await generateImage({
-            prompt,
-            size: '1024x1024',
-            quality: 'high',
-            traceId: input.traceId,
-            observationName: `aanya-image-${angle}-iter${angleAttempt}`,
-          })
-          return { imageBase64: r.imageBase64, mimeType: r.mimeType, costUsd: r.costMeta.unitCost }
+          // SYNC reserve before the network await — race-free in single-threaded Deno.
+          // If the ceiling would be exceeded, throw BudgetCapError immediately so
+          // _runAnglePipeline can return best-so-far gracefully.
+          if (!budget.reserve(CONSERVATIVE_IMAGE_RESERVE_USD)) {
+            throw new BudgetCapError()
+          }
+          try {
+            const r = await generateImage({
+              prompt,
+              size: '1024x1024',
+              quality: 'high',
+              traceId: input.traceId,
+              observationName: `aanya-image-${angle}-iter${angleAttempt}`,
+            })
+            // Reconcile: actual cost ≤ reserve, so this refunds any over-reservation.
+            budget.reconcile(CONSERVATIVE_IMAGE_RESERVE_USD, r.costMeta.unitCost)
+            return { imageBase64: r.imageBase64, mimeType: r.mimeType, costUsd: r.costMeta.unitCost }
+          } catch (err) {
+            // Non-budget error (network, API outage): refund the reservation so
+            // subsequent angles aren't penalised for this angle's failed gen.
+            if (!(err instanceof BudgetCapError)) {
+              budget.reconcile(CONSERVATIVE_IMAGE_RESERVE_USD, 0)
+            }
+            throw err
+          }
         },
         critiqueFn: async (userPrompt) => {
           const { rawText, inputTokens, outputTokens } = await callClaude(
@@ -413,12 +491,12 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
           image_url:     urlData.publicUrl,
           copy:          { headline: idea.headline, primary_text: idea.primary_text, cta: idea.cta },
           rationale:     idea.rationale,
-          brand_check:   { status: 'pass' as const, note: 'brand check pending' },
         } satisfies CreativeVariant,
-        imageCostUsd: loop.imageCostUsd,
-        inputTokens:  loop.inputTokens,
-        outputTokens: loop.outputTokens,
-        iterations:   loop.iterationsUsed,
+        imageCostUsd:  loop.imageCostUsd,
+        inputTokens:   loop.inputTokens,
+        outputTokens:  loop.outputTokens,
+        iterations:    loop.iterationsUsed,
+        budgetCapped:  loop.budgetCapped,
       }
     })
   )
@@ -429,6 +507,7 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
   // than throwing away all successful work. Only fail if ALL angles failed.
   const variants: CreativeVariant[] = []
   const angleErrors: string[] = []
+  let capHit = false
 
   for (let i = 0; i < angleSettled.length; i++) {
     const r = angleSettled[i]
@@ -438,9 +517,13 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
       totalInputTokens  += r.value.inputTokens
       totalOutputTokens += r.value.outputTokens
       maxIterationsUsed  = Math.max(maxIterationsUsed, r.value.iterations)
+      if (r.value.budgetCapped) capHit = true
     } else {
       const msg = r.reason instanceof Error ? r.reason.message : `Angle ${anglesToGenerate[i]} failed`
       angleErrors.push(msg)
+      // A BudgetCapError rejection (no prior image for that angle) also counts
+      // as a cap hit — the ceiling caused the angle to fail entirely.
+      if (r.reason instanceof BudgetCapError) capHit = true
       console.warn(`Aanya angle "${anglesToGenerate[i]}" failed (partial result):`, msg)
     }
   }
@@ -459,5 +542,6 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
     outputTokens: totalOutputTokens,
     totalCostUsd: claudeCostUsd(totalInputTokens, totalOutputTokens) + totalImageCostUsd,
     iterationsUsed: maxIterationsUsed,
+    capHit,
   }
 }

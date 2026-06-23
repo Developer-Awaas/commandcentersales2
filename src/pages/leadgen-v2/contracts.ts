@@ -12,7 +12,7 @@
 // supabase/functions/_shared/agents/arjun.ts's StrategyConfig exactly —
 // that is Arjun's real output shape, not a placeholder.
 
-export type DelegateAgent = 'arjun' | 'aanya' | 'diya';
+export type DelegateAgent = 'arjun' | 'aanya';
 
 export type DelegationState = 'pending' | 'working' | 'done' | 'failed';
 
@@ -71,15 +71,6 @@ export interface CreativeCopy {
   cta: string;
 }
 
-// Diya's real per-creative verdict (replaces the Phase 3 placeholder).
-// 'flag' is advisory, not a hard block — a flagged creative can still be
-// approved by the user (see ApprovalBar); hard governance blocks are
-// Phase 5/6.
-export interface CreativeBrandCheck {
-  status: 'pass' | 'flag';
-  note: string;
-}
-
 export interface CreativeVariant {
   id: string;
   label: string;
@@ -88,22 +79,11 @@ export interface CreativeVariant {
   image_url?: string;
   copy?: CreativeCopy;
   rationale?: string;
-  brand_check?: CreativeBrandCheck;
-}
-
-// Diya's verdict shape — used both for the brand-confirm step (overall
-// only, no per_variant) and the per-creative check (per_variant keyed by
-// CreativeVariant.id). 'flag' is advisory; see CreativeBrandCheck.
-export interface BrandVerdict {
-  status: 'pass' | 'flag';
-  notes: string;
-  per_variant?: Record<string, CreativeBrandCheck>;
 }
 
 export interface AaravCanvas {
   strategy?: StrategyConfig;
   creatives?: CreativeVariant[];
-  brand?: BrandVerdict;
 }
 
 export type AgentAction = 'send_message' | 'approve' | 'request_change';

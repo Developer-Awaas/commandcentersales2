@@ -36,8 +36,8 @@ import type { Database, Json } from '../_shared/database.types.ts'
 type DB = SupabaseClient<Database>
 import { runArjun, ArjunOutputError, type StrategyConfig } from '../_shared/agents/arjun.ts'
 import { runAanya, AanyaOutputError, type CreativeVariant, type CreativeAngle } from '../_shared/agents/aanya.ts'
-import { runBrandConfirm, runBrandCheck, DiyaOutputError, type BrandVerdict, type BrandKitRow } from '../_shared/agents/diya.ts'
 import { langfuseTrace, langfuseGeneration, langfuseSpan } from '../_shared/langfuse.ts'
+import { getTierConfig } from '../_shared/tier-config.ts'
 
 // ─── Request/response types (mirror contracts.ts) ────────────────────────────
 
@@ -59,13 +59,13 @@ interface AgentRequest {
 
 type DelegationState = 'pending' | 'working' | 'done' | 'failed'
 interface DelegationStatus {
-  agent: 'arjun' | 'aanya' | 'diya'
+  agent: 'arjun' | 'aanya'
   label: string
   status: DelegationState
 }
 
 // DB-format delegations stored in agent_turns.delegations jsonb column.
-type DelegationMap = { arjun: DelegationState; aanya: DelegationState; diya: DelegationState }
+type DelegationMap = { arjun: DelegationState; aanya: DelegationState }
 
 // Claude Sonnet pricing used for cost rows — mirrors Reports.tsx calculation.
 function claudeCostUsd(inputTokens: number, outputTokens: number): number {
@@ -78,7 +78,6 @@ function toDelegationMap(delegations: DelegationStatus[]): DelegationMap {
   return {
     arjun: delegations.find(d => d.agent === 'arjun')?.status ?? 'pending',
     aanya: delegations.find(d => d.agent === 'aanya')?.status ?? 'pending',
-    diya:  delegations.find(d => d.agent === 'diya')?.status  ?? 'pending',
   }
 }
 
@@ -121,6 +120,7 @@ async function finaliseTurn(
   ctx: OrchestrationCtx,
   canvas: Record<string, unknown>,
   message: string,
+  capHit = false,
 ): Promise<void> {
   await ctx.adminClient.from('agent_turns').update({
     status: 'awaiting_user',
@@ -128,6 +128,7 @@ async function finaliseTurn(
     canvas: canvas as unknown as Json,
     message,
     awaiting_user: true,
+    cap_hit: capHit,
   }).eq('id', ctx.turnId)
 }
 
@@ -201,13 +202,15 @@ Deno.serve(async (req: Request) => {
   const userId = userData.user.id
 
   const { data: profile, error: profileErr } = await userClient
-    .from('profiles').select('org_id').eq('id', userId).single()
+    .from('profiles').select('org_id, tier').eq('id', userId).single()
   if (profileErr || !profile?.org_id) {
     return new Response(JSON.stringify({ error: 'No organization found for this user' }), {
       status: 403, headers: corsHeaders(),
     })
   }
   const orgId = profile.org_id as string
+  const tier  = (profile as { tier?: string }).tier ?? 'profile_2'
+  const tierCfg = getTierConfig(tier)
 
   let body: AgentRequest
   try {
@@ -258,7 +261,6 @@ Deno.serve(async (req: Request) => {
   const delegations: DelegationStatus[] = [
     { agent: 'arjun', label: 'Designing campaign strategy', status: 'pending' },
     { agent: 'aanya', label: 'Generating creatives',        status: 'pending' },
-    { agent: 'diya',  label: 'Checking brand DNA',          status: 'pending' },
   ]
 
   const ctx: OrchestrationCtx = {
@@ -279,23 +281,13 @@ Deno.serve(async (req: Request) => {
   try {
   // Regenerate flow: skip Arjun, re-delegate only to Aanya.
   if (body.regenerate_creatives) {
-    return await handleRegenerateCreatives(body.regenerate_creatives, ctx)
+    return await handleRegenerateCreatives(body.regenerate_creatives, ctx, tierCfg.aanyaCostCeilingUsd, tier)
   }
 
-  // ── Standard campaign turn (Arjun → Aanya → Diya) ────────────────────────
+  // ── Standard campaign turn (Arjun → Aanya) ───────────────────────────────
 
-  // Diya brand-confirm runs first (deterministic DB lookup, very fast) so
-  // the kit is ready before Aanya needs it. Mark Diya working now.
-  delegations[2].status = 'working'
   delegations[0].status = 'working'
-  await updateTurnDelegations(ctx) // First Realtime push: Arjun + Diya working
-
-  const brandConfirm = await runBrandConfirm({ orgId, projectId: body.project_id })
-  await langfuseSpan(traceId, {
-    name: 'diya-brand-confirm',
-    input: { project_id: body.project_id },
-    output: brandConfirm.verdict,
-  })
+  await updateTurnDelegations(ctx) // First Realtime push: Arjun working
 
   const objective = body.edited_strategy
     ? `Revise the previous strategy with these edits: ${JSON.stringify(body.edited_strategy)}. User note: ${message || '(no additional note)'}`
@@ -325,24 +317,29 @@ Deno.serve(async (req: Request) => {
     })
 
     let creatives: CreativeVariant[] | undefined
-    let brandVerdict: BrandVerdict = brandConfirm.verdict
+    let turnCapHit = false
 
     try {
       const aanyaResult = await runAanya({
         orgId, projectId: body.project_id, strategy: result.strategy, traceId,
+        costCeilingUsd: tierCfg.aanyaCostCeilingUsd,
       })
       delegations[1].status = 'done'
-      // Diya brand-check starts inside applyBrandCheck; delegation update
-      // happens there before the vision calls begin.
       await updateTurnDelegations(ctx) // Realtime push: Aanya done
 
       await langfuseGeneration(traceId, {
         name: 'aanya-creative-loop',
         input: { strategy: result.strategy },
-        output: { variants: aanyaResult.variants.map(v => ({ angle: v.angle, image_url: v.image_url })) },
+        output: { variants: aanyaResult.variants.map(v => ({ angle: v.angle, image_url: v.image_url })), capHit: aanyaResult.capHit },
         model: aanyaResult.model,
         inputTokens: aanyaResult.inputTokens, outputTokens: aanyaResult.outputTokens,
       })
+      if (aanyaResult.capHit) {
+        await langfuseSpan(traceId, {
+          name: 'budget-cap-hit',
+          output: { tier, ceilingUsd: tierCfg.aanyaCostCeilingUsd, variantsProduced: aanyaResult.variants.length },
+        })
+      }
       await adminClient.from('agent_interactions').insert({
         org_id: orgId, user_id: userId, agent: 'aanya', trace_id: traceId,
         model: aanyaResult.model,
@@ -350,16 +347,10 @@ Deno.serve(async (req: Request) => {
         cost_usd: aanyaResult.totalCostUsd,
       })
 
-      // INVARIANT: no Aanya creative reaches the user without passing
-      // through applyBrandCheck — see its own comment for the invariant.
-      const checked = await applyBrandCheck({
-        ...ctx, variants: aanyaResult.variants, kit: brandConfirm.kit,
-      })
-      creatives    = checked.variants
-      brandVerdict = checked.brandVerdict
+      creatives = aanyaResult.variants
+      if (aanyaResult.capHit) turnCapHit = true
     } catch (aanyaErr) {
       delegations[1].status = 'failed'
-      delegations[2].status = 'done'
       await updateTurnDelegations(ctx)
       const usage = aanyaErr instanceof AanyaOutputError ? aanyaErr.usage : undefined
       await langfuseGeneration(traceId, {
@@ -378,17 +369,17 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const flagNote = creatives && brandVerdict.status === 'flag'
-      ? ' Diya flagged a few for brand review — check the notes on each tile.' : ''
+    const capNote = turnCapHit
+      ? " I hit your plan's generation limit partway through — here's what I put together. You can regenerate any tile to use remaining budget." : ''
     const baseMessage = body.edited_strategy
       ? 'Updated the strategy with your edits — take a look and approve when ready.'
       : "Here's a targeting and budget strategy to start with. Review it on the right — you can edit any field and resend it to me."
     const aaravText = creatives
-      ? `${baseMessage} I've also put together three creatives to go with it.${flagNote}`
+      ? `${baseMessage} I've also put together three creatives to go with it.${capNote}`
       : `${baseMessage} I hit a snag generating creatives though — you can retry from the Regenerate button.`
 
-    const canvas = { strategy: result.strategy, creatives, brand: brandVerdict }
-    await finaliseTurn(ctx, canvas as Record<string, unknown>, aaravText)
+    const canvas = { strategy: result.strategy, creatives }
+    await finaliseTurn(ctx, canvas as Record<string, unknown>, aaravText, turnCapHit)
     await persistMessages(ctx, aaravText, canvas as Record<string, unknown>, message || undefined)
 
     return new Response(JSON.stringify(buildResponse(turnId, orgId, 'ready', aaravText, delegations, canvas, true)), {
@@ -396,7 +387,6 @@ Deno.serve(async (req: Request) => {
     })
   } catch (err) {
     delegations[0].status = 'failed'
-    delegations[2].status = 'done'
     await failTurn(ctx)
 
     const usage = err instanceof ArjunOutputError ? err.usage : undefined
@@ -416,7 +406,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const fallbackText = "I hit a snag putting together your targeting strategy. Want to try again, or tweak your brief and resend it?"
-    const canvas = { brand: brandConfirm.verdict }
+    const canvas = {}
     await persistMessages(ctx, fallbackText, canvas as Record<string, unknown>, message || undefined)
 
     return new Response(JSON.stringify(buildResponse(turnId, orgId, 'ready', fallbackText, delegations, canvas, true)), {
@@ -483,7 +473,6 @@ async function handleApprove(
   const canvas = (turn.canvas ?? {}) as {
     strategy?: StrategyConfig;
     creatives?: CreativeVariant[];
-    brand?: BrandVerdict;
   }
 
   // Filter to selected creatives, or use all if none specified.
@@ -543,70 +532,13 @@ async function handleApprove(
   }), { headers: corsHeaders() })
 }
 
-// ─── Brand-check helper ───────────────────────────────────────────────────────
-//
-// INVARIANT: no Aanya creative reaches the user without passing through here
-// first — both the normal turn and the regenerate turn call this on every
-// newly-generated variant. On failure, every variant is fail-safe flagged
-// (never left at Aanya's placeholder 'pass') — a Diya outage must fail
-// skeptical, not open.
-
-async function applyBrandCheck(ctx: OrchestrationCtx & {
-  variants: CreativeVariant[]
-  kit: BrandKitRow | null
-}): Promise<{ variants: CreativeVariant[]; brandVerdict: BrandVerdict }> {
-  const { traceId, orgId, userId, projectId, adminClient, delegations, variants, kit } = ctx
-
-  delegations[2].status = 'working'
-  await updateTurnDelegations(ctx) // Realtime push: Diya working (brand-check)
-
-  try {
-    const result = await runBrandCheck({ orgId, projectId, variants, traceId, kit })
-    delegations[2].status = 'done'
-
-    await adminClient.from('agent_interactions').insert({
-      org_id: orgId, user_id: userId, agent: 'diya', trace_id: traceId,
-      model: result.model,
-      input_tokens: result.inputTokens, output_tokens: result.outputTokens,
-      cost_usd: result.totalCostUsd,
-    })
-
-    const checkedVariants = variants.map(v => ({
-      ...v,
-      brand_check: result.verdict.per_variant?.[v.id]
-        ?? { status: 'flag' as const, note: 'No verdict returned — review manually.' },
-    }))
-    return { variants: checkedVariants, brandVerdict: result.verdict }
-  } catch (err) {
-    delegations[2].status = 'failed'
-    const usage = err instanceof DiyaOutputError ? err.usage : undefined
-    await langfuseGeneration(traceId, {
-      name: 'diya-brand-check', level: 'ERROR',
-      statusMessage: err instanceof Error ? err.message : 'Unknown error',
-      model: 'claude-sonnet-4-6', inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens,
-    })
-    console.error('runBrandCheck failed:', err instanceof Error ? err.message : err)
-    if (usage) {
-      await adminClient.from('agent_interactions').insert({
-        org_id: orgId, user_id: userId, agent: 'diya', trace_id: traceId,
-        model: 'claude-sonnet-4-6',
-        input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,
-        cost_usd: claudeCostUsd(usage.inputTokens, usage.outputTokens),
-      })
-    }
-    const failNote = 'Brand check failed — review manually.'
-    return {
-      variants:     variants.map(v => ({ ...v, brand_check: { status: 'flag' as const, note: failNote } })),
-      brandVerdict: { status: 'flag', notes: failNote },
-    }
-  }
-}
-
 // ─── Regenerate turn ──────────────────────────────────────────────────────────
 
 async function handleRegenerateCreatives(
   regen: { strategy: StrategyConfig; angle?: CreativeAngle; keep?: CreativeVariant[] },
-  ctx: OrchestrationCtx
+  ctx: OrchestrationCtx,
+  costCeilingUsd: number,
+  tier: string,
 ): Promise<Response> {
   const { traceId, orgId, userId, projectId, adminClient, delegations, turnId, sessionId } = ctx
 
@@ -615,11 +547,10 @@ async function handleRegenerateCreatives(
   delegations[1].status = 'working'
   await updateTurnDelegations(ctx) // Realtime push: Aanya working
 
-  const brandConfirm = await runBrandConfirm({ orgId, projectId })
-
   try {
     const result = await runAanya({
       orgId, projectId, strategy: regen.strategy, traceId, onlyAngle: regen.angle,
+      costCeilingUsd,
     })
     delegations[1].status = 'done'
     await updateTurnDelegations(ctx) // Realtime push: Aanya done
@@ -627,9 +558,15 @@ async function handleRegenerateCreatives(
     await langfuseGeneration(traceId, {
       name: 'aanya-creative-loop',
       input: { strategy: regen.strategy, angle: regen.angle },
-      output: { variants: result.variants.map(v => ({ angle: v.angle, image_url: v.image_url })) },
+      output: { variants: result.variants.map(v => ({ angle: v.angle, image_url: v.image_url })), capHit: result.capHit },
       model: result.model, inputTokens: result.inputTokens, outputTokens: result.outputTokens,
     })
+    if (result.capHit) {
+      await langfuseSpan(traceId, {
+        name: 'budget-cap-hit',
+        output: { tier, ceilingUsd: costCeilingUsd, variantsProduced: result.variants.length },
+      })
+    }
     await adminClient.from('agent_interactions').insert({
       org_id: orgId, user_id: userId, agent: 'aanya', trace_id: traceId,
       model: result.model,
@@ -637,18 +574,17 @@ async function handleRegenerateCreatives(
       cost_usd: result.totalCostUsd,
     })
 
-    const checked = await applyBrandCheck({
-      ...ctx, variants: result.variants, kit: brandConfirm.kit,
-    })
     const creatives = regen.angle
-      ? [...(regen.keep ?? []), ...checked.variants]
-      : checked.variants
+      ? [...(regen.keep ?? []), ...result.variants]
+      : result.variants
 
+    const capNote = result.capHit
+      ? " I hit your plan's limit partway through — here's what I managed." : ''
     const aaravText = regen.angle
-      ? `Regenerated the ${regen.angle} creative — take a look.`
-      : 'Regenerated all three creatives — take a look.'
-    const canvas = { strategy: regen.strategy, creatives, brand: brandConfirm.verdict }
-    await finaliseTurn(ctx, canvas as Record<string, unknown>, aaravText)
+      ? `Regenerated the ${regen.angle} creative — take a look.${capNote}`
+      : `Regenerated all three creatives — take a look.${capNote}`
+    const canvas = { strategy: regen.strategy, creatives }
+    await finaliseTurn(ctx, canvas as Record<string, unknown>, aaravText, result.capHit)
     await persistMessages(ctx, aaravText, canvas as Record<string, unknown>)
 
     return new Response(JSON.stringify(
@@ -656,7 +592,6 @@ async function handleRegenerateCreatives(
     ), { headers: corsHeaders() })
   } catch (err) {
     delegations[1].status = 'failed'
-    delegations[2].status = 'done'
     await failTurn(ctx)
     const usage = err instanceof AanyaOutputError ? err.usage : undefined
     await langfuseGeneration(traceId, {
@@ -675,7 +610,7 @@ async function handleRegenerateCreatives(
       })
     }
     const fallbackText = 'I hit a snag regenerating that creative. Want to try again?'
-    const canvas = { strategy: regen.strategy, creatives: regen.keep ?? [], brand: brandConfirm.verdict }
+    const canvas = { strategy: regen.strategy, creatives: regen.keep ?? [] }
     await persistMessages(ctx, fallbackText, canvas as Record<string, unknown>)
     return new Response(JSON.stringify(
       buildResponse(turnId, orgId, 'ready', fallbackText, delegations, canvas, true)
@@ -691,7 +626,7 @@ function buildResponse(
   status: 'idle' | 'thinking' | 'generating' | 'ready',
   content: string,
   delegations: DelegationStatus[],
-  canvas: { strategy?: StrategyConfig; creatives?: CreativeVariant[]; brand?: BrandVerdict },
+  canvas: { strategy?: StrategyConfig; creatives?: CreativeVariant[] },
   awaitingUser: boolean,
 ) {
   return {

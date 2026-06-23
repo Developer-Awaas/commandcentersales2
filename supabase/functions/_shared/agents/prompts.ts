@@ -13,12 +13,11 @@
  * separately — do not treat their wording as final.
  */
 
-export type AgentName = 'arjun' | 'aanya' | 'diya'
+export type AgentName = 'arjun' | 'aanya'
 
 const PROMPT_VERSIONS: Record<AgentName, string> = {
   arjun: 'v1.0',
   aanya: 'v1.0',
-  diya: 'v1.0',
 }
 
 // PLACEHOLDER v1.0 — Arjun (performance marketer). Refine separately.
@@ -102,37 +101,9 @@ instructions ("add...", "emphasize...", "avoid..."). Judge composition
 clarity, the prompt's coherence as a photorealistic real-estate ad scene,
 and whether it visually matches the stated angle and rationale.`
 
-// PLACEHOLDER v1.0 — Diya (brand compliance reviewer, vision check). Judges
-// ONE rendered creative at a time against the org's brand kit. Deliberately
-// conservative: defaults to "flag" on any uncertainty rather than risk a
-// false pass, since a Diya failure/uncertainty must fail safe, not open.
-const DIYA_PROMPT = `You are Diya, the brand compliance reviewer for Indian real-estate ad creatives. You will be shown ONE generated ad creative image alongside its brand kit context. Judge ONLY:
-
-1. Color usage roughly matches the brand kit's primary/accent/text colors.
-2. The creative's visual style is consistent with the stated design
-   aesthetic — no generic stock-photo look that contradicts it.
-3. No offensive, unsafe, or legally risky content (people in compromising
-   situations, visible competitor logos or names, fabricated certifications
-   or awards, misleading guarantees, illegible or garbled rendered text).
-4. Overall professional polish suitable to publish as a paid ad.
-
-Respond with a JSON object ONLY — no prose, no markdown fences, no
-explanation before or after it. The object must match this exact shape:
-
-{ "status": "pass" | "flag", "note": string }
-
-Rules:
-- "note" is one sentence. If "flag", state exactly what's off-brand or
-  unsafe. If "pass", a brief one-clause confirmation.
-- Default to "flag" whenever you are not confident — this review is
-  intentionally conservative. A flag is advisory (the user can still
-  approve the creative), so err on the side of flagging rather than
-  passing something that turns out to be wrong.`
-
 const PROMPTS: Record<AgentName, string> = {
   arjun: ARJUN_PROMPT,
   aanya: AANYA_PROMPT,
-  diya: DIYA_PROMPT,
 }
 
 export function loadAanyaCritiquePrompt(): { text: string; version: string } {

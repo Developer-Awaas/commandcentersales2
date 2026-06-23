@@ -89,6 +89,7 @@ export interface Database {
           learning_mode: boolean | null
           is_active: boolean | null
           daily_ai_limit: number | null
+          tier: string
           created_at: string
           updated_at: string
         }
@@ -103,6 +104,7 @@ export interface Database {
           learning_mode?: boolean | null
           is_active?: boolean | null
           daily_ai_limit?: number | null
+          tier?: string
           created_at?: string
           updated_at?: string
         }
@@ -117,6 +119,7 @@ export interface Database {
           learning_mode?: boolean | null
           is_active?: boolean | null
           daily_ai_limit?: number | null
+          tier?: string
           created_at?: string
           updated_at?: string
         }
@@ -137,6 +140,7 @@ export interface Database {
           priority: string | null
           is_active: boolean | null
           default_ad_format: string | null
+          meta_ad_account_id: string | null
           created_at: string
         }
         Insert: {
@@ -152,6 +156,7 @@ export interface Database {
           priority?: string | null
           is_active?: boolean | null
           default_ad_format?: string | null
+          meta_ad_account_id?: string | null
           created_at?: string
         }
         Update: {
@@ -167,6 +172,7 @@ export interface Database {
           priority?: string | null
           is_active?: boolean | null
           default_ad_format?: string | null
+          meta_ad_account_id?: string | null
           created_at?: string
         }
         Relationships: Rel[]
@@ -522,6 +528,7 @@ export interface Database {
         Row: {
           id: string
           org_id: string
+          project_id: string | null
           campaign_id: string
           campaign_name: string | null
           ad_account_id: string | null
@@ -544,6 +551,7 @@ export interface Database {
         Insert: {
           id?: string
           org_id: string
+          project_id?: string | null
           campaign_id: string
           campaign_name?: string | null
           ad_account_id?: string | null
@@ -566,6 +574,7 @@ export interface Database {
         Update: {
           id?: string
           org_id?: string
+          project_id?: string | null
           campaign_id?: string
           campaign_name?: string | null
           ad_account_id?: string | null
@@ -1059,6 +1068,7 @@ export interface Database {
           total_campaigns_analyzed: number
           confidence_level: 'insufficient' | 'low' | 'medium' | 'high' | 'very_high'
           dna_summary: string
+          prompt_fragments: Json | null
           last_recomputed_at: string | null
           updated_at: string
         }
@@ -1076,6 +1086,7 @@ export interface Database {
           total_campaigns_analyzed?: number
           confidence_level?: 'insufficient' | 'low' | 'medium' | 'high' | 'very_high'
           dna_summary?: string
+          prompt_fragments?: Json | null
           last_recomputed_at?: string | null
           updated_at?: string
         }
@@ -1093,6 +1104,7 @@ export interface Database {
           total_campaigns_analyzed?: number
           confidence_level?: 'insufficient' | 'low' | 'medium' | 'high' | 'very_high'
           dna_summary?: string
+          prompt_fragments?: Json | null
           last_recomputed_at?: string | null
           updated_at?: string
         }
@@ -1305,7 +1317,7 @@ export interface Database {
           id: string
           org_id: string
           user_id: string | null
-          agent: 'aarav' | 'arjun' | 'aanya' | 'diya'
+          agent: 'aarav' | 'arjun' | 'aanya'
           trace_id: string | null
           model: string
           input_tokens: number
@@ -1317,7 +1329,7 @@ export interface Database {
           id?: string
           org_id: string
           user_id?: string | null
-          agent: 'aarav' | 'arjun' | 'aanya' | 'diya'
+          agent: 'aarav' | 'arjun' | 'aanya'
           trace_id?: string | null
           model: string
           input_tokens?: number
@@ -1329,7 +1341,7 @@ export interface Database {
           id?: string
           org_id?: string
           user_id?: string | null
-          agent?: 'aarav' | 'arjun' | 'aanya' | 'diya'
+          agent?: 'aarav' | 'arjun' | 'aanya'
           trace_id?: string | null
           model?: string
           input_tokens?: number
@@ -1352,6 +1364,7 @@ export interface Database {
           message: string | null
           awaiting_user: boolean
           approved_at: string | null
+          cap_hit: boolean
           created_at: string
           updated_at: string
         }
@@ -1366,6 +1379,7 @@ export interface Database {
           message?: string | null
           awaiting_user?: boolean
           approved_at?: string | null
+          cap_hit?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -1380,6 +1394,7 @@ export interface Database {
           message?: string | null
           awaiting_user?: boolean
           approved_at?: string | null
+          cap_hit?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -1481,6 +1496,7 @@ export interface Database {
           notes: string | null
           vision_analysis: Json | null
           extracted_patterns: Json | null
+          is_live: boolean
           created_at: string
         }
         Insert: {
@@ -1497,6 +1513,7 @@ export interface Database {
           notes?: string | null
           vision_analysis?: Json | null
           extracted_patterns?: Json | null
+          is_live?: boolean
           created_at?: string
         }
         Update: {
@@ -1513,7 +1530,75 @@ export interface Database {
           notes?: string | null
           vision_analysis?: Json | null
           extracted_patterns?: Json | null
+          is_live?: boolean
           created_at?: string
+        }
+        Relationships: Rel[]
+      }
+
+      ad_metrics: {
+        Row: {
+          id: string
+          org_id: string
+          ad_account_id: string
+          campaign_id: string
+          adset_id: string | null
+          ad_id: string
+          ad_name: string
+          date_start: string
+          date_stop: string
+          impressions: number
+          clicks: number
+          reach: number
+          spend: number
+          ctr: number
+          leads: number
+          cpl: number | null
+          platform: string
+          synced_at: string
+          raw_payload: Json | null
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          ad_account_id: string
+          campaign_id: string
+          adset_id?: string | null
+          ad_id: string
+          ad_name?: string
+          date_start: string
+          date_stop: string
+          impressions?: number
+          clicks?: number
+          reach?: number
+          spend?: number
+          ctr?: number
+          leads?: number
+          cpl?: number | null
+          platform?: string
+          synced_at?: string
+          raw_payload?: Json | null
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          ad_account_id?: string
+          campaign_id?: string
+          adset_id?: string | null
+          ad_id?: string
+          ad_name?: string
+          date_start?: string
+          date_stop?: string
+          impressions?: number
+          clicks?: number
+          reach?: number
+          spend?: number
+          ctr?: number
+          leads?: number
+          cpl?: number | null
+          platform?: string
+          synced_at?: string
+          raw_payload?: Json | null
         }
         Relationships: Rel[]
       }

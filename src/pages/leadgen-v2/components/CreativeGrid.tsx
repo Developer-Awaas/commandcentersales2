@@ -1,4 +1,4 @@
-import { Palette, ImageIcon, RefreshCw, ShieldCheck, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Palette, ImageIcon, RefreshCw, CheckCircle2 } from 'lucide-react';
 import type { CreativeVariant } from '../contracts';
 
 interface CreativeGridProps {
@@ -120,26 +120,6 @@ function CreativeTile({
           <p className="text-[10px] text-text-tertiary italic leading-snug">{creative.rationale}</p>
         )}
 
-        {creative.brand_check && (
-          // Diya's verdict. 'flag' is advisory only — flagged creatives remain
-          // fully selectable and regenerable; hard governance is a future phase.
-          <span
-            title={creative.brand_check.note}
-            className={[
-              'inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full border',
-              creative.brand_check.status === 'pass'
-                ? 'bg-success-subtle text-success-text border-success-border'
-                : 'bg-warning-subtle text-warning-text border-warning-border',
-            ].join(' ')}
-          >
-            {creative.brand_check.status === 'pass'
-              ? <ShieldCheck size={10} />
-              : <ShieldAlert size={10} />}
-            {creative.brand_check.status === 'pass'
-              ? 'Brand check passed'
-              : 'Brand check: ' + creative.brand_check.note}
-          </span>
-        )}
       </div>
     </div>
   );

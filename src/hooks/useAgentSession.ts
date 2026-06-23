@@ -15,7 +15,6 @@ export type {
   AaravMessage,
   StrategyConfig,
   CreativeVariant,
-  BrandVerdict,
   AaravResponse,
   ApproveResponse,
   DelegationStatus,
@@ -25,20 +24,19 @@ export type {
 interface TurnRealtimeRow {
   id: string;
   session_id: string;
-  delegations: { arjun: string; aanya: string; diya: string };
+  delegations: { arjun: string; aanya: string };
   status: string;
 }
 
 const AGENT_LABELS: Record<string, string> = {
   arjun: 'Designing campaign strategy',
   aanya: 'Generating creatives',
-  diya:  'Checking brand DNA',
 };
 
 // Map the compact {arjun: 'working', ...} DB format to the DelegationStatus[]
 // array that the chip components consume.
 function mapToDelegationStatus(row: TurnRealtimeRow['delegations']): DelegationStatus[] {
-  return (['arjun', 'aanya', 'diya'] as const).map(agent => ({
+  return (['arjun', 'aanya'] as const).map(agent => ({
     agent,
     label:  AGENT_LABELS[agent],
     status: row[agent] as DelegationStatus['status'],

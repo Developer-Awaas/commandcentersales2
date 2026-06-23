@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { AaravThread } from './components/AaravThread';
 import { ApprovalBar } from './components/ApprovalBar';
-import { BrandCheckCard } from './components/BrandCheckCard';
 import { StrategyCard } from './components/StrategyCard';
 import { CreativeGrid } from './components/CreativeGrid';
 import { useAgentSession } from '../../hooks/useAgentSession';
+import { useProfileMode } from '../../hooks/useProfileMode';
 import type { AaravMessage, CreativeVariant, StrategyConfig } from './contracts';
 
 const GREETING: AaravMessage = {
@@ -20,6 +20,7 @@ const GREETING: AaravMessage = {
 // aarav-orchestrate via useAgentSession. Never import or invoke a
 // specialist Edge Function (arjun/aanya/diya) from this module.
 export default function LeadGenV2() {
+  const { tier: profileTier } = useProfileMode();
   const {
     response, loading, error,
     liveDelegations,
@@ -101,6 +102,7 @@ export default function LeadGenV2() {
           status={status}
           liveDelegations={liveDelegations}
           loading={loading}
+          profileTier={profileTier}
         />
       </div>
 
@@ -122,9 +124,8 @@ export default function LeadGenV2() {
               </div>
             )}
 
-            {canvas?.brand && <BrandCheckCard verdict={canvas.brand} />}
             {canvas?.strategy && (
-              <StrategyCard strategy={canvas.strategy} loading={loading} onResubmit={handleResubmitStrategy} />
+              <StrategyCard strategy={canvas.strategy} loading={loading} onResubmit={handleResubmitStrategy} profileTier={profileTier} />
             )}
             {canvas?.creatives && (
               <CreativeGrid
