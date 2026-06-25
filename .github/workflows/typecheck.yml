@@ -1,0 +1,82 @@
+name: Type-check & Unit Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Client build (TypeScript + Vite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+  edge-typecheck:
+    name: Edge Function type check (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Cache Deno modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.deno
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts') }}
+          restore-keys: deno-${{ runner.os }}-
+
+      # supabase/functions/deno.json is picked up automatically (Deno walks up
+      # from each file's directory to find the nearest config file).
+      - name: deno check — all Edge Function entry points
+        run: |
+          deno check \
+            supabase/functions/aarav-orchestrate/index.ts \
+            supabase/functions/canva-oauth-callback/index.ts \
+            supabase/functions/canva-open-editor/index.ts \
+            supabase/functions/canva-sync-design/index.ts \
+            supabase/functions/generate-creatives/index.ts \
+            supabase/functions/generate-image/index.ts \
+            supabase/functions/langfuse-ingest/index.ts \
+            supabase/functions/meta-insights-sync/index.ts \
+            supabase/functions/claude-proxy/index.ts
+
+  edge-unit-tests:
+    name: Edge Function unit tests (no credentials)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Cache Deno modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.deno
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts') }}
+          restore-keys: deno-${{ runner.os }}-
+
+      # Discovers *_test.ts and *.test.ts in the agents directory.
+      # Tests requiring live credentials are auto-skipped via ignore:true or
+      # ignore: !SMOKE_ENV_VAR. No secrets are configured in CI.
+      - name: deno test — credential-free unit tests
+        run: |
+          deno test --allow-env \
+            supabase/functions/_shared/agents/

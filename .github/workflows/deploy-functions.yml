@@ -1,0 +1,49 @@
+name: Deploy Edge Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+  # Allow manual redeploy (e.g. after adding a new secret)
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Supabase
+    runs-on: ubuntu-latest
+    # Only run after typecheck passes — don't deploy broken code
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # pg_cron functions carry no user JWT — deploy without JWT verification
+      - name: Deploy pg_cron functions (no JWT verification)
+        run: |
+          supabase functions deploy meta-insights-sync \
+            --no-verify-jwt \
+            --project-ref mpvdpdxzqnidwyihyhbn
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # All other functions require a valid Supabase JWT (authenticated users only)
+      - name: Deploy remaining edge functions
+        run: |
+          for fn in \
+            aarav-orchestrate \
+            canva-oauth-callback \
+            canva-open-editor \
+            canva-sync-design \
+            claude-proxy \
+            generate-creatives \
+            generate-image \
+            langfuse-ingest; do
+            echo "Deploying $fn..."
+            supabase functions deploy "$fn" --project-ref mpvdpdxzqnidwyihyhbn
+          done
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Local fast-feedback mirror of .github/workflows/typecheck.yml.
+# This file IS committed — opt in once per clone:
+#   git config core.hooksPath scripts/hooks
+#
+# If deno is not on PATH the deno steps are skipped with a warning; CI
+# (.github/workflows/typecheck.yml) remains the authoritative gate and
+# will still catch type errors on your push. Bypass locally with
+# `git push --no-verify` only in a genuine emergency.
+
+set -e
+
+echo "[pre-push] client typecheck..."
+npm run typecheck
+
+echo "[pre-push] client build..."
+npm run build
+
+echo "[pre-push] deno checks..."
+if ! command -v deno >/dev/null 2>&1; then
+  echo "[pre-push] WARNING: deno not on PATH — skipping Edge Function checks. CI will catch errors."
+  exit 0
+fi
+
+deno check \
+  supabase/functions/aarav-orchestrate/index.ts \
+  supabase/functions/canva-oauth-callback/index.ts \
+  supabase/functions/canva-open-editor/index.ts \
+  supabase/functions/canva-sync-design/index.ts \
+  supabase/functions/generate-creatives/index.ts \
+  supabase/functions/generate-image/index.ts \
+  supabase/functions/langfuse-ingest/index.ts \
+  supabase/functions/meta-insights-sync/index.ts \
+  supabase/functions/claude-proxy/index.ts
+
+echo "[pre-push] deno test (credential-free)..."
+deno test --allow-env supabase/functions/_shared/agents/
+
+echo "[pre-push] all checks passed."
