@@ -1317,7 +1317,7 @@ export interface Database {
           id: string
           org_id: string
           user_id: string | null
-          agent: 'aarav' | 'arjun' | 'aanya'
+          agent: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya'
           trace_id: string | null
           model: string
           input_tokens: number
@@ -1329,7 +1329,7 @@ export interface Database {
           id?: string
           org_id: string
           user_id?: string | null
-          agent: 'aarav' | 'arjun' | 'aanya'
+          agent: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya'
           trace_id?: string | null
           model: string
           input_tokens?: number
@@ -1341,7 +1341,7 @@ export interface Database {
           id?: string
           org_id?: string
           user_id?: string | null
-          agent?: 'aarav' | 'arjun' | 'aanya'
+          agent?: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya'
           trace_id?: string | null
           model?: string
           input_tokens?: number

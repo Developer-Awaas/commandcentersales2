@@ -36,6 +36,7 @@ import type { Database, Json } from '../_shared/database.types.ts'
 type DB = SupabaseClient<Database>
 import { runArjun, ArjunOutputError, type StrategyConfig } from '../_shared/agents/arjun.ts'
 import { runAanya, AanyaOutputError, type CreativeVariant, type CreativeAngle } from '../_shared/agents/aanya.ts'
+import { runKavya, KavyaOutputError, type KavyaIntent, type KavyaPlan, type KavyaPlanEntry } from '../_shared/agents/kavya.ts'
 import { langfuseTrace, langfuseGeneration, langfuseSpan } from '../_shared/langfuse.ts'
 import { getTierConfig } from '../_shared/tier-config.ts'
 
@@ -59,13 +60,18 @@ interface AgentRequest {
 
 type DelegationState = 'pending' | 'working' | 'done' | 'failed'
 interface DelegationStatus {
-  agent: 'arjun' | 'aanya'
+  agent: 'arjun' | 'aanya' | 'kavya'
   label: string
   status: DelegationState
 }
 
 // DB-format delegations stored in agent_turns.delegations jsonb column.
-type DelegationMap = { arjun: DelegationState; aanya: DelegationState }
+// Fields are optional so single-agent turns don't carry misleading pending keys.
+type DelegationMap = {
+  arjun?: DelegationState
+  aanya?: DelegationState
+  kavya?: DelegationState
+}
 
 // Claude Sonnet pricing used for cost rows — mirrors Reports.tsx calculation.
 function claudeCostUsd(inputTokens: number, outputTokens: number): number {
@@ -74,11 +80,14 @@ function claudeCostUsd(inputTokens: number, outputTokens: number): number {
 
 // Convert the DelegationStatus[] array (used in responses) to the compact
 // map stored in agent_turns.delegations so Realtime payloads are small.
+// Only includes keys that are present in the delegation array so Kavya-only
+// turns don't emit misleading arjun/aanya 'pending' entries.
 function toDelegationMap(delegations: DelegationStatus[]): DelegationMap {
-  return {
-    arjun: delegations.find(d => d.agent === 'arjun')?.status ?? 'pending',
-    aanya: delegations.find(d => d.agent === 'aanya')?.status ?? 'pending',
+  const map: DelegationMap = {}
+  for (const d of delegations) {
+    map[d.agent] = d.status
   }
+  return map
 }
 
 // ─── Orchestration context threaded through helpers ───────────────────────────
@@ -284,6 +293,12 @@ Deno.serve(async (req: Request) => {
     return await handleRegenerateCreatives(body.regenerate_creatives, ctx, tierCfg.aanyaCostCeilingUsd, tier)
   }
 
+  // ── Kavya (content / SMM) turn — detected before campaign flow ───────────
+  const kavyaIntent = detectKavyaIntent(message)
+  if (kavyaIntent) {
+    return await handleKavyaTurn(message, kavyaIntent, ctx)
+  }
+
   // ── Standard campaign turn (Arjun → Aanya) ───────────────────────────────
 
   delegations[0].status = 'working'
@@ -424,6 +439,145 @@ Deno.serve(async (req: Request) => {
   }
 })
 
+// ─── Kavya intent detection ───────────────────────────────────────────────────
+//
+// Keyword-based routing — runs before the Arjun→Aanya campaign chain. Returns
+// the KavyaIntent when the message is clearly SMM/content territory, or null
+// when the message is better handled by the campaign chain.
+
+function detectKavyaIntent(message: string): KavyaIntent | null {
+  const m = message.toLowerCase()
+
+  // Reel scripts — check before caption to avoid 'reel idea' matching caption
+  if (/reel.*(script|idea|video)|video.*(script|idea)|script.*reel/.test(m)) return 'reel'
+
+  // Monthly / weekly plans
+  if (
+    /content\s*calendar|monthly\s*plan|what\s*(should\s*)?i\s*post|plan\s*content|smm\s*plan|social\s*media\s*plan|content\s*strateg|content\s*arc|posting\s*schedule/.test(m)
+  ) return 'plan'
+
+  // Captions
+  if (
+    /\bcaption\b|write.*(post|instagram|facebook|linkedin)|instagram\s*post|facebook\s*post|linkedin\s*post/.test(m)
+  ) return 'caption'
+
+  return null
+}
+
+// ─── Kavya turn handler ───────────────────────────────────────────────────────
+
+async function handleKavyaTurn(
+  message: string,
+  intent: KavyaIntent,
+  ctx: OrchestrationCtx,
+): Promise<Response> {
+  const { traceId, orgId, userId, adminClient, turnId, projectId } = ctx
+
+  // Replace the initial arjun/aanya delegation entries with a single Kavya
+  // chip — ctx.delegations is passed by reference so finaliseTurn will see it.
+  ctx.delegations.length = 0
+  ctx.delegations.push({
+    agent: 'kavya',
+    label: intent === 'plan' ? 'Planning content calendar' : intent === 'caption' ? 'Writing caption' : 'Writing reel script',
+    status: 'working',
+  })
+  // Write initial delegations so Realtime subscribers see Kavya working.
+  await adminClient.from('agent_turns').update({
+    delegations: toDelegationMap(ctx.delegations) as unknown as Json,
+  }).eq('id', turnId)
+
+  try {
+    const result = await runKavya({ orgId, projectId, intent, message })
+    ctx.delegations[0].status = 'done'
+
+    await langfuseGeneration(traceId, {
+      name: `kavya-${intent}`,
+      input: { intent, message },
+      output: result.output,
+      model: result.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+    })
+    await adminClient.from('agent_interactions').insert({
+      org_id: orgId, user_id: userId, agent: 'kavya', trace_id: traceId,
+      model: result.model,
+      input_tokens: result.inputTokens, output_tokens: result.outputTokens,
+      cost_usd: claudeCostUsd(result.inputTokens, result.outputTokens),
+    })
+
+    // For plan intent: bulk-insert entries into smm_calendar so they appear
+    // in the SMM Calendar page immediately after Kavya finishes.
+    if (intent === 'plan') {
+      const plan = result.output as KavyaPlan
+      const rows = plan.plan.map((entry: KavyaPlanEntry) => ({
+        org_id: orgId,
+        post_date: entry.date,
+        post_time: entry.posting_time ?? null,
+        platform: entry.platform as 'instagram' | 'facebook' | 'both',
+        post_type: entry.post_type as 'reel' | 'carousel' | 'static' | 'story' | 'video',
+        category: entry.category ?? null,
+        topic: entry.week_theme ?? null,
+        caption_en: entry.caption ?? null,
+        hashtags: entry.hashtags ?? null,
+        nano_prompt: entry.creative_brief ?? null,
+        status: 'planned' as const,
+      }))
+      // Ignore errors — a duplicate-date conflict must not fail the whole turn.
+      await adminClient.from('smm_calendar').insert(rows).then(({ error }) => {
+        if (error) console.error('smm_calendar insert error:', error.message)
+      })
+    }
+
+    const intentLabel = intent === 'plan'
+      ? "Here's a 30-day content calendar — added to your SMM Calendar page. Review any post and tap Edit Caption or Brief to refine."
+      : intent === 'caption'
+      ? "Here's your caption — copy it or hit me with tweaks."
+      : "Here's your reel script — hook, body, and CTA ready to shoot."
+
+    const canvas: Record<string, unknown> = { [intent]: result.output }
+    await finaliseTurn(ctx, canvas, intentLabel)
+    await persistMessages(ctx, intentLabel, canvas, message || undefined)
+
+    return new Response(JSON.stringify(
+      buildResponse(turnId, orgId, 'ready', intentLabel, ctx.delegations, canvas, true)
+    ), { headers: corsHeaders() })
+
+  } catch (err) {
+    ctx.delegations[0].status = 'failed'
+    await failTurn(ctx)
+
+    const usage = err instanceof KavyaOutputError ? err.usage : undefined
+    await langfuseGeneration(traceId, {
+      name: `kavya-${intent}`,
+      input: { intent, message },
+      level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error',
+      model: result_model_on_error(intent), inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens,
+    })
+    console.error('runKavya failed:', err instanceof Error ? err.message : err)
+    if (usage) {
+      await adminClient.from('agent_interactions').insert({
+        org_id: orgId, user_id: userId, agent: 'kavya', trace_id: traceId,
+        model: result_model_on_error(intent),
+        input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,
+        cost_usd: claudeCostUsd(usage.inputTokens, usage.outputTokens),
+      })
+    }
+
+    const fallback = "I hit a snag with that content request. Want to try rephrasing it, or ask for something more specific?"
+    const canvas = {}
+    await persistMessages(ctx, fallback, canvas, message || undefined)
+    return new Response(JSON.stringify(
+      buildResponse(turnId, orgId, 'ready', fallback, ctx.delegations, canvas, true)
+    ), { headers: corsHeaders() })
+  }
+}
+
+// Returns the model string for error-path Langfuse/cost rows where the result
+// variable is unavailable (the error was thrown before the LLM responded).
+function result_model_on_error(intent: KavyaIntent): string {
+  return intent === 'plan' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001'
+}
+
 // ─── Approve action ───────────────────────────────────────────────────────────
 //
 // INVARIANT: Approve is idempotent — a second call on an already-approved turn
@@ -473,6 +627,7 @@ async function handleApprove(
   const canvas = (turn.canvas ?? {}) as {
     strategy?: StrategyConfig;
     creatives?: CreativeVariant[];
+    brand?: unknown;
   }
 
   // Filter to selected creatives, or use all if none specified.
@@ -626,7 +781,7 @@ function buildResponse(
   status: 'idle' | 'thinking' | 'generating' | 'ready',
   content: string,
   delegations: DelegationStatus[],
-  canvas: { strategy?: StrategyConfig; creatives?: CreativeVariant[] },
+  canvas: Record<string, unknown>,
   awaitingUser: boolean,
 ) {
   return {
