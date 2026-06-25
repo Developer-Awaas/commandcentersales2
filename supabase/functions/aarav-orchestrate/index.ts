@@ -37,6 +37,8 @@ type DB = SupabaseClient<Database>
 import { runArjun, ArjunOutputError, type StrategyConfig } from '../_shared/agents/arjun.ts'
 import { runAanya, AanyaOutputError, type CreativeVariant, type CreativeAngle } from '../_shared/agents/aanya.ts'
 import { runKavya, KavyaOutputError, type KavyaIntent, type KavyaPlan, type KavyaPlanEntry } from '../_shared/agents/kavya.ts'
+import { runDhruv, DhruvOutputError, type DhruvIntent } from '../_shared/agents/dhruv.ts'
+import { buildMetricsContext } from '../_shared/metrics-query.ts'
 import { langfuseTrace, langfuseGeneration, langfuseSpan } from '../_shared/langfuse.ts'
 import { getTierConfig } from '../_shared/tier-config.ts'
 
@@ -60,7 +62,7 @@ interface AgentRequest {
 
 type DelegationState = 'pending' | 'working' | 'done' | 'failed'
 interface DelegationStatus {
-  agent: 'arjun' | 'aanya' | 'kavya'
+  agent: 'arjun' | 'aanya' | 'kavya' | 'dhruv'
   label: string
   status: DelegationState
 }
@@ -71,6 +73,7 @@ type DelegationMap = {
   arjun?: DelegationState
   aanya?: DelegationState
   kavya?: DelegationState
+  dhruv?: DelegationState
 }
 
 // Claude Sonnet pricing used for cost rows — mirrors Reports.tsx calculation.
@@ -293,6 +296,12 @@ Deno.serve(async (req: Request) => {
     return await handleRegenerateCreatives(body.regenerate_creatives, ctx, tierCfg.aanyaCostCeilingUsd, tier)
   }
 
+  // ── Dhruv (analytics / reporting) turn — detected before other flows ─────
+  const dhruvIntent = detectDhruvIntent(message)
+  if (dhruvIntent) {
+    return await handleDhruvTurn(message, dhruvIntent, ctx)
+  }
+
   // ── Kavya (content / SMM) turn — detected before campaign flow ───────────
   const kavyaIntent = detectKavyaIntent(message)
   if (kavyaIntent) {
@@ -300,6 +309,15 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Standard campaign turn (Arjun → Aanya) ───────────────────────────────
+  // Pre-compute MetricsContext so Arjun's recommendations are data-informed.
+  // Fire-and-forget on error — a metrics failure must never block the campaign turn.
+  let metricsForArjun: Record<string, unknown> | undefined
+  try {
+    const mc = await buildMetricsContext(adminClient, orgId, 30)
+    if (mc.has_data) metricsForArjun = mc as unknown as Record<string, unknown>
+  } catch {
+    // Metrics are enrichment only — swallow errors silently.
+  }
 
   delegations[0].status = 'working'
   await updateTurnDelegations(ctx) // First Realtime push: Arjun working
@@ -312,6 +330,7 @@ Deno.serve(async (req: Request) => {
     const result = await runArjun({
       orgId, projectId: body.project_id, objective,
       budget: 'Not specified — use a reasonable default and state the assumption in notes.',
+      projectContext: metricsForArjun ? { recent_metrics: metricsForArjun } : undefined,
     })
 
     delegations[0].status = 'done'
@@ -576,6 +595,141 @@ async function handleKavyaTurn(
 // variable is unavailable (the error was thrown before the LLM responded).
 function result_model_on_error(intent: KavyaIntent): string {
   return intent === 'plan' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001'
+}
+
+// ─── Dhruv intent detection ───────────────────────────────────────────────────
+//
+// Routes analytics/metrics/reporting messages to Dhruv before the Kavya or
+// Arjun→Aanya chains. Checked in isolation so CPL/metrics questions don't
+// accidentally fall through to Kavya's caption keywords.
+
+function detectDhruvIntent(message: string): DhruvIntent | null {
+  const m = message.toLowerCase()
+
+  // Monthly / quarterly report requests
+  if (/monthly\s*report|marketing\s*report|generate\s*report|quarterly\s*report/.test(m)) return 'report'
+
+  // Analytics / metrics questions
+  const analyticsPattern = new RegExp(
+    'how\\s*(is|are|was|were)\\s*(my|our|the)\\s*(campaign|campaigns|ads?|performance|results|numbers)|' +
+    'campaign\\s*performance|my\\s*cpl|cpl\\s*(this|last|week|month)|ctr\\s*(this|last|week|month)|' +
+    'ad\\s*(spend|budget|performance|results|stats|metrics|fatigue)|' +
+    'how\\s*are\\s*(things|we|my\\s*ads)|\\bmetrics\\b|\\banalytics\\b|' +
+    'which\\s*(campaign|ad|creative)\\s*(is|are|work|perform)|' +
+    'best\\s*(campaign|ad|creative)|worst\\s*(campaign|ad|creative)|' +
+    '\\broas\\b|\\bctr\\b|\\bcpm\\b|impressions'
+  )
+  if (analyticsPattern.test(m)) return 'reactive'
+
+  return null
+}
+
+// ─── Dhruv turn handler ───────────────────────────────────────────────────────
+
+async function handleDhruvTurn(
+  message: string,
+  intent: DhruvIntent,
+  ctx: OrchestrationCtx,
+): Promise<Response> {
+  const { traceId, orgId, userId, adminClient, turnId, projectId } = ctx
+
+  ctx.delegations.length = 0
+  ctx.delegations.push({
+    agent: 'dhruv',
+    label: intent === 'report' ? 'Generating marketing report'
+         : intent === 'dashboard' ? 'Computing dashboard insights'
+         : 'Analysing campaign metrics',
+    status: 'working',
+  })
+  await adminClient.from('agent_turns').update({
+    delegations: toDelegationMap(ctx.delegations) as unknown as Json,
+  }).eq('id', turnId)
+
+  // Pre-compute MetricsContext (pure SQL, no LLM).
+  let metricsContext
+  try {
+    metricsContext = await buildMetricsContext(adminClient, orgId, 30)
+  } catch (mcErr) {
+    // If metrics query itself fails, return an honest error to the user.
+    ctx.delegations[0].status = 'failed'
+    await failTurn(ctx)
+    const fallback = "I couldn't read your campaign metrics right now — there may be a temporary database issue. Try again in a moment."
+    const canvas = {}
+    await persistMessages(ctx, fallback, canvas, message || undefined)
+    console.error('buildMetricsContext failed:', mcErr instanceof Error ? mcErr.message : mcErr)
+    return new Response(JSON.stringify(
+      buildResponse(turnId, orgId, 'ready', fallback, ctx.delegations, canvas, true)
+    ), { headers: corsHeaders() })
+  }
+
+  try {
+    const result = await runDhruv({
+      orgId, projectId, intent, message, metricsContext,
+    })
+    ctx.delegations[0].status = 'done'
+
+    await langfuseGeneration(traceId, {
+      name: `dhruv-${intent}`,
+      input: { intent, message, has_data: metricsContext.has_data },
+      output: result.output,
+      model: result.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+    })
+    await adminClient.from('agent_interactions').insert({
+      org_id: orgId, user_id: userId, agent: 'dhruv', trace_id: traceId,
+      model: result.model,
+      input_tokens: result.inputTokens, output_tokens: result.outputTokens,
+      cost_usd: claudeCostUsd(result.inputTokens, result.outputTokens),
+    })
+
+    const intentLabel = intent === 'report'
+      ? "Here's your marketing report — I've broken it down by campaign performance, lead funnel, and creative signals."
+      : intent === 'dashboard'
+      ? "Here's your latest performance snapshot."
+      : "Here's what the numbers are telling me."
+
+    const canvas: Record<string, unknown> = { dhruv: result.output, metrics_context: metricsContext }
+    await finaliseTurn(ctx, canvas, intentLabel)
+    await persistMessages(ctx, intentLabel, canvas, message || undefined)
+
+    return new Response(JSON.stringify(
+      buildResponse(turnId, orgId, 'ready', intentLabel, ctx.delegations, canvas, true)
+    ), { headers: corsHeaders() })
+
+  } catch (err) {
+    ctx.delegations[0].status = 'failed'
+    await failTurn(ctx)
+
+    const usage = err instanceof DhruvOutputError ? err.usage : undefined
+    await langfuseGeneration(traceId, {
+      name: `dhruv-${intent}`,
+      input: { intent, message },
+      level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error',
+      model: dhruv_model_on_error(intent), inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens,
+    })
+    console.error('runDhruv failed:', err instanceof Error ? err.message : err)
+    if (usage) {
+      await adminClient.from('agent_interactions').insert({
+        org_id: orgId, user_id: userId, agent: 'dhruv', trace_id: traceId,
+        model: dhruv_model_on_error(intent),
+        input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,
+        cost_usd: claudeCostUsd(usage.inputTokens, usage.outputTokens),
+      })
+    }
+
+    const fallback = "I hit a snag pulling your campaign analytics. Want to try again, or ask something more specific?"
+    const canvas = {}
+    await persistMessages(ctx, fallback, canvas, message || undefined)
+    return new Response(JSON.stringify(
+      buildResponse(turnId, orgId, 'ready', fallback, ctx.delegations, canvas, true)
+    ), { headers: corsHeaders() })
+  }
+}
+
+function dhruv_model_on_error(intent: DhruvIntent): string {
+  if (intent === 'dashboard') return 'claude-haiku-4-5-20251001'
+  return 'claude-sonnet-4-6'
 }
 
 // ─── Approve action ───────────────────────────────────────────────────────────
