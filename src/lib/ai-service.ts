@@ -1,8 +1,6 @@
 import { supabase } from './supabase';
 import { ADMIN_EMAIL } from './constants';
 
-const STORAGE_KEY = 'claude_api_key';
-const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_SYSTEM =
   'You are an expert performance marketing specialist for Indian real estate. Respond ONLY in valid JSON.';
@@ -133,28 +131,13 @@ async function checkQuota(): Promise<string | null> {
   return null;
 }
 
-// Resolution order:
-// 1. localStorage 'claude_api_key' (admin's per-browser key — takes priority)
-// 2. VITE_ANTHROPIC_API_KEY env var (fallback for pilot users without a per-browser key)
-// Both are app-wide reads — there's no per-user/org storage yet. See .env.example for setup.
-export function getApiKey(): string | null {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return stored;
-  const envKey = import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined;
-  return envKey || null;
-}
-
 export async function getTodayAiCallsCount(): Promise<number> {
   return getUserCallCount();
 }
 
-export function setApiKey(key: string): void {
-  localStorage.setItem(STORAGE_KEY, key);
-}
-
+// Key lives in Edge Function secrets — always enabled from the client's perspective.
 export function isAiEnabled(): boolean {
-  const key = getApiKey();
-  return typeof key === 'string' && key.trim().length > 0;
+  return true;
 }
 
 // Escape literal control characters (newline, tab, CR) inside JSON string values.
@@ -271,45 +254,32 @@ export async function aiCall(
   trace: TraceOptions = {}
 ): Promise<Record<string, unknown>> {
   const traceName = trace.traceName ?? 'claude-call';
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return { error: 'API key not configured. Go to Settings to add your Claude API key.' };
-  }
 
   const quotaErr = await checkQuota();
   if (quotaErr) return { error: quotaErr };
 
   try {
-    const res = await fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase.functions.invoke('claude-proxy', {
+      body: {
         model: CLAUDE_MODEL,
         max_tokens: maxTokens,
         system: system ?? DEFAULT_SYSTEM,
         messages: [{ role: 'user', content: prompt }],
-      }),
+      },
     });
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      let errMsg = `API error ${res.status}`;
-      try {
-        const parsed = JSON.parse(errBody);
-        if (parsed?.error?.message) errMsg = parsed.error.message;
-      } catch {
-        // ignore
-      }
+    if (error) {
+      logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: error.message, metadata: trace.metadata });
+      return { error: error.message };
+    }
+
+    // Anthropic errors come back as { type: 'error', error: { message: '...' } }
+    if (data?.type === 'error' || data?.error) {
+      const errMsg: string = (data?.error as Record<string,unknown>)?.message as string ?? JSON.stringify(data?.error) ?? 'Anthropic API error';
       logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: errMsg, metadata: trace.metadata });
       return { error: errMsg };
     }
 
-    const data = await res.json();
     const inputTokens: number = data?.usage?.input_tokens ?? 0;
     const outputTokens: number = data?.usage?.output_tokens ?? 0;
 
@@ -339,23 +309,13 @@ export async function aiCall(
 export async function describeImageForFlux(
   image: string | { base64: string; mimeType: string }
 ): Promise<string | null> {
-  const apiKey = getApiKey();
-  if (!apiKey) return null;
-
   const imageSource = typeof image === 'string'
     ? { type: 'url' as const, url: image }
     : { type: 'base64' as const, media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: image.base64 };
 
   try {
-    const res = await fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase.functions.invoke('claude-proxy', {
+      body: {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         messages: [{
@@ -368,17 +328,16 @@ export async function describeImageForFlux(
             },
           ],
         }],
-      }),
+      },
     });
 
-    if (!res.ok) {
-      logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: `API error ${res.status}` });
+    if (error) {
+      logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: error.message });
       return null;
     }
-    const data = await res.json() as { content?: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
     const text = (data?.content ?? [])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { text: string }) => b.text)
       .join('')
       .trim();
     logToLangfuse('claude-vision-describe-image', {
@@ -400,45 +359,31 @@ export async function aiVision(
   trace: TraceOptions = {}
 ): Promise<Record<string, unknown>> {
   const traceName = trace.traceName ?? 'claude-vision';
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return { error: 'API key not configured. Go to Settings to add your Claude API key.' };
-  }
 
   const quotaErr = await checkQuota();
   if (quotaErr) return { error: quotaErr };
 
   try {
-    const res = await fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase.functions.invoke('claude-proxy', {
+      body: {
         model: CLAUDE_MODEL,
         max_tokens: 16000,
         system,
         messages,
-      }),
+      },
     });
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      let errMsg = `API error ${res.status}`;
-      try {
-        const parsed = JSON.parse(errBody);
-        if (parsed?.error?.message) errMsg = parsed.error.message;
-      } catch {
-        // ignore
-      }
+    if (error) {
+      logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: error.message, metadata: trace.metadata });
+      return { error: error.message };
+    }
+
+    if (data?.type === 'error' || data?.error) {
+      const errMsg: string = (data?.error as Record<string,unknown>)?.message as string ?? JSON.stringify(data?.error) ?? 'Anthropic API error';
       logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: errMsg, metadata: trace.metadata });
       return { error: errMsg };
     }
 
-    const data = await res.json();
     const inputTokens: number = data?.usage?.input_tokens ?? 0;
     const outputTokens: number = data?.usage?.output_tokens ?? 0;
 

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Calendar, ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
-import { buildSMMPlannerPrompt, buildScreenshotExtractionPrompt, SCREENSHOT_GUIDES } from '../lib/smm-prompts';
+import { buildSMMPlannerPrompt, buildScreenshotExtractionPrompt } from '../lib/smm-prompts';
 import { generateSMMPlanPDF } from '../lib/pdf-generator';
 import { useToast } from '../contexts/ToastContext';
 import {
@@ -136,7 +136,8 @@ export default function SMMPlanner() {
         ], 'Extract social media metrics from this screenshot. Return ONLY valid JSON.');
 
         if (res && !res.error && res.extracted) {
-          const ext = res.extracted;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ext = res.extracted as any;
           setMetrics(prev => ({
             ...prev,
             ig_followers: ext.followers?.toString() || prev.ig_followers,
@@ -148,8 +149,9 @@ export default function SMMPlanner() {
             ig_best_time: ext.best_times?.[0] || prev.ig_best_time,
           }));
           showToast('Metrics extracted from screenshot!', 'success');
-          if (res.missingFields?.length > 0) {
-            showToast('Some fields could not be read: ' + res.missingFields.join(', '), 'info');
+          const missingFields = res.missingFields as string[] | undefined;
+          if (missingFields?.length) {
+            showToast('Some fields could not be read: ' + missingFields.join(', '), 'info');
           }
         } else {
           showToast('Could not read screenshot. Enter metrics manually.', 'error');
@@ -215,7 +217,7 @@ export default function SMMPlanner() {
         });
 
         if (res.calendar) {
-          const pending = res.calendar
+          const pending = (res.calendar as any[])
             .map((p: any) => pendingPostFromAi(p))
             .filter((p: PendingPost | null): p is PendingPost => p !== null);
           setPendingPosts(pending);

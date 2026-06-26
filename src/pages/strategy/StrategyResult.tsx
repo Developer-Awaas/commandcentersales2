@@ -12,13 +12,10 @@ import {
   CheckCircle,
   Info,
   ImageIcon,
-  Download,
-  ExternalLink,
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { supabase } from '../../lib/supabase';
-import { getOrgId, getUserId } from '../../lib/constants';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
@@ -1309,100 +1306,8 @@ function FullStrategyPlaceholder({ inputs, projects }: { inputs: FullStrategyInp
   );
 }
 
-interface GeneratedImageState {
-  base64: string;
-  mimeType: string;
-  publicUrl?: string;
-  assetId?: string;
-  storagePath?: string;
-  aspectRatio: '1:1' | '9:16' | '4:5';
-}
 
-const ASPECT_LABELS: Record<string, string> = {
-  '9:16': 'Story (1080×1920)',
-  '4:5':  'Portrait Feed (1080×1350)',
-  '1:1':  'Feed (1080×1080)',
-};
 
-function GeminiImageCard({ img }: { img: GeneratedImageState }) {
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [canvaLoading, setCanvaLoading] = useState(false);
-  const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
-  const label = ASPECT_LABELS[img.aspectRatio] ?? 'Feed (1080×1080)';
-
-  function download() {
-    const a = document.createElement('a');
-    a.href = img.publicUrl ?? dataUrl;
-    a.download = `aanya-creative-${img.aspectRatio.replace(':', 'x')}-${Date.now()}.${img.mimeType.split('/')[1] ?? 'png'}`;
-    a.click();
-  }
-
-  async function openInCanva() {
-    // If the image has a DB record, use the Canva API for a proper edit session
-    if (img.assetId) {
-      setCanvaLoading(true);
-      try {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ creativeAssetId: img.assetId, userId: getUserId() }),
-        });
-        const json = await res.json() as { editUrl?: string; authUrl?: string; error?: string };
-        if (json.editUrl) { window.open(json.editUrl, '_blank', 'noopener'); return; }
-        if (json.authUrl) { window.location.href = json.authUrl; return; }
-        if (json.error) throw new Error(json.error);
-      } catch {
-        // Fall through to clipboard-copy fallback
-      } finally {
-        setCanvaLoading(false);
-      }
-    }
-    // Fallback: copy public URL so user can paste into Canva → Uploads → Upload from URL
-    const urlToCopy = img.publicUrl ?? dataUrl;
-    navigator.clipboard.writeText(urlToCopy).catch(() => {});
-    setUrlCopied(true);
-    setTimeout(() => setUrlCopied(false), 3000);
-    window.open('https://www.canva.com/create/social-media/', '_blank', 'noopener');
-  }
-
-  return (
-    <div className="rounded-xl border border-emerald-500/30 bg-emerald-900/10 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-emerald-500/20 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">{label}</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={download}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-text-tertiary hover:text-text-primary border border-border hover:border-border/80 transition-all"
-          >
-            <Download size={12} /> Download
-          </button>
-          <button
-            onClick={openInCanva}
-            disabled={canvaLoading}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-60 ${urlCopied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-[#7D2AE8] text-white hover:bg-[#6B22D0] border border-transparent'}`}
-          >
-            {canvaLoading
-              ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              : <ExternalLink size={12} />}
-            {canvaLoading ? 'Opening…' : urlCopied ? 'URL copied — paste in Canva!' : 'Edit in Canva'}
-          </button>
-        </div>
-      </div>
-      <img
-        src={dataUrl}
-        alt={`Gemini generated ${label}`}
-        className="w-full object-contain max-h-[480px]"
-      />
-      {urlCopied && (
-        <div className="px-4 py-2 bg-emerald-900/30 border-t border-emerald-500/20 text-xs text-emerald-300">
-          In Canva: click <span className="font-semibold">Uploads → Upload from URL</span> and paste the image URL.
-        </div>
-      )}
-    </div>
-  );
-}
 
 function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange }: {
   data: SeniorDesignerResult;
@@ -1482,7 +1387,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       const collected: GalleryImage[] = [];
       const generationErrors: string[] = [];
 
-      for (const [result, ratio, label, angleLabel, promptUsedForThisSlot] of [
+      for (const [result, _ratio, label, angleLabel, promptUsedForThisSlot] of [
         [feedResult,    '1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
         [portraitResult,'4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],
         [storyResult,   '9:16', 'Story (1080×1920)',         'story',    promptStory],

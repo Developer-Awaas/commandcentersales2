@@ -35,6 +35,8 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
   const [adobeImage, setAdobeImage] = useState<GalleryImage | null>(null);
   // Tracks images that have an open Canva design so we can show a "Sync" button
   const [canvaDesignIds, setCanvaDesignIds] = useState<Record<string, string>>({});
+  // Tracks which image id is currently being synced from Canva (null = none)
+  const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
 
   // Stable key representing the current generation session: length + first image id/url.
   // Changing this means a genuinely new set of images was passed (new generation),

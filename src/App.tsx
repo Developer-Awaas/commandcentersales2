@@ -89,7 +89,10 @@ function getSectionFromPage(page: string): AppSection {
 
 const SECTION_DEFAULT_PAGE: Record<AppSection, string> = {
   dashboard: 'dashboard',
-  lead_gen: 'strategy',
+  // When LEADGEN_V2_ENABLED, clicking the Lead Gen section tab lands on the
+  // Aarav Agent page. Old pages (Strategy, CampaignWizard, etc.) remain
+  // accessible via the sidebar — they are NOT deleted for this release.
+  lead_gen: LEADGEN_V2_ENABLED ? 'leadgen-v2' : 'strategy',
   smm: 'smm-planner',
 };
 

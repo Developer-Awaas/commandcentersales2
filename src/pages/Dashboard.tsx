@@ -20,7 +20,6 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
 import { useNavigation } from '../contexts/NavigationContext';
-import type { AppSection } from '../contexts/NavigationContext';
 import { AiSessionDetail } from '../components/AiSessionDetail';
 import { useChatbot } from '../contexts/ChatbotContext';
 

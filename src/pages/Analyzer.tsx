@@ -4,7 +4,7 @@ import { CampaignMetricsChart } from '../components/CampaignMetricsChart';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
-import { aiCall, getApiKey, isAiEnabled } from '../lib/ai-service';
+import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { Card } from '../components/ui/Card';
@@ -574,25 +574,11 @@ Return ONLY a JSON object:
     setResearch({ status: 'loading' });
 
     try {
-      const apiKey = getApiKey();
-      if (!apiKey) {
-        setResearch({ status: 'error', message: 'Add your Claude API key in Settings to research Meta updates.' });
-        setResearchSubmitting(false);
-        return;
-      }
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-          'anthropic-beta': 'web-search-2025-03-05',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+      const { data, error } = await supabase.functions.invoke('claude-proxy', {
+        body: {
+          model: 'claude-sonnet-4-6',
           max_tokens: 4000,
+          _beta: 'web-search-2025-03-05',
           tools: [{ type: 'web_search_20250305', name: 'web_search' }],
           messages: [
             {
@@ -600,18 +586,14 @@ Return ONLY a JSON object:
               content: 'Research latest Meta Ads features 2026 for Indian real estate. CTWA updates, Advantage+ changes, new targeting. Give actionable recommendations for mid-size Bhubaneswar developer with Rs 15-30K monthly budget.',
             },
           ],
-        }),
+        },
       });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error((err as Record<string, unknown>)?.error?.toString() ?? `HTTP ${response.status}`);
-      }
+      if (error) throw new Error(error.message);
 
-      const json = await response.json();
-      const textContent = (json.content ?? [])
-        .filter((b: { type: string }) => b.type === 'text')
-        .map((b: { text: string }) => b.text)
+      const textContent = ((data?.content ?? []) as { type: string; text: string }[])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
         .join('\n\n');
 
       setResearch({ status: 'ok', text: textContent || 'No text response returned.' });

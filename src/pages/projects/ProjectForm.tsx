@@ -53,6 +53,7 @@ function toForm(p: Project): FormData {
     brochure_url: p.brochure_url ?? '',
     whatsapp_flow: p.whatsapp_flow ?? '',
     notes: p.notes ?? '',
+    meta_ad_account_id: p.meta_ad_account_id ?? '',
     configurations: autoCreateConfigFromProject(p),
     price_history: p.price_history ?? [],
   };
@@ -231,9 +232,12 @@ export function ProjectForm({ project, onCancel, onSaved }: ProjectFormProps) {
     setSaving(true);
 
     const derived = deriveFieldsFromConfigs(form.configurations);
+    const rawMetaId = (form.meta_ad_account_id ?? '').trim();
+    const normalizedMetaId = rawMetaId && !rawMetaId.startsWith('act_') ? `act_${rawMetaId}` : rawMetaId;
     const payload = {
       ...form,
       ...derived,
+      meta_ad_account_id: normalizedMetaId || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -456,6 +460,27 @@ export function ProjectForm({ project, onCancel, onSaved }: ProjectFormProps) {
             placeholder="https://…"
           />
         </div>
+
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-text-primary mb-0.5">Meta Ads Integration</p>
+          <p className="text-xs text-text-tertiary mb-4">
+            Ad account running campaigns for this project. Overrides the org-level account for metric sync.
+            Access token is shared — set it once in <strong>Settings → Meta Ads Integration</strong>.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Ad Account ID</label>
+            <p className="text-[11px] text-text-tertiary -mt-0.5">
+              Format: <code className="bg-surface-sunken px-1 rounded">act_123456789</code> — find it in Meta Business Manager → Ad Accounts. Leave blank to use the org-level account.
+            </p>
+            <input
+              type="text"
+              value={form.meta_ad_account_id ?? ''}
+              onChange={(e) => set('meta_ad_account_id', e.target.value)}
+              placeholder="act_123456789"
+              className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
+            />
+          </div>
+        </Card>
 
         <Textarea
           label="Notes"

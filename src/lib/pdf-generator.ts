@@ -3,8 +3,6 @@
 // Uses browser-native printing to PDF (no external library needed).
 // Creates a hidden iframe with styled HTML, triggers print-to-PDF.
 
-import { formatCurrency, formatDate } from './data-utils';
-
 // ============================================================
 // CORE: Generate PDF from HTML string
 // ============================================================
@@ -108,7 +106,7 @@ export function generateLeadGenPDF(data: {
 
     if (data.strategy.immediateActions) {
       html += '<h2>Immediate Actions</h2>';
-      data.strategy.immediateActions.forEach((a: string, i: number) => {
+      data.strategy.immediateActions.forEach((a: string) => {
         html += '<div class="checklist-item">' + a + '</div>';
       });
     }
@@ -299,7 +297,7 @@ export function generateSMMReportPDF(data: {
 
   if (data.analysis?.suggestions) {
     html += '<h2>Recommendations</h2>';
-    data.analysis.suggestions.forEach((s: string, i: number) => {
+    data.analysis.suggestions.forEach((s: string) => {
       html += '<div class="checklist-item">' + s + '</div>';
     });
   }

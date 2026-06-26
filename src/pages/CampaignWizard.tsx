@@ -398,7 +398,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
       </button>
       {data.creativesResult && (
         <div className="flex flex-col gap-3">
-          {data.creativesResult.strategy && (
+          {!!data.creativesResult.strategy && (
             <p className="text-xs text-text-tertiary italic">{String(data.creativesResult.strategy)}</p>
           )}
           {variants.map((v, i) => <VariantCard key={i} v={v} />)}
@@ -432,7 +432,10 @@ function StepAdReview({ data, onResult, onImageChange }: {
     reader.onload = async () => {
       const b64 = (reader.result as string).split(',')[1];
       const prompt = `Analyze this real estate ad creative for ${data.projectName}. Reply ONLY with JSON: { "overallScore": 7, "verdict": "...", "issues": [{ "area": "...", "severity": "high", "issue": "...", "fix": "..." }], "strengths": ["..."], "revisedPrompt": "improved image generation prompt" }`;
-      const res = await aiVision(prompt, b64, image.type);
+      const res = await aiVision([
+        { type: 'image', source: { type: 'base64', media_type: image.type || 'image/png', data: b64 } },
+        { type: 'text', text: prompt }
+      ], 'Analyze the real estate ad creative. Reply ONLY with JSON.');
       const parsed = parseAiJson(res);
       if (!parsed) { showToast('Analysis failed.', 'error'); setLoading(false); return; }
       onResult(parsed);
@@ -638,7 +641,7 @@ function StepFinalPlan({ data, onComplete }: { data: WizardData; onComplete: () 
 
 // ── Main Wizard ───────────────────────────────────────────────────────────────
 
-export function CampaignWizard({ onWizardEnd, onWizardStart, wizardActive }: { onWizardEnd?: () => void; onWizardStart?: () => void; wizardActive?: boolean }) {
+export function CampaignWizard({ onWizardEnd, onWizardStart }: { onWizardEnd?: () => void; onWizardStart?: () => void; wizardActive?: boolean }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [step, setStep] = useState<StepNum>(1);

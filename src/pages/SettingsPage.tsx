@@ -2,7 +2,7 @@
 // Settings should redirect users to the Brand Kit page for color management.
 // brand_colors field kept for now to avoid breaking existing prompt-builders that read it.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 
@@ -78,6 +78,7 @@ export function SettingsPage() {
   const [metaSyncing, setMetaSyncing] = useState(false);
   const [metaLastSync, setMetaLastSync] = useState<string | null>(null);
   const [metaSyncMsg, setMetaSyncMsg] = useState<string | null>(null);
+  const [showMetaSetup, setShowMetaSetup] = useState(false);
 
   useEffect(() => {
     loadOrg();
@@ -104,12 +105,15 @@ export function SettingsPage() {
 
   async function saveMetaIntegration() {
     setMetaSaving(true);
+    const rawId = metaAccountId.trim();
+    // Meta API requires act_<numeric_id> — normalize silently so bare IDs work too.
+    const normalizedId = rawId && !rawId.startsWith('act_') ? `act_${rawId}` : rawId;
     const payload = {
       org_id: getOrgId(),
       provider: 'meta',
-      meta_ad_account_id: metaAccountId.trim(),
+      meta_ad_account_id: normalizedId,
       meta_access_token: metaToken.trim(),
-      is_active: !!(metaAccountId.trim() && metaToken.trim()),
+      is_active: !!(normalizedId && metaToken.trim()),
     };
     if (metaIntegrationId) {
       await supabase.from('org_integrations').update(payload).eq('id', metaIntegrationId);
@@ -117,6 +121,8 @@ export function SettingsPage() {
       const { data } = await supabase.from('org_integrations').insert(payload).select('id').single();
       if (data) setMetaIntegrationId(data.id);
     }
+    // Reflect normalized ID back into the input field immediately.
+    setMetaAccountId(normalizedId);
     setMetaSaving(false);
     setMetaSyncMsg('Integration saved.');
     setTimeout(() => setMetaSyncMsg(null), 3000);
@@ -126,12 +132,20 @@ export function SettingsPage() {
     setMetaSyncing(true);
     setMetaSyncMsg(null);
     try {
-      const { error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
+      const { data, error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
       if (error) {
         setMetaSyncMsg('Sync failed: ' + error.message);
       } else {
-        setMetaSyncMsg('Sync triggered — check Analyzer in ~30 seconds.');
-        await loadMetaIntegration();
+        // The function returns 200 even when an org fails — check per-org results.
+        type SyncResult = { org_id: string; status: string; error?: string };
+        const results: SyncResult[] = (data as { results?: SyncResult[] })?.results ?? [];
+        const failed = results.find((r) => r.status === 'error');
+        if (failed) {
+          setMetaSyncMsg('Sync failed: ' + (failed.error ?? 'Unknown error'));
+        } else {
+          setMetaSyncMsg('Sync triggered — check Analyzer in ~30 seconds.');
+          await loadMetaIntegration();
+        }
       }
     } catch (err: unknown) {
       setMetaSyncMsg('Sync failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
@@ -397,9 +411,77 @@ export function SettingsPage() {
               <span className="text-[10px] text-text-tertiary">Last synced: {new Date(metaLastSync).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
             )}
           </div>
-          <p className="text-[11px] text-text-tertiary leading-relaxed mb-4">
+          <p className="text-[11px] text-text-tertiary leading-relaxed mb-3">
             Enter your Meta Ad Account ID and a long-lived access token. Once saved, click <strong>Sync Now</strong> to pull campaign metrics immediately, or they auto-refresh every 15 minutes via scheduled job.
           </p>
+
+          {/* Setup guide */}
+          <div className="mb-4 border border-border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowMetaSetup(s => !s)}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 bg-surface-sunken hover:bg-surface-subtle text-xs font-medium text-text-secondary transition-colors"
+            >
+              <span>How to get your Access Token &amp; Account ID</span>
+              {showMetaSetup ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+            {showMetaSetup && (
+              <div className="px-4 py-4 bg-surface text-[11px] text-text-secondary leading-relaxed space-y-3.5">
+                <div className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-subtle border border-brand-border text-brand text-[10px] font-bold flex items-center justify-center">1</span>
+                  <div>
+                    <p className="font-medium text-text-primary mb-0.5">Create a System User</p>
+                    <p className="text-text-tertiary">Meta Business Manager → Business Settings → Users → System Users → <em>New System User</em>. Set role to <strong>Employee</strong>.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-subtle border border-brand-border text-brand text-[10px] font-bold flex items-center justify-center">2</span>
+                  <div>
+                    <p className="font-medium text-text-primary mb-0.5">Add your Ad Account</p>
+                    <p className="text-text-tertiary">System User → <em>Add Assets</em> → Ad Accounts → select your account → Permission: <strong>Analyst</strong> (minimum to read metrics).</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-subtle border border-brand-border text-brand text-[10px] font-bold flex items-center justify-center">3</span>
+                  <div>
+                    <p className="font-medium text-text-primary mb-1">Generate Access Token</p>
+                    <p className="text-text-tertiary mb-1.5">System User → <em>Generate Token</em> → select your app → enable these permissions:</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      {[
+                        ['ads_read', 'Read campaign & ad metrics'],
+                        ['ads_management', 'Required for async insights jobs'],
+                        ['business_management', 'Access Business objects'],
+                        ['pages_read_engagement', 'Page-level reach & engagement'],
+                      ].map(([perm, desc]) => (
+                        <div key={perm} className="flex items-start gap-1.5">
+                          <CheckCircle size={11} className="text-emerald-400 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <code className="text-[10px] bg-surface-sunken px-1 py-0.5 rounded text-text-primary">{perm}</code>
+                            <p className="text-[10px] text-text-tertiary mt-0.5">{desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-text-tertiary mt-1.5">System User tokens do <strong>not expire</strong> — unlike user tokens.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-subtle border border-brand-border text-brand text-[10px] font-bold flex items-center justify-center">4</span>
+                  <div>
+                    <p className="font-medium text-text-primary mb-0.5">Find your Ad Account ID</p>
+                    <p className="text-text-tertiary">Business Manager → Ad Accounts → copy the numeric ID → prepend <code className="bg-surface-sunken px-1 rounded">act_</code> e.g. <code className="bg-surface-sunken px-1 rounded">act_1234567890</code></p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-subtle border border-brand-border text-brand text-[10px] font-bold flex items-center justify-center">5</span>
+                  <div>
+                    <p className="font-medium text-text-primary mb-0.5">Paste both fields below and click Save</p>
+                    <p className="text-text-tertiary">Campaign metrics will sync automatically every 15 minutes once connected.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
           {metaLoading ? (
             <div className="flex items-center gap-2 py-3">
               <Spinner size="sm" />
@@ -457,7 +539,7 @@ export function SettingsPage() {
                 </button>
               </div>
               {metaSyncMsg && (
-                <p className="text-xs text-brand">{metaSyncMsg}</p>
+                <p className={`text-xs ${metaSyncMsg.startsWith('Sync failed') ? 'text-red-400' : 'text-brand'}`}>{metaSyncMsg}</p>
               )}
               {metaAccountId && metaToken && (
                 <div className="flex items-center gap-1.5 text-xs text-emerald-400">

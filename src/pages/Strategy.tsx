@@ -185,7 +185,7 @@ export function Strategy() {
         const fp = data as FullProject;
         setFullProject(fp);
         // Build config selection state
-        const configs = autoCreateConfigFromProject({ ...fp, is_active: true, created_at: '', updated_at: '', id: fp.id, org_id: null, code: null, per_sqft_rate: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null });
+        const configs = autoCreateConfigFromProject({ ...fp, is_active: true, created_at: '', updated_at: '', id: fp.id, org_id: null, code: null, per_sqft_rate: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null, meta_ad_account_id: null });
         setSelectedConfigs(
           configs.map((cfg) => ({
             config: cfg,
@@ -313,11 +313,11 @@ export function Strategy() {
                   name: quickInputs.customProject.name,
                   locality: quickInputs.customProject.locality,
                   city: quickInputs.customProject.city,
-                  price_range_lacs: quickInputs.customProject.price,
+                  price_range: quickInputs.customProject.price,
                   units_remaining: parseInt(quickInputs.customProject.unitsLeft) || null,
                   usps: quickInputs.customProject.usps,
                   unit_types: quickInputs.customProject.type,
-                }
+                } as unknown as import('../lib/senior-designer-prompts').ProjectData
               : undefined,
           campaign_goal: quickInputs.campaignGoal as Parameters<typeof buildQuickGenerateBrief>[0]['campaign_goal'],
           funnel_stage: funnel,
@@ -598,7 +598,7 @@ export function Strategy() {
           projectIds: fullInputs.selectedProjectIds,
           inputSummary: `Full strategy: ₹${fullInputs.monthlyBudget}/mo, ${fullInputs.leadsPerMonth} leads, ${selected.length} projects`,
           inputData: { monthlyBudget: fullInputs.monthlyBudget, leadsPerMonth: fullInputs.leadsPerMonth, scale: fullInputs.scale },
-          outputData: fullParsed,
+          outputData: fullParsed as Record<string, unknown>,
           claudeInputTokens: ((res._inputTokens as number) ?? 0) + aanyaInputTokens,
           claudeOutputTokens: ((res._outputTokens as number) ?? 0) + aanyaOutputTokens,
         });

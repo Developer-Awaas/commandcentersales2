@@ -102,6 +102,15 @@ export interface QuickReference {
   visual_description?: string; // Claude Vision analysis — injected into Aanya's brief
 }
 
+export interface PromptFragments {
+  section_1?: string;
+  section_3?: string;
+  section_4?: string;
+  section_5_hex?: string[];
+  section_6_elements?: string[];
+  section_8_avoid?: string[];
+}
+
 export interface ProjectDesignSystem {
   best_performing_angles: any[];
   best_performing_compositions: any[];
@@ -111,6 +120,7 @@ export interface ProjectDesignSystem {
   total_creatives_analyzed: number;
   confidence_level: 'insufficient' | 'low' | 'medium' | 'high' | 'very_high';
   dna_summary?: string;
+  prompt_fragments?: PromptFragments | null;
 }
 
 // ============================================================
@@ -269,38 +279,52 @@ function getGoalStrategy(goal: string, _funnel: string): string {
 
 function formatDesignDNA(dna: ProjectDesignSystem): string {
   if (dna.confidence_level === 'insufficient' || dna.total_creatives_analyzed < 3) {
-    return `DESIGN DNA: No prior performance data yet (${dna.total_creatives_analyzed} creatives analyzed). Apply standard real estate creative best practices for the chosen aesthetic. This creative will contribute to building the project's design DNA.`;
+    return `DESIGN DNA: No prior performance data yet (${dna.total_creatives_analyzed} creatives analyzed). Apply standard real estate creative best practices for the chosen aesthetic.`;
   }
 
+  const f = dna.prompt_fragments;
+
+  // If section-level fragments exist (Phase 6+), inject them per section.
+  // This gives the model precise, section-addressable constraints rather than a block to interpret.
+  if (f && (f.section_1 || f.section_3 || f.section_4 || f.section_5_hex?.length || f.section_6_elements?.length)) {
+    let block = `DESIGN DNA — ${dna.total_creatives_analyzed} creatives analyzed (confidence: ${dna.confidence_level})\n`;
+    if (dna.dna_summary) block += `\nSUMMARY: ${dna.dna_summary}\n`;
+    block += `\n— SECTION-LEVEL LEARNED PREFERENCES (apply to the corresponding section of your prompt) —\n`;
+    if (f.section_1) block += `\nSection 1 (scene): ${f.section_1}`;
+    if (f.section_3) block += `\nSection 3 (lens/shot): ${f.section_3}`;
+    if (f.section_4) block += `\nSection 4 (lighting): ${f.section_4}`;
+    if (f.section_5_hex?.length) {
+      block += `\nSection 5 (color palette): Use these hex codes — ${f.section_5_hex.join(', ')}. Do NOT substitute or invent new colors.`;
+    }
+    if (f.section_6_elements?.length) {
+      block += `\nSection 6 (typography): Prefer these elements — ${f.section_6_elements.join(' | ')}`;
+    }
+    if (f.section_8_avoid?.length) {
+      block += `\nSection 8 (negative prompts): Add these — ${f.section_8_avoid.join(', ')}`;
+    }
+    if (dna.best_performing_compositions?.length > 0) {
+      block += `\n\nTOP COMPOSITIONS: ${dna.best_performing_compositions.slice(0, 2).map((c: any) => c.composition).join(' | ')}`;
+    }
+    block += `\n\nThese are HARD learned preferences from real ad performance — treat them as constraints, not suggestions.`;
+    return block;
+  }
+
+  // Legacy fallback (no fragments yet — soft guidance block)
   let dnaBlock = `DESIGN DNA — Learned from ${dna.total_creatives_analyzed} past creatives (confidence: ${dna.confidence_level})\n`;
-
-  if (dna.dna_summary) {
-    dnaBlock += `\nSUMMARY: ${dna.dna_summary}\n`;
-  }
-
-  if (dna.best_performing_angles?.length > 0) {
-    dnaBlock += `\nTOP ANGLES (use as preference):\n`;
-    dna.best_performing_angles.slice(0, 3).forEach((a: any) => {
-      dnaBlock += `  - ${a.angle}: avg CPL ₹${a.avg_cpl}, CTR ${a.avg_ctr}%, sample ${a.sample_size}\n`;
-    });
-  }
-
+  if (dna.dna_summary) dnaBlock += `\nSUMMARY: ${dna.dna_summary}\n`;
   if (dna.best_performing_compositions?.length > 0) {
     dnaBlock += `\nTOP COMPOSITIONS:\n`;
     dna.best_performing_compositions.slice(0, 3).forEach((c: any) => {
-      dnaBlock += `  - ${c.composition} (avg CPL ₹${c.avg_cpl})\n`;
+      dnaBlock += `  - ${c.composition}\n`;
     });
   }
-
   if (dna.underperforming_patterns?.length > 0) {
-    dnaBlock += `\nAVOID — patterns that underperformed:\n`;
+    dnaBlock += `\nAVOID:\n`;
     dna.underperforming_patterns.slice(0, 3).forEach((p: any) => {
-      dnaBlock += `  - ${p.pattern}: avg CPL ₹${p.avg_cpl} (${p.verdict})\n`;
+      dnaBlock += `  - ${p.pattern}\n`;
     });
   }
-
-  dnaBlock += `\nUse this DNA as a SOFT preference. If the campaign goal differs from the DNA's strongest pattern, prioritize the goal but inform with DNA learnings.`;
-
+  dnaBlock += `\nUse this DNA as a SOFT preference — prioritize campaign goal if it conflicts.`;
   return dnaBlock;
 }
 

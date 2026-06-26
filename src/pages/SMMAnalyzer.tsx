@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Upload, RefreshCw, Download, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { BarChart3, Upload, RefreshCw, Download } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
@@ -55,7 +55,8 @@ export default function SMMAnalyzer() {
         ], 'Extract social media metrics. Return ONLY valid JSON.');
 
         if (res?.extracted) {
-          const ext = res.extracted;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ext = res.extracted as any;
           setMetrics(prev => ({
             followers: ext.followers?.toString() || prev.followers,
             posts_published: prev.posts_published,
@@ -70,7 +71,8 @@ export default function SMMAnalyzer() {
             follower_growth: ext.follower_growth?.toString() || prev.follower_growth,
           }));
           showToast('Metrics extracted! Verify and fill missing fields.', 'success');
-          if (res.missingFields?.length) showToast('Missing: ' + res.missingFields.join(', '), 'info');
+          const missingFields = res.missingFields as string[] | undefined;
+          if (missingFields?.length) showToast('Missing: ' + missingFields.join(', '), 'info');
         } else {
           showToast('Could not read screenshot', 'error');
         }
@@ -142,7 +144,7 @@ export default function SMMAnalyzer() {
           inputSummary: platform + ' analysis: ' + period,
           inputData: metrics,
           outputData: res,
-          healthScore: res.healthScore,
+          healthScore: res.healthScore as number | undefined,
         });
         showToast('Analysis complete!', 'success');
       } else {

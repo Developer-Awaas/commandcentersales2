@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, CreditCard as Edit3, Check, X, Eye, Calendar, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Calendar, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronDown, ChevronUp, Eye, RefreshCw, Sparkles, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, ChevronUp, Eye, Sparkles, Upload, X } from 'lucide-react';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { supabase } from '../lib/supabase';
 import { buildRevisedCreativeBrief } from '../lib/senior-designer-prompts';

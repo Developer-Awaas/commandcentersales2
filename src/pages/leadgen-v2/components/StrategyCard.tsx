@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Zap, Loader2 } from 'lucide-react';
 import type { StrategyConfig } from '../contracts';
+import type { ProfileTier } from '../../../hooks/useProfileMode';
 
 interface StrategyCardProps {
   strategy: StrategyConfig;
   loading: boolean;
   onResubmit: (edited: StrategyConfig) => void;
+  profileTier: ProfileTier;
 }
 
 const FUNNEL_LABELS: Record<StrategyConfig['primary_funnel_stage'], string> = {
@@ -32,7 +34,7 @@ function labelClass() {
 // local state until "Resubmit to Aarav" — that goes back through
 // aarav-orchestrate (a new orchestration turn) for re-delegation, never
 // straight to a specialist. See contracts.ts AgentRequest.edited_strategy.
-export function StrategyCard({ strategy, loading, onResubmit }: StrategyCardProps) {
+export function StrategyCard({ strategy, loading, onResubmit, profileTier }: StrategyCardProps) {
   const [draft, setDraft] = useState<StrategyConfig>(strategy);
 
   // Reset local edits whenever Aarav returns a fresh strategy (a new
@@ -63,7 +65,9 @@ export function StrategyCard({ strategy, loading, onResubmit }: StrategyCardProp
       <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <Zap size={15} className="text-brand flex-shrink-0" />
-          <span className="text-[13px] font-semibold text-text-primary">Arjun's Strategy</span>
+          <span className="text-[13px] font-semibold text-text-primary">
+            {profileTier === 'profile_2' ? "Arjun's Strategy" : 'Campaign Strategy'}
+          </span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span

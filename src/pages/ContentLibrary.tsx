@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Library, Search, Filter, Copy, Eye, Trash2, Calendar } from 'lucide-react';
+import { Library, Search, Trash2, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 
 const C = {

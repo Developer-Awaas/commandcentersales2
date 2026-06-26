@@ -1,6 +1,7 @@
 import { Bot, User, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import type { AaravMessage, AgentStatus, DelegationStatus } from '../contracts';
 import { AgentStatusChip } from './AgentStatusChip';
+import type { ProfileTier } from '../../../hooks/useProfileMode';
 
 interface AaravThreadProps {
   messages: AaravMessage[];
@@ -8,6 +9,7 @@ interface AaravThreadProps {
   // Live delegation states from Realtime — null when no turn is in-flight.
   liveDelegations: DelegationStatus[] | null;
   loading: boolean;
+  profileTier: ProfileTier;
 }
 
 // Icons and styles per delegation state — reuses the same visual language as
@@ -44,7 +46,7 @@ function DelegationPanel({ delegations }: { delegations: DelegationStatus[] }) {
   );
 }
 
-export function AaravThread({ messages, status, liveDelegations, loading }: AaravThreadProps) {
+export function AaravThread({ messages, status, liveDelegations, loading, profileTier }: AaravThreadProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Thread header */}
@@ -67,19 +69,18 @@ export function AaravThread({ messages, status, liveDelegations, loading }: Aara
           <MessageBubble key={msg.id} message={msg} />
         ))}
 
-        {/* Live delegation panel — visible during any in-flight turn.
-            Appears below the last message so it feels like Aarav is
-            "showing his work" in real time. Disappears when loading ends. */}
-        {loading && liveDelegations && (
+        {/* In-flight progress indicator.
+            profile_2: named-agent delegation chips (DelegationPanel).
+            profile_1: single neutral "Working on it…" spinner — same backend,
+            presentation only. No specialist names are shown. */}
+        {loading && profileTier === 'profile_2' && liveDelegations && (
           <DelegationPanel delegations={liveDelegations} />
         )}
 
-        {/* Generic thinking indicator when loading but no delegation data yet
-            (e.g. between request send and first Realtime update). */}
-        {loading && !liveDelegations && (
+        {loading && (profileTier !== 'profile_2' || !liveDelegations) && (
           <div className="flex items-center gap-2 px-1 py-1">
             <Loader2 size={11} className="animate-spin text-text-tertiary flex-shrink-0" />
-            <span className="text-[11px] text-text-tertiary">Aarav is thinking…</span>
+            <span className="text-[11px] text-text-tertiary">Working on it…</span>
           </div>
         )}
       </div>

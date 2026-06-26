@@ -22,7 +22,6 @@ import {
   Smartphone,
   Wand2,
   ChevronDown,
-  Brain,
   Bot,
 } from 'lucide-react';
 
@@ -57,7 +56,6 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'campaign-wizard', label: 'Campaign Wizard', icon: Wand2 },
   { id: 'ad-config', label: 'Ad Config', icon: Target },
   { id: 'creatives', label: 'Ad Creatives', icon: Palette },
-  { id: 'aanya-memory', label: "Aanya's Memory", icon: Brain },
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
   { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },

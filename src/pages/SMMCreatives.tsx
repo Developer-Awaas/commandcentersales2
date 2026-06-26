@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Image, RefreshCw, Sparkles, Copy, Download } from 'lucide-react';
+import { RefreshCw, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
@@ -32,7 +32,7 @@ export default function SMMCreatives() {
   const [project, setProject] = useState('');
   const [platform, setPlatform] = useState('Nanobanana (Gemini)');
   const [holiday, setHoliday] = useState('');
-  const [event, setEvent] = useState('');
+  const [event] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);

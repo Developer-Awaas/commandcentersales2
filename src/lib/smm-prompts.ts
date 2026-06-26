@@ -1,7 +1,7 @@
 // src/lib/smm-prompts.ts
 // PURPOSE: AI prompt builders for all Social Media Marketing modules.
 
-import { formatProject, formatCompetitors } from './prompt-builders';
+import { formatProject } from './prompt-builders';
 
 // ============================================================
 // SMM PLANNER PROMPT

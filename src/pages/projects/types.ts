@@ -43,6 +43,7 @@ export interface Project {
   brochure_url: string | null;
   whatsapp_flow: string | null;
   notes: string | null;
+  meta_ad_account_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -77,6 +78,7 @@ export const EMPTY_FORM: Omit<Project, 'id' | 'org_id' | 'is_active' | 'created_
   brochure_url: '',
   whatsapp_flow: '',
   notes: '',
+  meta_ad_account_id: '',
   configurations: [],
   price_history: [],
 };
