@@ -266,7 +266,8 @@ GPT-Image-1 responds well to descriptive prose divided into clear functional sec
 | `creative_performance` | `20260609130000` | Metrics linked to individual creatives (cpl, ctr, performance_tier) |
 | `agent_turns` | `20260617120000` | One row per `aarav-orchestrate` invocation. Realtime target for delegation-chip animation. `delegations jsonb` updated mid-turn. `approved_at` IS NOT NULL = idempotency sentinel. `cap_hit boolean` (migration `20260620010000`) — true when Aanya's budget ceiling was hit this turn. |
 | `agent_messages` | `20260617120000` | Per-turn conversation record (user + aarav roles). Written on every turn completion. Canvas snapshot stored for recall. |
-| `agent_memory` | `20260617120000` | Approved campaign decisions (strategy + selected creatives + brand verdict). Written on `action='approve'` only. Org+project scoped. |
+| `agent_memory` | `20260617120000` | Approved campaign decisions (strategy + selected creatives + brand verdict). Written on `action='approve'` only. Org+project scoped. **DO NOT add columns here** — semantic search is handled by `agent_memory_chunks` (projection in Phase B). |
+| `agent_memory_chunks` | `20260625120000` | pgvector memory layer for semantic + hybrid search. Columns: `id`, `org_id`, `project_id`, `scope memory_scope`, `agent_name`, `content`, `embedding vector(1024)` (nullable = fail-soft), `salience real CHECK 0..1`, `access_count`, `last_accessed_at`, `expires_at`, `source_memory_id → agent_memory(id)`, `created_at`. Enum `memory_scope`: `('decision','project','builder','domain','shared','agent')`. Indexes: HNSW cosine, GIN tsvector, three btree. RLS: org-scoped same pattern as all tables. RPCs: `match_memory_chunks` (hybrid scorer) + `touch_memory_chunks` (access counter). **Phase B** (separate step, gated on cross-tenant isolation test): project `agent_memory` approved decisions into this table and wire `retrieveMemory()` in `aarav-orchestrate`. DOWN migration: `supabase/rollbacks/20260625120000_pgvector_memory_layer_down.sql`. |
 | `aanya_training_creatives` | `20260613000000` | Real-world creatives Aanya trains on. source CHECK: own_ad/competitor/industry_reference/winning_template. performance_tier CHECK: top_performer/good_performer/average/underperformer/reference_only. `vision_analysis jsonb` stores Haiku description + patterns. `extracted_patterns jsonb` mirrors patterns array. RLS: org-scoped TO authenticated via `get_current_user_org_id()` — fixed in migration `20260613000000` (table was originally created via API with wrong/missing policies). Indexes: (org_id, project_id), (org_id, performance_tier). Images stored in `brand-assets` bucket under `aanya-training/{orgId}/` path. |
 
 ### `creative_assets` column constraints (CHECK)
@@ -412,6 +413,27 @@ Only non-obvious bugs where the root cause isn't immediately visible in the code
 - Errors per-org in sync jobs — one org failing must not block others
 - No charting libraries — use CSS/inline-style bars matching existing Analyzer pattern
 - Migration timestamps use format `YYYYMMDDHHMMSS`; wrap ALTER in DO blocks
+- **DOWN migrations** live in `supabase/rollbacks/` (NOT `supabase/migrations/`) — same timestamp prefix as their UP, but the CLI only scans `migrations/` so they never get auto-applied. Apply manually: `supabase db query --linked -f supabase/rollbacks/<file>.sql`.
+- **`match_memory_chunks` canonical signature (Phase B wiring reference)**:
+  ```
+  match_memory_chunks(
+    query_embedding  vector,          -- 1024-dim; pass as float[] from JS client
+    query_text       text,
+    filter_scope     memory_scope DEFAULT NULL,
+    filter_project   uuid         DEFAULT NULL,
+    match_count      int          DEFAULT 10
+  ) RETURNS TABLE (
+    id           uuid,
+    content      text,
+    scope        memory_scope,
+    agent_name   text,
+    salience     real,
+    similarity   real,
+    hybrid_score real,
+    created_at   timestamptz
+  )
+  ```
+  Called via Supabase JS: `supabase.rpc('match_memory_chunks', { query_embedding: [...], query_text, filter_scope?, filter_project?, match_count? })`. SECURITY INVOKER — RLS enforces tenancy automatically. Do NOT pass `org_id` as an argument; it is not in the signature.
 - Storage: edited images always overwrite original file (same path, `upsert: true`) to avoid file accumulation
 - `uploadGeminiImageToSupabase` return type is `GeminiUploadResult = { url, id, storagePath }` — callers must use `.url` not the raw return value
 - **`brand_kits` is strictly org-level** — one row per org (`UNIQUE org_id`), **no `project_id` column**. `runBrandConfirm()` looks up by `org_id` only. `projectId` is threaded through Diya for a future per-project override but is unused in the query today. Adding per-project / agency branding requires: (1) a migration to add `project_id uuid REFERENCES projects(id)` on `brand_kits` (drop or relax the current UNIQUE constraint), (2) a change to Diya's `runBrandConfirm`/`runBrandCheck` to load by `(org_id, project_id)` with org-level fallback. Do NOT add a `project_id` filter to the current query without that migration — it silently returns no kit and flags every creative.
