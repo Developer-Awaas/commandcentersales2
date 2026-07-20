@@ -26,3 +26,9 @@ vite.config.ts.timestamp-*.mjs
 # Benchmark output (generated images, results) — regenerate via
 # `deno run -A benchmark/image-providers.ts`, don't commit run artifacts.
 benchmark/output/
+
+# Local secrets file — never commit, never had git history (verified 2026-07-20)
+_secrets.json
+
+# A/B test scratch artifacts (GPT-Image-1 currency-symbol investigation)
+.ab-test-tmp/
