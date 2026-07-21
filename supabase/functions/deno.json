@@ -3,5 +3,8 @@
     "lib": ["deno.window"],
     "strict": true
   },
-  "nodeModulesDir": "auto"
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@types/node": "npm:@types/node@^20"
+  }
 }
