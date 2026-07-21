@@ -10,10 +10,10 @@
  *   <DhruvInsightCards orgId={orgId} onAskDhruv={(msg) => sendToAarav(msg)} />
  */
 
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, TrendingUp, TrendingDown, Zap, RefreshCw } from 'lucide-react'
 import { buildMetricsContext, type MetricsContext, type MetricAlert } from '../lib/metrics-query'
-import { supabase } from '../lib/supabaseClient'
+import { supabase } from '../lib/supabase'
 
 // ─── Card shape ───────────────────────────────────────────────────────────────
 
