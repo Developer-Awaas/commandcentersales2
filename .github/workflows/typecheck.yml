@@ -43,9 +43,15 @@ jobs:
 
       # supabase/functions/deno.json is picked up automatically (Deno walks up
       # from each file's directory to find the nearest config file).
+      # --lock is explicit, not left to auto-detection: without it, an
+      # unpinned esm.sh/@supabase/supabase-js@2 specifier can resolve to
+      # whatever esm.sh serves that request (observed drifting across
+      # 2.108.2/2.110.7 within the same day) even with deno.lock sitting
+      # right next to deno.json - --lock forces the pinned redirect.
       - name: deno check — all Edge Function entry points
         run: |
           deno check \
+            --lock=supabase/functions/deno.lock \
             supabase/functions/aarav-orchestrate/index.ts \
             supabase/functions/canva-oauth-callback/index.ts \
             supabase/functions/canva-open-editor/index.ts \
@@ -80,6 +86,7 @@ jobs:
       - name: deno test — credential-free unit tests
         run: |
           deno test --allow-env \
+            --lock=supabase/functions/deno.lock \
             supabase/functions/_shared/agents/
 
   ws1-6-isolation:
