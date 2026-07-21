@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Megaphone, RefreshCw } from 'lucide-react';
 import { getOrgId } from '../lib/constants';
 import { supabase } from '../lib/supabase';
@@ -211,6 +211,22 @@ export function Organic() {
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const resultRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    supabase
+      .from('organic_plans')
+      .select('plan_data')
+      .eq('org_id', getOrgId())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        const planData = data?.plan_data as AiOrganicResult | undefined;
+        if (planData && (planData.pillars?.length || planData.weekly?.length)) {
+          setResult({ status: 'ok', data: planData });
+        }
+      });
+  }, []);
+
   async function handleGenerate() {
     setSubmitting(true);
     setResult({ status: 'idle' });
@@ -239,12 +255,6 @@ export function Organic() {
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
 
-      await supabase.from('organic_plans').insert({
-        org_id: getOrgId(),
-        week_start: weekStart.toISOString().split('T')[0],
-        status: 'draft',
-      });
-
       const context = await buildContext();
       const basePrompt = `Generate a weekly organic social media content plan for Instagram and Facebook.
 COMPANY: ${orgName}
@@ -266,7 +276,15 @@ Include all 7 days. Make content specific to the projects above.`;
       } else if (res.raw) {
         setResult({ status: 'raw', text: String(res.raw) });
       } else {
-        setResult({ status: 'ok', data: res as AiOrganicResult });
+        const planResult = res as AiOrganicResult;
+        setResult({ status: 'ok', data: planResult });
+        await supabase.from('organic_plans').insert({
+          org_id: getOrgId(),
+          week_start: weekStart.toISOString().split('T')[0],
+          plan_data: planResult,
+          pillars: planResult.pillars ?? [],
+          status: 'draft',
+        });
         logAiSession(supabase, {
           sessionType: 'organic',
           inputSummary: `Weekly organic plan for ${orgName}`,
