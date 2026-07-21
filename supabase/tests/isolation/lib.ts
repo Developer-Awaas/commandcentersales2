@@ -63,6 +63,16 @@ export async function restPost(ctx: ProbeContext, path: string, jwt: string, bod
   return { status: res.status, body: await res.json() };
 }
 
+/** Calls a deployed Edge Function (not PostgREST) — e.g. aarav-orchestrate. */
+export async function callEdgeFunction(ctx: ProbeContext, name: string, jwt: string, body: Record<string, unknown>): Promise<RestResult> {
+  const res = await fetch(`${ctx.restBase}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { apikey: ctx.anonKey, Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
 export async function restPatch(ctx: ProbeContext, path: string, jwt: string, patch: Record<string, unknown>): Promise<RestResult> {
   const res = await fetch(`${ctx.restBase}/rest/v1/${path}`, {
     method: "PATCH",

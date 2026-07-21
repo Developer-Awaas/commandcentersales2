@@ -52,6 +52,7 @@ USAGE="Usage: REST_BASE=... ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... PROBE_ORG
 ORG_A_NAME="isolation-probe-org-a"
 ORG_B_NAME="isolation-probe-org-b"
 SEED_CHUNK_CONTENT="isolation-probe seed chunk (org B) — do not delete manually, see seed-isolation-probes.sh"
+SEED_TURN_SESSION_ID="isolation-probe-session"
 
 command -v curl >/dev/null 2>&1 || { echo "FAIL: curl is required but not found on PATH" >&2; exit 1; }
 command -v jq   >/dev/null 2>&1 || { echo "FAIL: jq is required but not found on PATH"   >&2; exit 1; }
@@ -191,13 +192,37 @@ EXISTING_COUNT=$(jq -r 'length' "$TMP_BODY")
 if [[ "$EXISTING_COUNT" -gt 0 ]]; then
   pass "org B seed agent_memory_chunks row already exists, skipping insert"
 else
-  CHUNK_BODY=$(jq -nc --arg org "$ORG_B_ID" --arg content "$SEED_CHUNK_CONTENT" '{org_id:$org, scope:"domain", content:$content}')
+  # embedding is deliberately non-null: match_memory_chunks (probe 8) filters
+  # WHERE embedding IS NOT NULL, so a null-embedding row would be silently
+  # skipped regardless of org — making the probe pass for the wrong reason.
+  # Values don't need semantic meaning for an isolation probe, just the
+  # correct vector(1024) dimensionality.
+  CHUNK_BODY=$(jq -nc --arg org "$ORG_B_ID" --arg content "$SEED_CHUNK_CONTENT" \
+    '{org_id:$org, scope:"domain", content:$content, embedding:([range(1024)] | map(0.01))}')
   printf '%s' "$CHUNK_BODY" > "$TMP_REQ"
   CHUNK_STATUS=$(curl -sS -o "$TMP_BODY" -w '%{http_code}' -X POST "${REST_BASE}/rest/v1/agent_memory_chunks" \
     -H "Authorization: Bearer ${JWT_B}" -H "apikey: ${ANON_KEY}" -H "Content-Type: application/json" -H "Prefer: return=representation" \
     --data-binary "@$TMP_REQ")
   [[ "$CHUNK_STATUS" == "201" ]] || fail "insert seed chunk for org B expected HTTP 201, got ${CHUNK_STATUS}: $(cat "$TMP_BODY")"
-  pass "org B seed agent_memory_chunks row created"
+  pass "org B seed agent_memory_chunks row created (with embedding, so match_memory_chunks doesn't skip it)"
+fi
+
+echo "== seeding one agent_turns row for org B (service-role — no authenticated INSERT policy exists on this table) =="
+
+EXISTING_TURN_STATUS=$(http GET "${REST_BASE}/rest/v1/agent_turns?org_id=eq.${ORG_B_ID}&session_id=eq.${SEED_TURN_SESSION_ID}&select=id" "$SUPABASE_SERVICE_ROLE_KEY")
+[[ "$EXISTING_TURN_STATUS" == "200" ]] || fail "lookup seed turn for org B expected HTTP 200, got ${EXISTING_TURN_STATUS}: $(cat "$TMP_BODY")"
+SEED_TURN_ID=$(jq -r '.[0].id // empty' "$TMP_BODY")
+
+if [[ -n "$SEED_TURN_ID" ]]; then
+  pass "org B seed agent_turns row already exists (id=${SEED_TURN_ID}), skipping insert"
+else
+  TURN_BODY=$(jq -nc --arg org "$ORG_B_ID" --arg session "$SEED_TURN_SESSION_ID" \
+    '{org_id:$org, session_id:$session, status:"awaiting_user", canvas:{strategy:{platform:"meta"}}}')
+  TURN_STATUS=$(http POST "${REST_BASE}/rest/v1/agent_turns" "$SUPABASE_SERVICE_ROLE_KEY" "$TURN_BODY")
+  [[ "$TURN_STATUS" == "201" ]] || fail "insert seed turn for org B expected HTTP 201, got ${TURN_STATUS}: $(cat "$TMP_BODY")"
+  SEED_TURN_ID=$(jq -r '.[0].id' "$TMP_BODY")
+  [[ -n "$SEED_TURN_ID" && "$SEED_TURN_ID" != "null" ]] || fail "insert seed turn for org B returned no id: $(cat "$TMP_BODY")"
+  pass "org B seed agent_turns row created (id=${SEED_TURN_ID})"
 fi
 
 echo "== seed-isolation-probes.sh: done =="
@@ -205,3 +230,4 @@ echo "org_a_id=${ORG_A_ID}"
 echo "org_b_id=${ORG_B_ID}"
 echo "probe_org_a_email=${PROBE_ORG_A_EMAIL}"
 echo "probe_org_b_email=${PROBE_ORG_B_EMAIL}"
+echo "seed_turn_id=${SEED_TURN_ID}"

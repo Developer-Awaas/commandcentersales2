@@ -13,9 +13,27 @@
 // Probes 5-6 additionally cover profiles, since agent_memory_chunks's own
 // isolation is meaningless if profiles.org_id itself can be read/tampered
 // cross-org or self-escalated.
+//
+// Probes 1-6 all authenticate via user JWT through PostgREST — they prove
+// RLS holds, but say nothing about the service-role write path in
+// handleApprove/projectApprovedCampaign (aarav-orchestrate), which bypasses
+// RLS by design. Probes 7-8 close that gap (§5.1 Deviation Register item):
+//   7 — service-role tenancy check: handleApprove re-derives org_id from the
+//       caller's verified session (never the request body) and manually
+//       filters agent_turns by it even on the service-role client. Probe 7
+//       calls the live edge function as org A against org B's turn_id and
+//       asserts both the HTTP-level rejection and that org B's turn is
+//       provably untouched afterward.
+//   8 — match_memory_chunks RPC: SECURITY INVOKER (confirmed by grep below,
+//       not just trusted from the migration comment), so RLS applies inside
+//       the function body. Probe 8 seeds an embedded org B chunk (rows with
+//       a NULL embedding are silently skipped by the RPC, which would make
+//       the probe pass for the wrong reason — see seed script) and asserts
+//       org A's call never returns it, regardless of query.
 
-import { assert, assertEquals } from "jsr:@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
+  callEdgeFunction,
   crossOrgDeleteDenied,
   crossOrgReadDenied,
   crossOrgUpdateDenied,
@@ -25,6 +43,7 @@ import {
   type ProbeContext,
   restGet,
   restPatch,
+  restPost,
 } from "./lib.ts";
 
 function mustEnv(name: string): string {
@@ -149,4 +168,106 @@ Deno.test("probe 6: org A probe cannot self-escalate role or org_id via UPDATE",
   const row = (confirm.body as { role: string; org_id: string }[])[0];
   assertEquals(row.role, "member", `PROBE 6a LEAK confirmed on re-read: role is now '${row.role}'`);
   assertEquals(row.org_id, orgAId, `PROBE 6b LEAK confirmed on re-read: org_id is now '${row.org_id}'`);
+});
+
+// ─── Probes 7-8: service-role write path (§5.1 Deviation Register) ──────────
+
+const SEED_TURN_SESSION_ID = "isolation-probe-session";
+// Must match seed-isolation-probes.sh's SEED_CHUNK_CONTENT exactly.
+const SEED_CHUNK_CONTENT = "isolation-probe seed chunk (org B) — do not delete manually, see seed-isolation-probes.sh";
+
+Deno.test("probe 7: org A JWT cannot approve org B's turn via aarav-orchestrate (service-role path)", async () => {
+  // Look up org B's seeded turn via org B's own JWT (org-scoped SELECT policy)
+  // rather than hardcoding an id — keeps the probe correct across reseeds.
+  const turnLookup = await restGet(ctx, `agent_turns?session_id=eq.${SEED_TURN_SESSION_ID}&org_id=eq.${orgBId}&select=id,approved_at,status`, jwtB);
+  assertEquals(turnLookup.status, 200, `setup: org B could not read its own seeded turn: ${JSON.stringify(turnLookup.body)}`);
+  const turnRows = turnLookup.body as { id: string; approved_at: string | null; status: string }[];
+  assert(turnRows.length > 0, "setup: org B has no seeded agent_turns row — run seed-isolation-probes.sh first (needs the agent_turns seeding step)");
+  const targetTurnId = turnRows[0].id;
+  assertEquals(turnRows[0].approved_at, null, "setup: seeded turn is already approved — reseed with a fresh turn before running this probe");
+
+  // The actual attack: org A's real, valid JWT calling the live edge
+  // function with org B's turn_id. There is no org_id/project_id field to
+  // spoof in the request body at all (AgentRequest has none for action
+  // 'approve') — aarav-orchestrate/index.ts's own header comment states
+  // org_id is "NEVER trusted from the request body" and is instead derived
+  // from auth.getUser() + a profiles lookup. This probe verifies that
+  // derivation actually gates the service-role agent_turns query
+  // (handleApprove, aarav-orchestrate/index.ts ~line 758-770), not just that
+  // the client can't pass an org_id parameter that would have been ignored anyway.
+  const approveAttempt = await callEdgeFunction(ctx, "aarav-orchestrate", jwtA, {
+    action: "approve",
+    turn_id: targetTurnId,
+  });
+  assertEquals(
+    approveAttempt.status,
+    404,
+    `PROBE 7 LEAK: org A JWT was able to invoke approve on org B's turn (expected 404 'Turn not found or access denied'): ${JSON.stringify(approveAttempt.body)}`,
+  );
+  assertStringIncludes(
+    JSON.stringify(approveAttempt.body),
+    "not found",
+    `PROBE 7: got 404 but unexpected body shape (checking this isn't a coincidental 404 from a different failure): ${JSON.stringify(approveAttempt.body)}`,
+  );
+
+  // Belt-and-suspenders: don't just trust the HTTP response — re-fetch the
+  // turn via org B's own JWT and confirm nothing actually changed. A bug
+  // that returned 404 while still writing (e.g. an exception after a
+  // partial write) would pass the assertion above but fail this one.
+  const reread = await restGet(ctx, `agent_turns?id=eq.${targetTurnId}&select=approved_at,status`, jwtB);
+  assertEquals(reread.status, 200, `setup: org B could not re-read its own turn: ${JSON.stringify(reread.body)}`);
+  const rerow = (reread.body as { approved_at: string | null; status: string }[])[0];
+  assertEquals(rerow.approved_at, null, `PROBE 7 LEAK confirmed on re-read: org B's turn now has approved_at='${rerow.approved_at}'`);
+  assertEquals(rerow.status, "awaiting_user", `PROBE 7 LEAK confirmed on re-read: org B's turn status changed to '${rerow.status}'`);
+
+  // Also confirm no agent_memory row was created referencing this turn —
+  // the downstream write handleApprove would have made had it not rejected.
+  const memCheck = await restGet(ctx, `agent_memory?turn_id=eq.${targetTurnId}&select=id`, jwtB);
+  assertEquals(memCheck.status, 200, `setup: org B could not query its own agent_memory: ${JSON.stringify(memCheck.body)}`);
+  assertEquals((memCheck.body as unknown[]).length, 0, `PROBE 7 LEAK: an agent_memory row was created for org B's turn despite the approve attempt being denied`);
+});
+
+Deno.test("probe 8: match_memory_chunks RPC never returns org B content to org A, regardless of query", async () => {
+  // Query with org B's exact seed content as query_text — the strongest
+  // possible lexical match (ts_rank component of the hybrid score), so if
+  // RLS/org filtering inside the SECURITY INVOKER function ever regressed,
+  // this is the query most likely to surface the leak.
+  const queryEmbedding = Array.from({ length: 1024 }, () => 0.01);
+  const result = await restPost(ctx, "rpc/match_memory_chunks", jwtA, {
+    query_embedding: queryEmbedding,
+    query_text: SEED_CHUNK_CONTENT,
+    match_count: 50,
+  });
+  assertEquals(result.status, 200, `unexpected status calling match_memory_chunks: ${JSON.stringify(result.body)}`);
+  const rows = result.body as { id: string; content: string }[];
+  const leaked = rows.filter((r) => r.content === SEED_CHUNK_CONTENT);
+  assertEquals(
+    leaked.length,
+    0,
+    `PROBE 8 LEAK: match_memory_chunks returned org B's seed chunk to an org A caller: ${JSON.stringify(leaked)}`,
+  );
+});
+
+Deno.test("probe 8b: match_memory_chunks is SECURITY INVOKER in every migration that defines it (static check)", async () => {
+  // Genuinely static and offline — no network call, no trusting a code
+  // comment. Reads every migration file directly (whatever's checked out
+  // in this run, so it tracks the real repo state, not a cached belief)
+  // and inspects every CREATE [OR REPLACE] FUNCTION match_memory_chunks(...)
+  // block. A later migration silently redefining this function as
+  // SECURITY DEFINER — which would make it run as the function owner and
+  // bypass RLS entirely, the exact failure mode this whole probe exists to
+  // catch — fails this test even if no current migration does that today.
+  const migrationsDir = new URL("../../migrations/", import.meta.url);
+  const defs: string[] = [];
+  for await (const entry of Deno.readDir(migrationsDir)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const text = await Deno.readTextFile(new URL(entry.name, migrationsDir));
+    const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+match_memory_chunks\s*\([\s\S]*?\$\$;/gi;
+    for (const match of text.matchAll(re)) defs.push(match[0]);
+  }
+  assert(defs.length > 0, "setup: no match_memory_chunks function definition found in supabase/migrations/*.sql — did the migration get renamed/moved?");
+  for (const def of defs) {
+    assert(!/SECURITY\s+DEFINER/i.test(def), `PROBE 8b LEAK: found a match_memory_chunks definition using SECURITY DEFINER (bypasses RLS):\n${def}`);
+    assert(/SECURITY\s+INVOKER/i.test(def), `PROBE 8b: a match_memory_chunks definition specifies neither SECURITY INVOKER nor DEFINER (Postgres default is INVOKER, but this should be explicit):\n${def}`);
+  }
 });

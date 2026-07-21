@@ -56,7 +56,7 @@ delete_user_by_email() {
   done
 }
 
-echo "== deleting agent_memory_chunks rows for probe orgs =="
+echo "== deleting agent_memory_chunks / agent_memory / agent_turns rows for probe orgs =="
 for name in "$ORG_A_NAME" "$ORG_B_NAME"; do
   status=$(sr_get "${REST_BASE}/rest/v1/organizations?name=eq.${name}&select=id")
   org_id=$(jq -r '.[0].id // empty' "$TMP_BODY")
@@ -64,6 +64,17 @@ for name in "$ORG_A_NAME" "$ORG_B_NAME"; do
     del_status=$(sr_delete "${REST_BASE}/rest/v1/agent_memory_chunks?org_id=eq.${org_id}")
     rows=$(jq -r 'length // 0' "$TMP_BODY" 2>/dev/null || echo 0)
     info "deleted ${rows} agent_memory_chunks row(s) for ${name} (HTTP ${del_status})"
+
+    # Defensive: agent_memory should never have a row for a probe org (probe 7
+    # asserts handleApprove rejects cross-org turn_id before ever reaching
+    # this insert) — deleted anyway in case a future regression lets one through.
+    del_status=$(sr_delete "${REST_BASE}/rest/v1/agent_memory?org_id=eq.${org_id}")
+    rows=$(jq -r 'length // 0' "$TMP_BODY" 2>/dev/null || echo 0)
+    info "deleted ${rows} agent_memory row(s) for ${name} (HTTP ${del_status})"
+
+    del_status=$(sr_delete "${REST_BASE}/rest/v1/agent_turns?org_id=eq.${org_id}")
+    rows=$(jq -r 'length // 0' "$TMP_BODY" 2>/dev/null || echo 0)
+    info "deleted ${rows} agent_turns row(s) for ${name} (HTTP ${del_status})"
   fi
 done
 
