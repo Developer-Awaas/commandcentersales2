@@ -41,6 +41,7 @@ import { runDhruv, DhruvOutputError, type DhruvIntent } from '../_shared/agents/
 import { buildMetricsContext } from '../_shared/metrics-query.ts'
 import { langfuseTrace, langfuseGeneration, langfuseSpan } from '../_shared/langfuse.ts'
 import { getTierConfig } from '../_shared/tier-config.ts'
+import { assertTurnsPerDayNotExceeded, TurnBudgetExceededError } from '../_shared/review-budget.ts'
 
 // ─── Request/response types (mirror contracts.ts) ────────────────────────────
 
@@ -300,6 +301,23 @@ Deno.serve(async (req: Request) => {
   const dhruvIntent = detectDhruvIntent(message)
   if (dhruvIntent) {
     return await handleDhruvTurn(message, dhruvIntent, ctx)
+  }
+
+  // review-build only: Arjun/Kavya daily turn cap. Checked before either
+  // path starts — Dhruv (read-only, already handled above) and the
+  // regenerate flow (already returned above) are exempt.
+  try {
+    await assertTurnsPerDayNotExceeded(adminClient, orgId)
+  } catch (err) {
+    if (err instanceof TurnBudgetExceededError) {
+      await failTurn(ctx)
+      const fallback = "We've hit today's review budget for campaign/content turns — please try again tomorrow."
+      await persistMessages(ctx, fallback, {}, message || undefined)
+      return new Response(JSON.stringify(
+        buildResponse(turnId, orgId, 'ready', fallback, ctx.delegations, {}, true)
+      ), { headers: corsHeaders() })
+    }
+    throw err
   }
 
   // ── Kavya (content / SMM) turn — detected before campaign flow ───────────
