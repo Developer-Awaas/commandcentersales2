@@ -1536,6 +1536,31 @@ export interface Database {
         Relationships: Rel[]
       }
 
+      review_generation_budget: {
+        Row: {
+          id: number
+          image_count: number
+          estimated_cost_usd: number
+          image_limit: number
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          image_count?: number
+          estimated_cost_usd?: number
+          image_limit?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          image_count?: number
+          estimated_cost_usd?: number
+          image_limit?: number
+          updated_at?: string
+        }
+        Relationships: Rel[]
+      }
+
       ad_metrics: {
         Row: {
           id: string
@@ -1608,6 +1633,10 @@ export interface Database {
       get_current_user_org_id: {
         Args: Record<string, never>
         Returns: string
+      }
+      increment_review_image_budget: {
+        Args: { p_cost_usd: number }
+        Returns: { new_count: number; was_allowed: boolean }[]
       }
     }
     Enums: Record<string, string[]>

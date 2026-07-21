@@ -23,6 +23,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { loadAgentPrompt, loadAanyaCritiquePrompt } from './prompts.ts'
 import { parseJsonObject } from './json-extract.ts'
 import { generateImage } from '../image-provider.ts'
+import { ImageBudgetExceededError } from '../review-budget.ts'
 import type { StrategyConfig } from './arjun.ts'
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
@@ -450,6 +451,13 @@ export async function runAanya(input: RunAanyaInput): Promise<RunAanyaResult> {
             // subsequent angles aren't penalised for this angle's failed gen.
             if (!(err instanceof BudgetCapError)) {
               budget.reconcile(CONSERVATIVE_IMAGE_RESERVE_USD, 0)
+            }
+            // review-build's global image cap (300/deployment) is a separate,
+            // cross-invocation budget from this per-interaction BudgetTracker.
+            // Re-throw it as BudgetCapError so _runAnglePipeline's existing
+            // graceful best-of-current fallback handles it unchanged.
+            if (err instanceof ImageBudgetExceededError) {
+              throw new BudgetCapError()
             }
             throw err
           }

@@ -22,6 +22,8 @@
  */
 
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
+import { OPENAI_IMAGE_COST_USD } from '../_shared/image-provider.ts'
+import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
 
@@ -54,6 +56,23 @@ Deno.serve(async (req: Request) => {
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
 
   const safePrompt = prompt.slice(0, 4000)
+
+  // review-build only: server-enforced global image cap, reserved BEFORE
+  // the paid OpenAI call — never bill-then-reject. This function doesn't
+  // route through image-provider.ts's generateImage() (a pre-existing
+  // inconsistency, out of scope here), so the same check is duplicated
+  // at this second entry point rather than left uncovered.
+  try {
+    await reserveImageBudget(OPENAI_IMAGE_COST_USD[quality])
+  } catch (err) {
+    if (err instanceof ImageBudgetExceededError) {
+      return new Response(
+        JSON.stringify({ error: 'review budget reached' }),
+        { status: 429, headers: corsHeaders() }
+      )
+    }
+    throw err
+  }
 
   const traceId = `generate-image-${crypto.randomUUID()}`
   await langfuseTrace(traceId, {

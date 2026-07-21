@@ -28,6 +28,7 @@
  */
 
 import { langfuseTrace, langfuseGeneration } from './langfuse.ts'
+import { reserveImageBudget } from './review-budget.ts'
 
 export type ImageProvider = 'openai' | 'gemini'
 
@@ -102,7 +103,7 @@ async function withRetry<T>(
 // for cost-tracking purposes (provider benchmarking per the spec amendment),
 // not an invoicing-grade figure. Re-verify against OpenAI's pricing page
 // before relying on this for real billing.
-const OPENAI_IMAGE_COST_USD: Record<ImageQuality, number> = {
+export const OPENAI_IMAGE_COST_USD: Record<ImageQuality, number> = {
   low: 0.011,
   medium: 0.042,
   high: 0.167,
@@ -230,6 +231,15 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
   }
 
   const observationName = input.observationName ?? `${provider}-image-gen`
+
+  // review-build only: server-enforced global image cap. Reserved BEFORE
+  // the paid provider call — never bill-then-reject. Estimated cost is
+  // the same per-quality figure used for cost-tracking below, so the
+  // budget's running total and the per-call costMeta stay consistent.
+  const estimatedCostUsd = provider === 'openai'
+    ? OPENAI_IMAGE_COST_USD[input.quality ?? 'medium']
+    : GEMINI_IMAGE_COST_USD
+  await reserveImageBudget(estimatedCostUsd)
 
   try {
     const result = provider === 'openai'
