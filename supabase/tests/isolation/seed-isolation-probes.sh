@@ -57,19 +57,28 @@ command -v curl >/dev/null 2>&1 || { echo "FAIL: curl is required but not found 
 command -v jq   >/dev/null 2>&1 || { echo "FAIL: jq is required but not found on PATH"   >&2; exit 1; }
 
 TMP_BODY="$(mktemp)"
-trap 'rm -f "$TMP_BODY"' EXIT
+TMP_REQ="$(mktemp)"
+trap 'rm -f "$TMP_BODY" "$TMP_REQ"' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "PASS: $1"; }
 info() { echo "INFO: $1" >&2; }
 
+# Request bodies are always written to a file and sent via --data-binary
+# @file, never inline as a curl -d "$var" argument. On Windows Git Bash,
+# passing a JSON string containing multi-byte UTF-8 (e.g. an em-dash)
+# through argv corrupts the bytes silently — PostgREST then rejects the
+# mangled body with a generic "Empty or invalid json" (PGRST102). Writing
+# to a file with printf and reading it back with --data-binary is
+# byte-exact regardless of platform/locale.
 http() {
   local method="$1" url="$2" token="$3" body="${4:-}"
   shift $(( $# >= 4 ? 4 : 3 ))
   if [[ -n "$body" ]]; then
+    printf '%s' "$body" > "$TMP_REQ"
     curl -sS -o "$TMP_BODY" -w '%{http_code}' -X "$method" "$url" \
       -H "Authorization: Bearer $token" -H "apikey: $token" -H "Content-Type: application/json" \
-      -H "Prefer: return=representation" "$@" -d "$body"
+      -H "Prefer: return=representation" "$@" --data-binary "@$TMP_REQ"
   else
     curl -sS -o "$TMP_BODY" -w '%{http_code}' -X "$method" "$url" \
       -H "Authorization: Bearer $token" -H "apikey: $token" "$@"
@@ -78,9 +87,10 @@ http() {
 
 mint_password_jwt() {
   local email="$1" password="$2" body status
-  body=$(jq -n --arg email "$email" --arg pw "$password" '{email:$email, password:$pw}')
+  body=$(jq -nc --arg email "$email" --arg pw "$password" '{email:$email, password:$pw}')
+  printf '%s' "$body" > "$TMP_REQ"
   status=$(curl -sS -o "$TMP_BODY" -w '%{http_code}' -X POST "${REST_BASE}/auth/v1/token?grant_type=password" \
-    -H "apikey: ${ANON_KEY}" -H "Content-Type: application/json" -d "$body")
+    -H "apikey: ${ANON_KEY}" -H "Content-Type: application/json" --data-binary "@$TMP_REQ")
   [[ "$status" == "200" ]] || fail "password-grant sign-in for ${email} expected HTTP 200, got ${status}: $(cat "$TMP_BODY")"
   jq -r '.access_token' "$TMP_BODY"
 }
@@ -97,7 +107,7 @@ ensure_org() {
     return 0
   fi
   local body
-  body=$(jq -n --arg name "$name" '{name:$name}')
+  body=$(jq -nc --arg name "$name" '{name:$name}')
   status=$(http POST "${REST_BASE}/rest/v1/organizations" "$SUPABASE_SERVICE_ROLE_KEY" "$body")
   [[ "$status" == "201" ]] || fail "create org '${name}' expected HTTP 201, got ${status}: $(cat "$TMP_BODY")"
   org_id=$(jq -r '.[0].id' "$TMP_BODY")
@@ -128,7 +138,7 @@ find_user_by_email() {
 
 ensure_probe_user() {
   local email="$1" password="$2" status user_id body
-  body=$(jq -n --arg email "$email" --arg pw "$password" '{email:$email, password:$pw, email_confirm:true}')
+  body=$(jq -nc --arg email "$email" --arg pw "$password" '{email:$email, password:$pw, email_confirm:true}')
   status=$(http POST "${REST_BASE}/auth/v1/admin/users" "$SUPABASE_SERVICE_ROLE_KEY" "$body")
   if [[ "$status" == "200" || "$status" == "201" ]]; then
     user_id=$(jq -r '.id' "$TMP_BODY")
@@ -138,10 +148,11 @@ ensure_probe_user() {
   fi
   user_id="$(find_user_by_email "$email")" || fail "create ${email} failed (HTTP ${status}: $(cat "$TMP_BODY")) and no existing user found"
   local patch_body patch_status
-  patch_body=$(jq -n --arg pw "$password" '{password:$pw, email_confirm:true}')
+  patch_body=$(jq -nc --arg pw "$password" '{password:$pw, email_confirm:true}')
+  printf '%s' "$patch_body" > "$TMP_REQ"
   patch_status=$(curl -sS -o "$TMP_BODY" -w '%{http_code}' -X PUT "${REST_BASE}/auth/v1/admin/users/${user_id}" \
     -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-    -H "Content-Type: application/json" -d "$patch_body")
+    -H "Content-Type: application/json" --data-binary "@$TMP_REQ")
   [[ "$patch_status" == "200" ]] || fail "reassert password for ${email} (${user_id}) expected HTTP 200, got ${patch_status}: $(cat "$TMP_BODY")"
   info "probe user ${email} already existed (user_id=${user_id}); password/confirmation reasserted"
   printf '%s' "$user_id"
@@ -156,7 +167,7 @@ echo "== assigning profiles.org_id (service-role UPDATE — bypasses the self-es
 
 assign_org() {
   local user_id="$1" org_id="$2" status body
-  body=$(jq -n --arg org "$org_id" '{org_id:$org, role:"member"}')
+  body=$(jq -nc --arg org "$org_id" '{org_id:$org, role:"member"}')
   status=$(http PATCH "${REST_BASE}/rest/v1/profiles?id=eq.${user_id}" "$SUPABASE_SERVICE_ROLE_KEY" "$body")
   [[ "$status" == "200" ]] || fail "assign org_id for user ${user_id} expected HTTP 200, got ${status}: $(cat "$TMP_BODY")"
   local rows; rows=$(jq -r 'length' "$TMP_BODY")
@@ -180,10 +191,11 @@ EXISTING_COUNT=$(jq -r 'length' "$TMP_BODY")
 if [[ "$EXISTING_COUNT" -gt 0 ]]; then
   pass "org B seed agent_memory_chunks row already exists, skipping insert"
 else
-  CHUNK_BODY=$(jq -n --arg org "$ORG_B_ID" --arg content "$SEED_CHUNK_CONTENT" '{org_id:$org, scope:"domain", content:$content}')
+  CHUNK_BODY=$(jq -nc --arg org "$ORG_B_ID" --arg content "$SEED_CHUNK_CONTENT" '{org_id:$org, scope:"domain", content:$content}')
+  printf '%s' "$CHUNK_BODY" > "$TMP_REQ"
   CHUNK_STATUS=$(curl -sS -o "$TMP_BODY" -w '%{http_code}' -X POST "${REST_BASE}/rest/v1/agent_memory_chunks" \
     -H "Authorization: Bearer ${JWT_B}" -H "apikey: ${ANON_KEY}" -H "Content-Type: application/json" -H "Prefer: return=representation" \
-    -d "$CHUNK_BODY")
+    --data-binary "@$TMP_REQ")
   [[ "$CHUNK_STATUS" == "201" ]] || fail "insert seed chunk for org B expected HTTP 201, got ${CHUNK_STATUS}: $(cat "$TMP_BODY")"
   pass "org B seed agent_memory_chunks row created"
 fi
