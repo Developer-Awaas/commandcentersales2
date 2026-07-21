@@ -103,7 +103,11 @@ export async function runKavya(input: RunKavyaInput): Promise<RunKavyaResult> {
 
   const { text: systemPrompt, version } = loadAgentPrompt('kavya')
   const model     = input.intent === 'plan' ? KAVYA_PLAN_MODEL : KAVYA_CAPTION_MODEL
-  const maxTokens = input.intent === 'plan' ? 4096 : 1024
+  // 'plan' generates a 30-entry structured JSON calendar — 4096 truncated it
+  // mid-object every time (confirmed live: output_tokens always hit the cap,
+  // then parseJsonObject threw on the unterminated JSON, after the call was
+  // already billed). 16000 gives real headroom.
+  const maxTokens = input.intent === 'plan' ? 16000 : 1024
 
   const userPrompt = [
     `Intent: ${input.intent}`,
@@ -138,6 +142,17 @@ export async function runKavya(input: RunKavyaInput): Promise<RunKavyaResult> {
     .filter((b: { type: string }) => b.type === 'text')
     .map((b: { text: string }) => b.text)
     .join('')
+
+  // Catch truncation BEFORE attempting to parse — a max_tokens cutoff always
+  // produces unterminated JSON, so parseJsonObject would throw anyway, but
+  // this gives a clear, specific, retriable error instead of a generic
+  // "unterminated JSON object" parse failure.
+  if (data?.stop_reason === 'max_tokens') {
+    throw new KavyaOutputError(
+      'plan too large, regenerating',
+      { inputTokens, outputTokens },
+    )
+  }
 
   let output: KavyaPlan | KavyaCaption | KavyaReelScript
   try {

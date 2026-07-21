@@ -582,7 +582,9 @@ async function handleKavyaTurn(
       })
     }
 
-    const fallback = "I hit a snag with that content request. Want to try rephrasing it, or ask for something more specific?"
+    const fallback = err instanceof KavyaOutputError && err.message === 'plan too large, regenerating'
+      ? "That calendar came out too large to finish — hit Regenerate and I'll take another pass."
+      : "I hit a snag with that content request. Want to try rephrasing it, or ask for something more specific?"
     const canvas = {}
     await persistMessages(ctx, fallback, canvas, message || undefined)
     return new Response(JSON.stringify(
