@@ -238,7 +238,7 @@ export function Strategy() {
     if (changed.length === 0) return;
 
     // Build updated configs array
-    const updatedConfigs = (autoCreateConfigFromProject({ ...fullProject, is_active: true, created_at: '', updated_at: '', id: fullProject.id, org_id: null, code: null, per_sqft_rate: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null })).map((cfg) => {
+    const updatedConfigs = (autoCreateConfigFromProject({ ...fullProject, is_active: true, created_at: '', updated_at: '', id: fullProject.id, org_id: null, code: null, per_sqft_rate: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null, meta_ad_account_id: null })).map((cfg) => {
       const match = changed.find((sc) => sc.config.type === cfg.type);
       return match ? { ...cfg, price_lacs: match.currentPrice } : cfg;
     });
