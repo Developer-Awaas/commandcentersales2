@@ -76,8 +76,60 @@ jobs:
 
       # Discovers *_test.ts and *.test.ts in the agents directory.
       # Tests requiring live credentials are auto-skipped via ignore:true or
-      # ignore: !SMOKE_ENV_VAR. No secrets are configured in CI.
+      # ignore: !SMOKE_ENV_VAR. No secrets are configured for THIS job.
       - name: deno test — credential-free unit tests
         run: |
           deno test --allow-env \
             supabase/functions/_shared/agents/
+
+  ws1-6-isolation:
+    name: WS1.6 isolation harness (agent_memory_chunks)
+    runs-on: ubuntu-latest
+    # Secrets are scoped to THIS job only via job-level env — never promoted
+    # to workflow-level env, so client-unit-tests/build/edge-typecheck/
+    # edge-unit-tests above never see SUPABASE_SERVICE_ROLE_KEY. Runs
+    # against the only Supabase project this repo has (CommandCentre_Prod —
+    # there is no separate TEST project); every row seeded is identifiably
+    # prefixed and removed by the cleanup step below regardless of outcome.
+    #
+    # Requires these repo secrets (Settings -> Secrets and variables ->
+    # Actions) — none exist yet as of this job being added:
+    #   REST_BASE, ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+    #   PROBE_ORG_A_EMAIL, PROBE_ORG_A_PASSWORD,
+    #   PROBE_ORG_B_EMAIL, PROBE_ORG_B_PASSWORD
+    # Until they're set, every step below fails fast on `mustEnv`/`:?not set`
+    # — a clear, unambiguous failure, not a silent skip.
+    #
+    # Probe 7 will fail even once secrets exist: it depends on
+    # aarav-orchestrate actually implementing the Phase 5 approve dispatch,
+    # which is not currently confirmed deployed (see CLAUDE.md "Phase 5").
+    # That's accurate signal, not a broken job — do not silence it with
+    # continue-on-error.
+    env:
+      REST_BASE: ${{ secrets.REST_BASE }}
+      ANON_KEY: ${{ secrets.ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      PROBE_ORG_A_EMAIL: ${{ secrets.PROBE_ORG_A_EMAIL }}
+      PROBE_ORG_A_PASSWORD: ${{ secrets.PROBE_ORG_A_PASSWORD }}
+      PROBE_ORG_B_EMAIL: ${{ secrets.PROBE_ORG_B_EMAIL }}
+      PROBE_ORG_B_PASSWORD: ${{ secrets.PROBE_ORG_B_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: seed isolation probes (idempotent — safe on repeat CI runs)
+        run: bash supabase/tests/isolation/seed-isolation-probes.sh
+
+      - name: run isolation probe suite (fail-closed)
+        run: |
+          deno test --allow-net --allow-env --allow-read \
+            supabase/tests/isolation/isolation_test.ts
+
+      # Always runs, even if the probe suite above failed, so a failing
+      # probe never leaves seeded orgs/users/rows behind in prod.
+      - name: cleanup isolation probes
+        if: always()
+        run: bash supabase/tests/isolation/cleanup-isolation-probes.sh
