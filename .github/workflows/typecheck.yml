@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.deno
-          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts') }}
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts', 'supabase/functions/deno.json', 'supabase/functions/deno.lock') }}
           restore-keys: deno-${{ runner.os }}-
 
       # supabase/functions/deno.json is picked up automatically (Deno walks up
@@ -71,7 +71,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.deno
-          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts') }}
+          key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts', 'supabase/functions/deno.json', 'supabase/functions/deno.lock') }}
           restore-keys: deno-${{ runner.os }}-
 
       # Discovers *_test.ts and *.test.ts in the agents directory.
