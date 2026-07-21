@@ -12,6 +12,7 @@
  * Errors per-org are swallowed so one org can't block the rest.
  */
 
+import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { buildMetricsContext } from '../_shared/metrics-query.ts'
 

@@ -1,3 +1,4 @@
+import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 

@@ -1,3 +1,5 @@
+import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
 const CORS_HEADERS = {

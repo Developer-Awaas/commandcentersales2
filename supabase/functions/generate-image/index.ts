@@ -21,6 +21,7 @@
  * only the prompt, size/quality params, and success/failure.
  */
 
+import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
 import { OPENAI_IMAGE_COST_USD } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'

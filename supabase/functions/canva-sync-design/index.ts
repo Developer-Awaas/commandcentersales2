@@ -17,6 +17,7 @@
  *   GET  /v1/exports/{exportId}  → { job: { status, urls } }
  */
 
+import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database, Json } from '../_shared/database.types.ts'
 import { analyzeCreativeVision, diffVisionAnalyses } from '../_shared/vision-analysis.ts'
