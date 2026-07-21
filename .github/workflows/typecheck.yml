@@ -114,7 +114,10 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::DENO_DIR contents"
-          DENO_DIR_PATH="$(deno info 2>/dev/null | grep 'DENO_DIR location' | sed 's/.*: //')"
+          # Strip ANSI color codes — the raw grep|sed previously captured
+          # them and every downstream ls/find silently no-op'd on a garbage
+          # path (visible as "No such file or directory" in the prior run).
+          DENO_DIR_PATH="$(deno info 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep 'DENO_DIR location' | sed 's/.*: //')"
           echo "resolved DENO_DIR: $DENO_DIR_PATH"
           ls -la "$DENO_DIR_PATH" 2>&1 || true
           echo "--- npm subfolder ---"
@@ -128,20 +131,41 @@ jobs:
           find . -maxdepth 8 -ipath "*node_modules*types*node*" 2>&1 || true
           echo "::endgroup::"
 
+          # H1 (symlink integrity) — free rider, settles this regardless of
+          # whether the H2 CWD fix below turns out to be the real cause.
+          echo "::group::@types/node symlink resolution (H1)"
+          ls -la supabase/functions/node_modules/@types/ 2>&1 || true
+          readlink -f supabase/functions/node_modules/@types/node 2>&1 || true
+          ls -la "$(readlink -f supabase/functions/node_modules/@types/node 2>/dev/null)" 2>&1 || true
+          echo "::endgroup::"
+
           echo "::group::deno.lock identity"
           sha256sum supabase/functions/deno.lock
-          echo "last commit touching deno.lock:"
+          echo "last commit touching deno.lock (note: fetch-depth:1 checkout means this can only ever show HEAD):"
           git log -1 --format=%H -- supabase/functions/deno.lock
           echo "::endgroup::"
 
       # Discovers *_test.ts and *.test.ts in the agents directory.
       # Tests requiring live credentials are auto-skipped via ignore:true or
       # ignore: !SMOKE_ENV_VAR. No secrets are configured for THIS job.
+      #
+      # H2 fix (2026-07-21): run from the SAME working directory deno
+      # install populated (supabase/functions), targeting a relative path,
+      # instead of invoking from repo root against an absolute-from-root
+      # path. deno check (which never fails) always targets files directly
+      # inside supabase/functions/, walking up from each file's own
+      # directory to find deno.json/deno.lock. deno test's prior invocation
+      # targeted a directory one level removed from where deno install (its
+      # own working-directory: supabase/functions) actually populated
+      # node_modules — the working hypothesis is deno test's config/
+      # node_modules discovery for a directory target didn't resolve
+      # against the same tree deno install populated, on this Linux runner.
       - name: deno test — credential-free unit tests
         run: |
           deno test --allow-env \
-            --lock=supabase/functions/deno.lock \
-            supabase/functions/_shared/agents/
+            --lock=deno.lock \
+            _shared/agents/
+        working-directory: supabase/functions
 
   ws1-6-isolation:
     name: WS1.6 isolation harness (agent_memory_chunks)
