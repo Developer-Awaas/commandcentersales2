@@ -1536,6 +1536,80 @@ export interface Database {
         Relationships: Rel[]
       }
 
+      creative_asset_versions: {
+        Row: {
+          id: string
+          creative_id: string
+          org_id: string
+          image_url: string
+          storage_path: string
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          creative_id: string
+          org_id: string
+          image_url: string
+          storage_path: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          creative_id?: string
+          org_id?: string
+          image_url?: string
+          storage_path?: string
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: Rel[]
+      }
+
+      canva_edit_sessions: {
+        Row: {
+          id: string
+          creative_id: string
+          org_id: string
+          user_id: string | null
+          correlation_id: string
+          version_before_id: string | null
+          version_after_id: string | null
+          opened_at: string
+          exported_at: string | null
+          edit_summary: Json | null
+          status: 'opened' | 'exported' | 'abandoned'
+        }
+        Insert: {
+          id?: string
+          creative_id: string
+          org_id: string
+          user_id?: string | null
+          correlation_id?: string
+          version_before_id?: string | null
+          version_after_id?: string | null
+          opened_at?: string
+          exported_at?: string | null
+          edit_summary?: Json | null
+          status?: 'opened' | 'exported' | 'abandoned'
+        }
+        Update: {
+          id?: string
+          creative_id?: string
+          org_id?: string
+          user_id?: string | null
+          correlation_id?: string
+          version_before_id?: string | null
+          version_after_id?: string | null
+          opened_at?: string
+          exported_at?: string | null
+          edit_summary?: Json | null
+          status?: 'opened' | 'exported' | 'abandoned'
+        }
+        Relationships: Rel[]
+      }
+
       review_generation_budget: {
         Row: {
           id: number

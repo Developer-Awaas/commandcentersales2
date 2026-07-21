@@ -57,6 +57,35 @@ Deno.serve(async (req) => {
     )
   }
 
+  // Versioned edit-tracking: snapshot the CURRENT image as "version before"
+  // — no byte copy needed, since canva-sync-design now writes exports to a
+  // brand-new storage path rather than overwriting this one, so whatever
+  // path is current right now stays immutable going forward.
+  const { data: versionBefore, error: versionErr } = await supabase
+    .from('creative_asset_versions')
+    .insert({
+      creative_id: creativeAssetId,
+      org_id: asset.org_id,
+      image_url: asset.image_url,
+      storage_path: asset.storage_path,
+      created_by: userId,
+    })
+    .select('id').single()
+  if (versionErr || !versionBefore) {
+    return new Response(
+      JSON.stringify({ error: `Failed to snapshot pre-edit version: ${versionErr?.message ?? 'unknown error'}` }),
+      { status: 500, headers: corsHeaders() }
+    )
+  }
+
+  await supabase.from('canva_edit_sessions').insert({
+    creative_id: creativeAssetId,
+    org_id: asset.org_id,
+    user_id: userId,
+    version_before_id: versionBefore.id,
+    status: 'opened',
+  })
+
   try {
     // Step 1: Upload image via URL import
     const uploadRes = await fetch(`${CANVA_API_BASE}/asset-uploads`, {

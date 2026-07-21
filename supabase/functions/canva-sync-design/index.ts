@@ -3,8 +3,14 @@
  *
  * Called after the user finishes editing a design in the Canva external editor.
  * Exports the design via the Canva Connect API, downloads the resulting PNG,
- * overwrites the original file in Supabase Storage (zero extra storage cost),
- * and updates the creative_assets row.
+ * and writes it as a NEW versioned Storage path — the original is never
+ * overwritten (see creative_asset_versions, migration
+ * 20260721190000_canva_versioned_edit_tracking.sql; this used to be
+ * `upsert: true` onto the same storage_path, destroying the pre-edit image
+ * with no trace, not even in the DB).
+ *
+ * Closes the canva_edit_sessions row opened by canva-open-editor, recording
+ * the new version and a structured before/after vision-analysis diff.
  *
  * Canva export API reference:
  *   POST /v1/exports  { design_id, format: { type: 'png' } }
@@ -12,7 +18,8 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import type { Database } from '../_shared/database.types.ts'
+import type { Database, Json } from '../_shared/database.types.ts'
+import { analyzeCreativeVision, diffVisionAnalyses } from '../_shared/vision-analysis.ts'
 
 const CANVA_API_BASE = 'https://api.canva.com/rest/v1'
 
@@ -104,29 +111,78 @@ Deno.serve(async (req) => {
     if (!imageRes.ok) throw new Error(`Failed to download exported image (${imageRes.status})`)
     const imageBuffer = await imageRes.arrayBuffer()
 
-    // Step 4: Overwrite original file in Supabase Storage (no new file = no extra storage)
+    // Step 4: Write the export as a NEW versioned path — never overwrite the
+    // original (or whatever the current path is, on a second+ edit round).
     if (!asset.storage_path) {
-      throw new Error('Asset has no storage path — cannot overwrite in place. Download from Canva manually.')
+      throw new Error('Asset has no storage path — cannot version. Download from Canva manually.')
     }
-    const storagePath = asset.storage_path as string
+    const previousStoragePath = asset.storage_path as string
+    const previousImageUrl = asset.image_url as string
     // Infer bucket from path prefix set by uploadGeminiImageToSupabase
-    const bucket = storagePath.startsWith('generated-creatives/') ? 'brand-assets' : 'creative-assets'
+    const bucket = previousStoragePath.startsWith('generated-creatives/') ? 'brand-assets' : 'creative-assets'
+    const versionedPath = `versions/${creativeAssetId}/${Date.now()}.png`
 
     const { error: uploadErr } = await supabase.storage
       .from(bucket)
-      .upload(storagePath, imageBuffer, { contentType: 'image/png', upsert: true })
+      .upload(versionedPath, imageBuffer, { contentType: 'image/png', upsert: true })
     if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`)
 
-    const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+    const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(versionedPath)
     const imageUrl = urlData.publicUrl
 
-    // Step 5: Update DB — overwrite image_url so downstream tools see the latest version
+    // Step 5: Record the new version, update creative_assets to point at it.
+    const { data: versionAfter, error: versionErr } = await supabase
+      .from('creative_asset_versions')
+      .insert({
+        creative_id: creativeAssetId,
+        org_id: asset.org_id,
+        image_url: imageUrl,
+        storage_path: versionedPath,
+        created_by: userId,
+      })
+      .select('id').single()
+    if (versionErr || !versionAfter) throw new Error(`Failed to record new version: ${versionErr?.message ?? 'unknown error'}`)
+
     await supabase.from('creative_assets').update({
       image_url: imageUrl,
+      storage_path: versionedPath,
       editor_used: 'canva',
       status: 'edited',
       updated_at: new Date().toISOString(),
     }).eq('id', creativeAssetId)
+
+    // Step 6: Close the session opened by canva-open-editor and record a
+    // structured before/after edit summary. Best-effort — a vision-analysis
+    // or session-lookup failure must never fail the sync itself; the image
+    // is already safely versioned by this point.
+    try {
+      const { data: session } = await supabase
+        .from('canva_edit_sessions')
+        .select('id, version_before_id')
+        .eq('creative_id', creativeAssetId)
+        .eq('status', 'opened')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (session) {
+        const traceId = `canva-edit-${session.id}`
+        const [beforeAnalysis, afterAnalysis] = await Promise.all([
+          analyzeCreativeVision(previousImageUrl, traceId),
+          analyzeCreativeVision(imageUrl, traceId),
+        ])
+        const editSummary = diffVisionAnalyses(beforeAnalysis, afterAnalysis)
+
+        await supabase.from('canva_edit_sessions').update({
+          version_after_id: versionAfter.id,
+          exported_at: new Date().toISOString(),
+          edit_summary: editSummary as unknown as Json,
+          status: 'exported',
+        }).eq('id', session.id)
+      }
+    } catch (sessionErr) {
+      console.error('canva_edit_sessions close/vision-analysis failed (non-fatal):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
+    }
 
     return new Response(JSON.stringify({ imageUrl }), { headers: corsHeaders() })
   } catch (err: unknown) {
