@@ -41,6 +41,16 @@ jobs:
           key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts', 'supabase/functions/deno.json', 'supabase/functions/deno.lock') }}
           restore-keys: deno-${{ runner.os }}-
 
+      # Explicit deno install, not left to nodeModulesDir:auto lazy
+      # trigger during check/test - that lazy path reproducibly failed on
+      # Linux CI (Could not find a matching package for npm:@types/node)
+      # while never reproducing locally under any invocation tried. A
+      # dedicated install step removes the ambiguity about when/whether
+      # auto-install actually fires.
+      - name: deno install
+        run: deno install --lock=supabase/functions/deno.lock
+        working-directory: supabase/functions
+
       # supabase/functions/deno.json is picked up automatically (Deno walks up
       # from each file's directory to find the nearest config file).
       # --lock is explicit, not left to auto-detection: without it, an
@@ -79,6 +89,10 @@ jobs:
           path: ~/.deno
           key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts', 'supabase/functions/deno.json', 'supabase/functions/deno.lock') }}
           restore-keys: deno-${{ runner.os }}-
+
+      - name: deno install
+        run: deno install --lock=supabase/functions/deno.lock
+        working-directory: supabase/functions
 
       # Discovers *_test.ts and *.test.ts in the agents directory.
       # Tests requiring live credentials are auto-skipped via ignore:true or
