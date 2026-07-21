@@ -84,6 +84,7 @@ jobs:
           deno-version: v2.x
 
       - name: Cache Deno modules
+        id: deno-cache
         uses: actions/cache@v4
         with:
           path: ~/.deno
@@ -93,6 +94,45 @@ jobs:
       - name: deno install
         run: deno install --lock=supabase/functions/deno.lock
         working-directory: supabase/functions
+
+      # TEMPORARY — remove once the npm:@types/node CI-only failure is
+      # actually root-caused. Prints real evidence instead of guessing.
+      - name: DIAGNOSTIC (temporary)
+        run: |
+          echo "::group::deno --version"
+          deno --version
+          echo "::endgroup::"
+
+          echo "::group::deno info"
+          deno info
+          echo "::endgroup::"
+
+          echo "::group::cache step result"
+          echo "cache-hit=${{ steps.deno-cache.outputs.cache-hit }}"
+          echo "primary-key=${{ steps.deno-cache.outputs.cache-primary-key }}"
+          echo "matched-key=${{ steps.deno-cache.outputs.cache-matched-key }}"
+          echo "::endgroup::"
+
+          echo "::group::DENO_DIR contents"
+          DENO_DIR_PATH="$(deno info 2>/dev/null | grep 'DENO_DIR location' | sed 's/.*: //')"
+          echo "resolved DENO_DIR: $DENO_DIR_PATH"
+          ls -la "$DENO_DIR_PATH" 2>&1 || true
+          echo "--- npm subfolder ---"
+          ls -la "$DENO_DIR_PATH/npm" 2>&1 || true
+          echo "--- @types/node anywhere under DENO_DIR ---"
+          find "$DENO_DIR_PATH" -maxdepth 6 -iname "*types*node*" 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::node_modules (if any exist)"
+          find . -maxdepth 4 -type d -name node_modules -exec ls -la {} \; 2>&1
+          find . -maxdepth 8 -ipath "*node_modules*types*node*" 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::deno.lock identity"
+          sha256sum supabase/functions/deno.lock
+          echo "last commit touching deno.lock:"
+          git log -1 --format=%H -- supabase/functions/deno.lock
+          echo "::endgroup::"
 
       # Discovers *_test.ts and *.test.ts in the agents directory.
       # Tests requiring live credentials are auto-skipped via ignore:true or
