@@ -75,6 +75,10 @@ for name in "$ORG_A_NAME" "$ORG_B_NAME"; do
     del_status=$(sr_delete "${REST_BASE}/rest/v1/agent_turns?org_id=eq.${org_id}")
     rows=$(jq -r 'length // 0' "$TMP_BODY" 2>/dev/null || echo 0)
     info "deleted ${rows} agent_turns row(s) for ${name} (HTTP ${del_status})"
+
+    del_status=$(sr_delete "${REST_BASE}/rest/v1/org_integrations?org_id=eq.${org_id}")
+    rows=$(jq -r 'length // 0' "$TMP_BODY" 2>/dev/null || echo 0)
+    info "deleted ${rows} org_integrations row(s) for ${name} (HTTP ${del_status})"
   fi
 done
 
