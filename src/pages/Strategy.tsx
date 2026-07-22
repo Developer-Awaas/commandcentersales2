@@ -8,7 +8,7 @@ import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
-import { buildQuickGenerateBrief } from '../lib/senior-designer-prompts';
+import { buildQuickGenerateBrief, runTwoStageQuickGenerate } from '../lib/senior-designer-prompts';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
 import { StrategyResultPanel } from './strategy/StrategyResult';
@@ -304,7 +304,9 @@ export function Strategy() {
             )
           : quickInputs.quickRefs;
 
-        const { systemPrompt, userPrompt } = await buildQuickGenerateBrief({
+        console.log('🎨 [AANYA] Starting two-stage generation (concept+copy, then 3 parallel layout prompts)...');
+
+        const rawResponse = await runTwoStageQuickGenerate({
           user_brief: quickInputs.prompt,
           project_id: quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined,
           project_data:
@@ -325,26 +327,7 @@ export function Strategy() {
           languages: quickInputs.languages,
           quick_references: enrichedRefs,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
-        });
-
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🎨 AANYA DIAGNOSTIC — STARTING GENERATION');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🎨 SYSTEM PROMPT (full):');
-        console.log(systemPrompt);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🎨 USER PROMPT (full):');
-        console.log(userPrompt);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🎨 BRAND KIT CHECK:');
-        console.log('  - User prompt contains #1A3A5C (navy):', userPrompt.includes('#1A3A5C'));
-        console.log('  - User prompt contains #C9A961 (gold):', userPrompt.includes('#C9A961'));
-        console.log('  - User prompt contains #D4A574 (bronze):', userPrompt.includes('#D4A574'));
-        console.log('  - User prompt contains "INVIOLABLE":', userPrompt.includes('INVIOLABLE') || systemPrompt.includes('INVIOLABLE'));
-        console.log('  - User prompt contains "SECTION 1: SCENE NARRATIVE":', userPrompt.includes('SECTION 1: SCENE NARRATIVE'));
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-        const rawResponse = await aiCall(userPrompt, systemPrompt, 16000, { traceName: 'strategy-quick-generate' });
+        }, { traceNamePrefix: 'strategy-quick-generate' });
 
         console.log('🎨 [DIAGNOSTIC] AI raw response type:', typeof rawResponse);
         console.log('🎨 [DIAGNOSTIC] AI response keys:', Object.keys(rawResponse));

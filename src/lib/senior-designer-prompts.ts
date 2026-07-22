@@ -7,6 +7,7 @@
 
 import { supabase } from './supabase';
 import { getOrgId } from './constants';
+import { aiCall } from './ai-service';
 
 // ============================================================
 // TYPES
@@ -996,4 +997,491 @@ Produce a revised creative brief that explicitly addresses each issue while stay
     placement: 'feed_square',
     languages: args.languages,
   });
+}
+
+// ============================================================
+// TWO-STAGE GENERATION (fixes 504s from the single ~16000-token
+// buildSeniorDesignerCreativePrompt call — see CLAUDE.md bug #36).
+//
+// Stage 1: concept + ad copy + visual_anchor (one small call, ~1500 tok).
+// Stage 2: one call per layout (main/portrait/story), each reproducing
+// Stage 1's visual_anchor verbatim so all layouts depict the same
+// building (also fixes bug #37's cross-image inconsistency).
+//
+// Only used by Quick Generate (Strategy.tsx) and Creatives.tsx's
+// no-reference-image variant path today. buildSeniorDesignerCreativePrompt
+// (single-call) remains in use by: Strategy.tsx's Full Strategy secondary
+// Aanya call, Creatives.tsx's reference-image variant path (needs vision
+// on the same call), buildSMMCreativeBrief, buildRevisedCreativeBrief.
+// Migrate those to two-stage in a follow-up if they show the same timeout
+// profile — not done here to keep this change's blast radius to the
+// paths that were actually confirmed hitting 504s.
+// ============================================================
+
+type EnrichedContext = {
+  brandKit?: BrandKit;
+  projectAssets?: ProjectAsset[];
+  designDNA?: ProjectDesignSystem;
+  projectData?: ProjectData;
+};
+
+async function loadEnrichedContext(input: CreativeBriefInput): Promise<EnrichedContext> {
+  let brandKit = input.brand_kit;
+  let projectAssets = input.project_assets;
+  let designDNA = input.design_dna;
+  let projectData = input.project_data;
+
+  if (!brandKit && supabase) {
+    const { data } = await supabase.from('brand_kits').select('*').eq('org_id', getOrgId()).maybeSingle();
+    brandKit = data || undefined;
+  }
+
+  if (input.project_id && !projectAssets && supabase) {
+    const { data } = await supabase.from('project_assets')
+      .select('*')
+      .eq('project_id', input.project_id)
+      .eq('org_id', getOrgId())
+      .order('display_order');
+    projectAssets = data || [];
+  }
+
+  if (input.project_id && !designDNA && supabase) {
+    const { data } = await supabase.from('project_design_systems')
+      .select('*')
+      .eq('project_id', input.project_id)
+      .maybeSingle();
+    designDNA = data || undefined;
+  }
+
+  if (input.project_id && !projectData && supabase) {
+    const { data } = await supabase.from('projects')
+      .select('*')
+      .eq('id', input.project_id)
+      .maybeSingle();
+    projectData = data || undefined;
+  }
+
+  return { brandKit, projectAssets, designDNA, projectData };
+}
+
+function campaignContextBlock(input: CreativeBriefInput, ctx: EnrichedContext): string {
+  const { projectData } = ctx;
+  return `PROJECT: ${projectData ? projectData.name : 'Generic brand creative (no specific project)'}
+${projectData ? `- Locality: ${projectData.locality}, ${projectData.city}
+- Price Range: ${projectData.price_range}
+- Units Remaining: ${projectData.units_remaining ?? 'N/A'}
+- USPs: ${projectData.usps}
+- Target Buyer: ${projectData.target_buyer}
+${projectData.rera_number ? `- RERA: ${projectData.rera_number} (MUST appear in creative)` : '- RERA: Not provided (omit from creative)'}` : ''}
+
+CAMPAIGN GOAL: ${input.campaign_goal.toUpperCase()} | FUNNEL STAGE: ${input.funnel_stage} | PLACEMENT: ${input.placement}
+${input.ad_platform ? `AD PLATFORM: ${input.ad_platform}` : ''}
+${input.variant_label ? `VARIANT: ${input.variant_label} (angle: ${input.variant_angle || 'designer choice'})` : ''}
+
+USER BRIEF (verbatim from user):
+"${input.user_brief}"`;
+}
+
+function brandIdentityBlock(ctx: EnrichedContext): string {
+  const { brandKit } = ctx;
+  return brandKit ? `- Primary Color: ${brandKit.primary_color}
+- Secondary Color: ${brandKit.secondary_color}
+- Accent Color: ${brandKit.accent_color}
+- Text Color: ${brandKit.text_color}
+- Background: ${brandKit.background_color}
+- Tagline: "${brandKit.tagline}"
+- Brand Voice: ${brandKit.brand_voice}
+- Cultural Motifs: ${brandKit.cultural_motifs?.join(', ') || 'None'}` : `BRAND KIT: Not configured — use Indian real estate defaults:
+- Primary Color: #1A3A5C (deep navy) | Accent: #C9A961 (warm gold) | Text: #FFFFFF
+All prices: ₹ symbol.`;
+}
+
+// ── STAGE 1: concept + ad copy + visual_anchor ──────────────────────────
+
+const AANYA_SYSTEM_PROMPT_STAGE1 = `You are Aanya Mehta, Senior Creative Director at FCB India / L&K Saatchi alumni. 12 years designing campaigns for Lodha, DLF Camellias, Sobha, Damac, Emaar Beachfront, Mahindra Lifespaces.
+
+This is STAGE 1 of a two-stage creative process. You are NOT writing the image generation prompt yet — a later stage handles that. Your job here is strategic: the concept, the ad copy, and a literal visual anchor description.
+
+RULE — BRAND KIT COMPLIANCE: Reference only the hex codes given in BRAND IDENTITY. Never invent colors.
+RULE — INDIAN CURRENCY ONLY: Every price in ad_copy MUST use ₹ or "Rs." — never $, USD, or any other currency symbol.
+RULE — NO PLACEHOLDERS: Replace every placeholder with the real value from CAMPAIGN CONTEXT. If a value isn't provided, omit it — never invent one.
+RULE — VISUAL ANCHOR: Write a 60-100 word literal, concrete architectural/scene description (building type, height, materials, setting, time of day) that a later stage will reproduce VERBATIM across three separate image-generation prompts. This is the single source of truth for what the building looks like — be specific enough that three independent writers describing it later would draw the same building.
+
+You always respond ONLY in valid JSON. No markdown fences, no preamble.`;
+
+function buildStage1Prompt(input: CreativeBriefInput, ctx: EnrichedContext): { systemPrompt: string; userPrompt: string } {
+  const aesthetic = ctx.brandKit?.design_aesthetic || 'premium_minimal';
+  const strategy = getGoalStrategy(input.campaign_goal, input.funnel_stage);
+  const dnaBlock = ctx.designDNA ? formatDesignDNA(ctx.designDNA) : 'No prior performance data yet.';
+  const languageBlock = formatLanguages(input.languages);
+  const { manifest, count } = buildReferenceManifest({ ...input, ...ctx });
+
+  const userPrompt = `# CREATIVE BRIEF — STAGE 1 (concept, copy, visual anchor)
+
+## CAMPAIGN CONTEXT
+${campaignContextBlock(input, ctx)}
+
+## BRAND IDENTITY
+${brandIdentityBlock(ctx)}
+
+## AESTHETIC MODE
+${aesthetic}
+
+## STRATEGIC DIRECTION
+${strategy}
+
+## DESIGN DNA
+${dnaBlock}
+
+## REFERENCE IMAGES (${count} provided)
+${manifest.length > 0 ? manifest.join('\n') : 'None provided.'}
+
+## LANGUAGE LAYERS
+${languageBlock}
+
+---
+
+Output ONLY this JSON object (no markdown fences, no preamble):
+
+{
+  "creative_concept": "1-line concept statement",
+  "designer_rationale": "Aanya's POV: why this concept, 2-3 sentences",
+  "visual_anchor": "60-100 word literal architectural/scene description — see RULE above",
+  "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
+  "ad_copy": {
+    ${(input.ad_platform === 'AiSensy'
+      ? input.languages.map(lang =>
+        `"headline_${lang.toLowerCase()}": "WhatsApp template header — max 60 chars, benefit-led hook in ${lang}",
+    "subhead_${lang.toLowerCase()}": "Teaser line — max 20 words in ${lang}",
+    "primary_text_${lang.toLowerCase()}": "WhatsApp message body — conversational, emoji-rich, 300-500 chars in ${lang}",
+    "description_${lang.toLowerCase()}": "WhatsApp quick-reply button label — max 20 chars in ${lang}"`)
+      : input.languages.map(lang =>
+        `"headline_${lang.toLowerCase()}": "Max 40 chars — Meta feed headline in ${lang}",
+    "subhead_${lang.toLowerCase()}": "Max 20 words in ${lang}",
+    "primary_text_${lang.toLowerCase()}": "First 125 chars a standalone hook. Total 125-250 chars. In ${lang}.",
+    "description_${lang.toLowerCase()}": "Max 30 chars — Meta link description in ${lang}"`)
+    ).join(',\n    ')},
+    "cta": ${input.ad_platform === 'AiSensy'
+      ? `"WhatsApp Now OR Know More OR Book a Call — under 20 chars"`
+      : `"Send WhatsApp Message OR Book Site Visit OR Get Brochure OR Learn More"`}
+  },
+  "design_dna_tags": {
+    "angle": "price_led_with_urgency | lifestyle_aspirational | trust_legacy | location_proximity | amenity_showcase",
+    "composition": "rule_of_thirds_building_left | centered_hero | split_screen_text_visual | overlay_text_on_image",
+    "color_treatment": "dark_navy_gold_accent | warm_earth_tones | high_contrast_minimal",
+    "copy_angle": "scarcity_urgency | aspirational_future | factual_data | emotional_family",
+    "lighting": "golden_hour | editorial_overcast | chiaroscuro | studio_softbox"
+  },
+  "predicted_performance": "Brief prediction based on Design DNA",
+  "post_production_notes": "Manual overlay needed, especially for non-Latin scripts"
+}`;
+
+  return { systemPrompt: AANYA_SYSTEM_PROMPT_STAGE1, userPrompt };
+}
+
+// ── STAGE 2: one nanobanana prompt per layout, reproducing visual_anchor ──
+
+type Layout = 'main' | 'portrait' | 'story';
+
+const REFERENCE_EXAMPLE: Record<Layout, { paradigm: string; aspect: string; example: string }> = {
+  main: {
+    paradigm: 'GRAPHIC_DESIGN_FRAME',
+    aspect: '1:1 (1024x1024)',
+    example: `SECTION 1: SCENE NARRATIVE
+A premium graphic design composition — NOT a photographed outdoor scene. The entire 1024×1024 canvas is anchored by a full-bleed deep navy (#1A3A5C) background. Two framed building photographs are placed as photo cards in the upper 60% of the frame.
+
+SECTION 2: SUBJECT & COMPOSITION
+BACKGROUND: Full-bleed brand primary color fills 100% of canvas — no sky, no landscape.
+PHOTO PANEL 1 (LEFT, LARGE): Building exterior photo card, white border, gold L-bracket corners, PHOTO_CAPTION_BAR at bottom with locality.
+PHOTO PANEL 2 (RIGHT, SMALL): Alternate angle, PRICE_BADGE overlapping bottom section.
+ZONE TOP: Logo + MIXED_WEIGHT_HEADLINE. ZONE MIDDLE: FEATURE_CHECKLIST 2×2 grid. ZONE CTA: centered CTA_BUTTON. ZONE FOOTER: full-width FOOTER_STRIP.
+
+SECTION 3: CAMERA & LENS
+Left photo: 24mm wide-angle, 5° low-angle. Right photo: 35mm prime, three-quarter view.
+
+SECTION 4: LIGHTING
+Left: golden hour warm 3200K. Right: editorial overcast 5500K.
+
+SECTION 5: COLOR PALETTE
+Use only the brand hex codes from BRAND IDENTITY for background, accents, and text.
+
+SECTION 6: TYPOGRAPHY LAYER (RENDERED IN IMAGE)
+TEXT ELEMENT 1 — MIXED_WEIGHT_HEADLINE: word-level font switching, e.g. "READY" bold condensed + "to" italic script + "MOVE" bold condensed.
+TEXT ELEMENT 2 — PRICE_BADGE: standalone box, 32-40pt, not buried in an info bar.
+TEXT ELEMENT 3 — PHOTO_CAPTION_BAR: anchored to photo panel 1, locality text.
+TEXT ELEMENT 4 — FEATURE_CHECKLIST: 2×2 grid, ✓ icons, real amenities from brief.
+TEXT ELEMENT 5 — CTA_BUTTON: pill button, ~55% frame width.
+TEXT ELEMENT 6 — FOOTER_STRIP: phone left, website right, full-width gold bar.
+Each element needs Content/Font/Size/Color/Position/Background/Treatment, using real values substituted for every placeholder.
+
+SECTION 7: BRAND & PROJECT ELEMENTS
+Logo top-left, 8% frame width. Gold L-bracket corners on both photo cards.
+
+SECTION 8: NEGATIVE PROMPTS
+DO NOT render as a photographed scene — this is a graphic design frame. DO NOT invent colors outside the brand palette. DO NOT omit the footer strip or feature checklist. Text must be crisp, zero garbled characters.
+
+SECTION 9: TECHNICAL SPECS
+Aspect Ratio: 1:1 (1024×1024) | Model: GPT-Image-1 | Quality: medium`,
+  },
+  portrait: {
+    paradigm: 'PHOTOREALISTIC_SCENE',
+    aspect: '4:5 (1024x1536)',
+    example: `SECTION 1: SCENE NARRATIVE
+A serene establishing shot of the building described in VISUAL ANCHOR, captured with real sky and landscape depth. The vertical 4:5 frame gives the building room to breathe.
+
+SECTION 2: SUBJECT & COMPOSITION
+Sky zone (y:0-30%): HEADLINE and SUBHEAD on transparent background. Building hero (y:25-80%): full architectural face, three-quarter low-angle. Foreground (y:75-100%): INFO_BOX lower-left, CTA_BUTTON lower-right.
+
+SECTION 3: CAMERA & LENS
+85mm portrait lens, 3° low-angle, tilt-shift correction for true verticals.
+
+SECTION 4: LIGHTING
+Golden hour backlighting, warm 3200K, long soft shadows.
+
+SECTION 5: COLOR PALETTE
+Sky: natural gradient, no color invention. Overlay text: brand hex codes from BRAND IDENTITY.
+
+SECTION 6: TYPOGRAPHY LAYER (RENDERED IN IMAGE)
+TEXT ELEMENT 1 — HEADLINE: project name, serif, 52-60pt, sky zone.
+TEXT ELEMENT 2 — SUBHEAD: key USP, below headline.
+TEXT ELEMENT 3 — INFO_BOX: price | RERA | status, lower-left rounded rectangle.
+TEXT ELEMENT 4 — CTA_BUTTON: lower-right pill.
+Each element needs Content/Font/Size/Color/Position/Background, using real values substituted for every placeholder.
+
+SECTION 7: BRAND & PROJECT ELEMENTS
+Logo top-left, 7% frame width, sky zone. No decorative geometry — must feel uncluttered.
+
+SECTION 8: NEGATIVE PROMPTS
+DO NOT use a flat background — this MUST be a real photographic exterior scene. DO NOT add feature checklists or footer strips. DO NOT invent architecture beyond VISUAL ANCHOR.
+
+SECTION 9: TECHNICAL SPECS
+Aspect Ratio: 4:5 (1024×1536) | Model: GPT-Image-1 | Quality: medium`,
+  },
+  story: {
+    paradigm: 'TYPOGRAPHY_FORWARD',
+    aspect: '9:16 (1024x1792)',
+    example: `SECTION 1: SCENE NARRATIVE
+A typography-dominant vertical composition, 1024×1792. Bold headline dominates the top 40%. The building from VISUAL ANCHOR appears as a secondary framed photo card in the center zone. Lower zone: price + CTA.
+
+SECTION 2: SUBJECT & COMPOSITION
+BACKGROUND: full-bleed brand primary color. HEADLINE ZONE (y:5-42%): ultra-large display headline, the hero. PHOTO CARD ZONE (y:44-78%): building photo as framed card, ~80% frame width. CTA ZONE (y:80-94%): price + CTA stacked.
+
+SECTION 3: CAMERA & LENS
+Photo card: 50mm natural perspective, front-elevation.
+
+SECTION 4: LIGHTING
+Photo card: editorial overcast 5500K.
+
+SECTION 5: COLOR PALETTE
+Use brand hex codes from BRAND IDENTITY for background, headline, and CTA.
+
+SECTION 6: TYPOGRAPHY LAYER (RENDERED IN IMAGE)
+TEXT ELEMENT 1 — HEADLINE: two-line display, 64-76pt/line, strongest urgency/benefit from brief.
+TEXT ELEMENT 2 — PRICE + SUBLINE: real price + locality, below photo card.
+TEXT ELEMENT 3 — CTA_BUTTON: wide rounded-rectangle, ~65% frame width.
+Each element needs Content/Font/Size/Color/Position/Background, using real values substituted for every placeholder.
+
+SECTION 7: BRAND & PROJECT ELEMENTS
+Logo top-center, small, does not compete with headline. Photo card gets gold L-bracket corners.
+
+SECTION 8: NEGATIVE PROMPTS
+DO NOT make the photo card larger than 35% of vertical frame — headline is the hero. DO NOT add a feature checklist — max 3 text elements. DO NOT render blurry or distorted text.
+
+SECTION 9: TECHNICAL SPECS
+Canvas: 1024×1792 | Aspect Ratio: 9:16 | Model: GPT-Image-1 | Quality: high`,
+  },
+};
+
+// Stage 2's output is a single large free-form string (500-800 words, with
+// quoted example content like "READY to MOVE" baked into Section 6). Asking
+// for that inside a JSON envelope is exactly the shape that produces
+// unescaped-quote parse failures — so Stage 2 responds with plain text
+// instead, sidestepping JSON escaping for this call entirely.
+const AANYA_SYSTEM_PROMPT_STAGE2 = AANYA_SYSTEM_PROMPT.replace(
+  'You always respond ONLY in valid JSON. No markdown fences, no preamble. Just the JSON object.',
+  'For THIS task, respond with ONLY the raw prompt as plain text — no JSON, no wrapping braces or quotes, no markdown fences, no preamble.'
+);
+
+function buildStage2Prompt(
+  input: CreativeBriefInput,
+  ctx: EnrichedContext,
+  stage1: Record<string, unknown>,
+  layout: Layout
+): { systemPrompt: string; userPrompt: string } {
+  const ref = REFERENCE_EXAMPLE[layout];
+  const visualAnchor = String(stage1.visual_anchor ?? '');
+  const adCopy = (stage1.ad_copy ?? {}) as Record<string, string>;
+
+  const userPrompt = `# CREATIVE BRIEF — STAGE 2 (image prompt, layout: ${ref.paradigm})
+
+## CAMPAIGN CONTEXT
+${campaignContextBlock(input, ctx)}
+
+## BRAND IDENTITY
+${brandIdentityBlock(ctx)}
+
+## VISUAL ANCHOR (reproduce this building/scene VERBATIM in Section 1 — do not invent a different building)
+${visualAnchor || 'No visual anchor provided — use CAMPAIGN CONTEXT to establish the building.'}
+
+## APPROVED AD COPY (use these exact values in Section 6 — do not paraphrase or invent new copy)
+${JSON.stringify(adCopy, null, 2)}
+
+---
+
+## YOUR TASK
+
+Produce ONE GPT-Image-1 image generation prompt for aspect ratio ${ref.aspect}, layout paradigm ${ref.paradigm}.
+
+CRITICAL — exactly nine section headers, in order, each on its own line: SECTION 1: SCENE NARRATIVE / SECTION 2: SUBJECT & COMPOSITION / SECTION 3: CAMERA & LENS / SECTION 4: LIGHTING / SECTION 5: COLOR PALETTE / SECTION 6: TYPOGRAPHY LAYER / SECTION 7: BRAND & PROJECT ELEMENTS / SECTION 8: NEGATIVE PROMPTS / SECTION 9: TECHNICAL SPECS
+
+CRITICAL — colors: every Color field in Section 6 must be a hex code from BRAND IDENTITY, never a name like "gold" or "navy".
+CRITICAL — currency: every price in Section 6 MUST use ₹ or "Rs." — never $ or USD.
+CRITICAL — no placeholders: use the real APPROVED AD COPY values, never a placeholder like "NAYAPALLI, BBSR" or "+91-XXXXXXXXXX".
+500-800 words total.
+
+━━━ REFERENCE EXAMPLE — ${ref.paradigm} ━━━
+
+${ref.example}
+
+━━━ END REFERENCE EXAMPLE ━━━
+
+Respond with ONLY the raw nine-section prompt as plain text — NOT JSON, no wrapping braces or quotes, no markdown fences, no preamble. Start directly with "SECTION 1: SCENE NARRATIVE".`;
+
+  return { systemPrompt: AANYA_SYSTEM_PROMPT_STAGE2, userPrompt };
+}
+
+function parseAanyaJson(res: Record<string, unknown>): Record<string, unknown> | null {
+  if (res.error) return null;
+  if (!res.raw) return res;
+  const s = String(res.raw);
+  try { return JSON.parse(s); } catch { /* continue */ }
+  try { return JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); } catch { /* continue */ }
+  const st = s.indexOf('{');
+  const en = s.lastIndexOf('}');
+  if (st !== -1 && en !== -1) {
+    try { return JSON.parse(s.substring(st, en + 1)); } catch { /* continue */ }
+  }
+  return null;
+}
+
+/**
+ * Orchestrates Stage 1 (concept/copy/visual_anchor) then N parallel Stage 2
+ * calls (one per layout). Returns the same envelope shape as aiCall()
+ * (`.error`, or parsed SeniorDesignerResult fields + `_inputTokens`/
+ * `_outputTokens`) so existing callers' parsing code needs no changes.
+ */
+export async function runTwoStageSeniorDesigner(
+  input: CreativeBriefInput,
+  opts: { traceNamePrefix?: string; layouts?: Layout[] } = {}
+): Promise<Record<string, unknown>> {
+  const layouts = opts.layouts ?? (['main', 'portrait', 'story'] as Layout[]);
+  const tracePrefix = opts.traceNamePrefix ?? 'senior-designer';
+
+  const ctx = await loadEnrichedContext(input);
+  const stage1Brief = buildStage1Prompt(input, ctx);
+  const stage1Res = await aiCall(stage1Brief.userPrompt, stage1Brief.systemPrompt, 4096, { traceName: `${tracePrefix}-stage1` });
+
+  if (stage1Res.error) return { error: stage1Res.error };
+
+  const stage1Parsed = parseAanyaJson(stage1Res);
+  if (!stage1Parsed) return { error: 'Aanya Stage 1 (concept/copy) response could not be parsed as JSON.' };
+
+  let inputTokens = (stage1Res._inputTokens as number) ?? 0;
+  let outputTokens = (stage1Res._outputTokens as number) ?? 0;
+
+  const stage2Results = await Promise.all(layouts.map(async (layout) => {
+    const brief = buildStage2Prompt(input, ctx, stage1Parsed, layout);
+    const res = await aiCall(brief.userPrompt, brief.systemPrompt, 4096, { traceName: `${tracePrefix}-stage2-${layout}` });
+    return { layout, res };
+  }));
+
+  const merged: Record<string, unknown> = { ...stage1Parsed };
+  for (const { layout, res } of stage2Results) {
+    inputTokens += (res._inputTokens as number) ?? 0;
+    outputTokens += (res._outputTokens as number) ?? 0;
+    if (res.error) continue;
+    // Stage 2 asks for plain text (see AANYA_SYSTEM_PROMPT_STAGE2), so the
+    // expected shape is aiCall's { raw: string } fallback. Also accept an
+    // accidental JSON-wrapped response defensively, in case the model
+    // wraps it anyway despite the instruction.
+    const promptText = typeof res.raw === 'string'
+      ? res.raw.trim()
+      : typeof res.nanobanana_prompt === 'string'
+        ? res.nanobanana_prompt.trim()
+        : null;
+    if (promptText) merged[`nanobanana_prompt_${layout}`] = promptText;
+  }
+
+  if (!merged.nanobanana_prompt_main && layouts.includes('main')) {
+    return { error: 'Aanya Stage 2 (main layout image prompt) failed for all attempts.' };
+  }
+
+  merged._inputTokens = inputTokens;
+  merged._outputTokens = outputTokens;
+  return merged;
+}
+
+export const VARIANT_ANGLES: Array<{ label: 'A' | 'B' | 'C'; angle: string }> = [
+  { label: 'A', angle: 'price_led_with_urgency' },
+  { label: 'B', angle: 'lifestyle_aspirational' },
+  { label: 'C', angle: 'trust_legacy_or_amenity' },
+];
+
+// QUICK GENERATE, two-stage — drop-in replacement for
+// buildQuickGenerateBrief() + aiCall() in Strategy.tsx's handleQuickSubmit.
+export async function runTwoStageQuickGenerate(
+  args: {
+    user_brief: string;
+    project_id?: string;
+    project_data?: ProjectData;
+    campaign_goal?: CreativeBriefInput['campaign_goal'];
+    funnel_stage?: CreativeBriefInput['funnel_stage'];
+    placement?: CreativeBriefInput['placement'];
+    languages: string[];
+    quick_references?: QuickReference[];
+    ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  },
+  opts: { traceNamePrefix?: string } = {}
+): Promise<Record<string, unknown>> {
+  return runTwoStageSeniorDesigner({
+    user_brief: args.user_brief,
+    project_id: args.project_id,
+    project_data: args.project_data,
+    campaign_goal: args.campaign_goal || 'lead_generation',
+    funnel_stage: args.funnel_stage || 'BOFU',
+    placement: args.placement || 'feed_square',
+    languages: args.languages,
+    quick_references: args.quick_references,
+    ad_platform: args.ad_platform,
+  }, opts);
+}
+
+// AD CREATIVES MODULE variant, two-stage — drop-in replacement for a single
+// buildVariantBriefs() entry + aiCall() in Creatives.tsx's per-variant loop.
+// Only main+story layouts (portrait isn't used by Creatives.tsx).
+export async function runTwoStageVariantBrief(
+  args: {
+    project_id: string;
+    user_brief: string;
+    funnel_stage: CreativeBriefInput['funnel_stage'];
+    languages: string[];
+    ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+    quick_references?: QuickReference[];
+    variant_label: 'A' | 'B' | 'C';
+    variant_angle: string;
+  },
+  opts: { traceNamePrefix?: string } = {}
+): Promise<Record<string, unknown>> {
+  return runTwoStageSeniorDesigner({
+    user_brief: args.user_brief,
+    project_id: args.project_id,
+    campaign_goal: 'lead_generation',
+    funnel_stage: args.funnel_stage,
+    placement: 'feed_square',
+    languages: args.languages,
+    quick_references: args.quick_references,
+    ad_platform: args.ad_platform,
+    variant_label: args.variant_label,
+    variant_angle: args.variant_angle,
+  }, { ...opts, layouts: ['main', 'story'] });
 }

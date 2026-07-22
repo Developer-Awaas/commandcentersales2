@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
-import { buildVariantBriefs } from '../lib/senior-designer-prompts';
+import { buildVariantBriefs, runTwoStageVariantBrief, VARIANT_ANGLES } from '../lib/senior-designer-prompts';
 import type { SeniorDesignerResult } from './strategy/types';
 import { AanyaDesignerNotes } from './strategy/StrategyResult';
 import { logAiSession, logActivity } from '../lib/session-logger';
@@ -485,6 +485,8 @@ export function Creatives() {
 
             let aanyaRes: Record<string, unknown>;
             if (imagePayload) {
+              // Reference image needs vision on the same call as the full prompt —
+              // keeps the single-call path here (two-stage vision isn't wired up yet).
               const messages = [
                 {
                   role: 'user',
@@ -496,7 +498,18 @@ export function Creatives() {
               ];
               aanyaRes = await aiVision(messages, brief.systemPrompt, { traceName: 'creatives-variant-generate' });
             } else {
-              aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000, { traceName: 'creatives-variant-generate' });
+              // No reference image — two-stage generation avoids the 504s the
+              // single ~16000-token call was producing (CLAUDE.md bug #36).
+              const va = VARIANT_ANGLES[i];
+              aanyaRes = await runTwoStageVariantBrief({
+                project_id: projectId,
+                user_brief: userBrief,
+                funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
+                languages: ['English', 'Odia'],
+                ad_platform: adPlatform,
+                variant_label: va.label,
+                variant_angle: va.angle,
+              }, { traceNamePrefix: 'creatives-variant-generate' });
             }
 
             variantInputTokens += (aanyaRes._inputTokens as number) ?? 0;
