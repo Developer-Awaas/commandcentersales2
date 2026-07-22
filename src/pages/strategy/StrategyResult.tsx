@@ -1423,8 +1423,11 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             url = uploaded.url;
             id = uploaded.id;
             storagePath = uploaded.storagePath;
-          } catch {
-            // non-fatal — fall back to base64 data URL
+          } catch (uploadErr) {
+            // Non-fatal — image still displays via the base64 data URL — but
+            // without a real creative_assets id, Canva/Adobe Express edit
+            // always falls back to a generic URL instead of the real editor.
+            console.error(`[Aanya] creative_assets upload/insert failed for ${angleLabel}:`, uploadErr);
           }
           collected.push({
             id, url, label, storagePath,

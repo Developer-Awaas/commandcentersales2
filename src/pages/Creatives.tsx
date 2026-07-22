@@ -612,6 +612,9 @@ export function Creatives() {
                 return { url, id, label, storagePath, adCopy: { headline, cta } } as GalleryImage;
               })
             ).then((results) => {
+              results.forEach((r, i) => {
+                if (r.status === 'rejected') console.error(`[Aanya] variant ${i} image upload/insert failed:`, r.reason);
+              });
               const imgs = results
                 .filter((r): r is PromiseFulfilledResult<GalleryImage> => r.status === 'fulfilled')
                 .map((r) => r.value);
