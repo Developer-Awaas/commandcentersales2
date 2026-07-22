@@ -584,6 +584,8 @@ async function handleKavyaTurn(
 
     const fallback = err instanceof KavyaOutputError && err.message === 'plan too large, regenerating'
       ? "That calendar came out too large to finish — hit Regenerate and I'll take another pass."
+      : err instanceof KavyaOutputError && err.message.endsWith('generation timed out — please retry')
+      ? "That took longer than expected to generate — hit Regenerate and I'll try again."
       : "I hit a snag with that content request. Want to try rephrasing it, or ask for something more specific?"
     const canvas = {}
     await persistMessages(ctx, fallback, canvas, message || undefined)
