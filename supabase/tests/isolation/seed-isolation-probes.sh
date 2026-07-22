@@ -225,6 +225,23 @@ else
   pass "org B seed agent_turns row created (id=${SEED_TURN_ID})"
 fi
 
+echo "== seeding one org_integrations row for org A (service-role — SELECT/INSERT/UPDATE are now admin-gated, migration 20260722100000) =="
+
+EXISTING_OI_STATUS=$(http GET "${REST_BASE}/rest/v1/org_integrations?org_id=eq.${ORG_A_ID}&provider=eq.meta&select=id" "$SUPABASE_SERVICE_ROLE_KEY")
+[[ "$EXISTING_OI_STATUS" == "200" ]] || fail "lookup seed org_integrations for org A expected HTTP 200, got ${EXISTING_OI_STATUS}: $(cat "$TMP_BODY")"
+SEED_OI_ID=$(jq -r '.[0].id // empty' "$TMP_BODY")
+
+if [[ -n "$SEED_OI_ID" ]]; then
+  pass "org A seed org_integrations row already exists (id=${SEED_OI_ID}), skipping insert"
+else
+  OI_BODY=$(jq -nc --arg org "$ORG_A_ID" '{org_id:$org, provider:"meta", meta_access_token:"isolation-probe-seed-token-not-real"}')
+  OI_STATUS=$(http POST "${REST_BASE}/rest/v1/org_integrations" "$SUPABASE_SERVICE_ROLE_KEY" "$OI_BODY")
+  [[ "$OI_STATUS" == "201" ]] || fail "insert seed org_integrations for org A expected HTTP 201, got ${OI_STATUS}: $(cat "$TMP_BODY")"
+  SEED_OI_ID=$(jq -r '.[0].id' "$TMP_BODY")
+  [[ -n "$SEED_OI_ID" && "$SEED_OI_ID" != "null" ]] || fail "insert seed org_integrations for org A returned no id: $(cat "$TMP_BODY")"
+  pass "org A seed org_integrations row created (id=${SEED_OI_ID})"
+fi
+
 echo "== seed-isolation-probes.sh: done =="
 echo "org_a_id=${ORG_A_ID}"
 echo "org_b_id=${ORG_B_ID}"

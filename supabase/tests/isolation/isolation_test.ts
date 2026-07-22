@@ -271,3 +271,50 @@ Deno.test("probe 8b: match_memory_chunks is SECURITY INVOKER in every migration 
     assert(/SECURITY\s+INVOKER/i.test(def), `PROBE 8b: a match_memory_chunks definition specifies neither SECURITY INVOKER nor DEFINER (Postgres default is INVOKER, but this should be explicit):\n${def}`);
   }
 });
+
+// Probes 9-10: same-org role gating on org_integrations (migration
+// 20260722100000). Unlike probes 1-8, this is NOT a cross-org check — org A's
+// probe user (role='member' by default, per profiles.role's schema default;
+// the seed script never overrides it) must be denied read/write on ITS OWN
+// org's org_integrations row. Found live via review-build's reviewer-scoping
+// verification: any member could read and overwrite their org's Meta API
+// access token before this migration. Regression-proofed here so this class
+// of gap is caught by CI permanently, not by a reviewer happening to check.
+
+Deno.test("probe 9: org A member JWT cannot read org A's own org_integrations row", async () => {
+  // No "allowed" JWT to sanity-check the precondition against here (unlike
+  // probe 1's own-org read-before-cross-org-denial check) — there's no
+  // admin-role probe user seeded. The precondition instead lives in
+  // seed-isolation-probes.sh, which `fail`s outright if the seed insert
+  // doesn't succeed, so a missing row would show up as a seed failure, not
+  // a silently-passing probe here.
+  const result = await restGet(ctx, `org_integrations?org_id=eq.${orgAId}&select=*`, jwtA);
+  assertEquals(result.status, 200, `PROBE 9: unexpected status reading org_integrations: ${JSON.stringify(result.body)}`);
+  const rows = result.body as unknown[];
+  assertEquals(
+    rows.length,
+    0,
+    `PROBE 9 LEAK: a member-role JWT read its own org's org_integrations row (org_id=${orgAId}) — admin gating is not effective`,
+  );
+});
+
+Deno.test("probe 10: org A member JWT cannot write org A's own org_integrations row", async () => {
+  const result = await restPost(ctx, "org_integrations", jwtA, {
+    org_id: orgAId,
+    provider: "google_ads",
+    meta_access_token: "probe-10-write-attempt-should-be-denied",
+  });
+  if (result.status === 201) {
+    const rows = result.body as unknown[];
+    assertEquals(
+      rows.length,
+      0,
+      `PROBE 10 LEAK: a member-role JWT inserted an org_integrations row for its own org (org_id=${orgAId}) — admin gating is not effective`,
+    );
+  } else {
+    assert(
+      result.status === 401 || result.status === 403,
+      `PROBE 10: unexpected non-201 status ${result.status}: ${JSON.stringify(result.body)}`,
+    );
+  }
+});
