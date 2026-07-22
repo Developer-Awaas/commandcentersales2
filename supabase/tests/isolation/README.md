@@ -73,12 +73,32 @@ probe 6 substitutes the real equivalent for this schema.
 Scope documentation, not a claim of full coverage. 36 tables have RLS enabled
 across this schema (verified via `grep 'ENABLE ROW LEVEL SECURITY'` across
 `supabase/migrations/*.sql` — see `CLAUDE.md` → "Key Tables" for the current
-list). Only `agent_memory_chunks`, `profiles`, and `agent_turns` (via probe 7)
-are probed here. Extending to other org-scoped tables is straightforward with
-the existing `lib.ts` helpers — the harder cases are tables scoped via a join
-rather than a direct column, tables scoped by `user_id` instead of `org_id`
-(`notifications`, `org_user_integrations`), and tables with no `authenticated`
-write path to seed through legitimately.
+list). `agent_memory_chunks`, `profiles`, `agent_turns` (via probe 7), and
+`org_integrations` (probes 9-10) are probed here. Extending to other
+org-scoped tables is straightforward with the existing `lib.ts` helpers — the
+harder cases are tables scoped via a join rather than a direct column, tables
+scoped by `user_id` instead of `org_id` (`notifications`,
+`org_user_integrations` — the latter's `user_id = auth.uid()` scoping was
+checked directly, see probes 9-10 below, and is NOT the same-shaped gap
+`org_integrations` had), and tables with no `authenticated` write path to
+seed through legitimately.
+
+### Probes 9-10: role gating, not cross-org isolation
+
+`org_integrations` (Meta/Google API tokens) had SELECT/INSERT/UPDATE
+policies scoped only by `org_id` — any member of an org, not just admins,
+could read and overwrite the org's live Meta access token. Found live via
+review-build's reviewer-scoping verification (an actual member-role account,
+denial proven by authentication, not row inspection) — not by this harness,
+which is exactly why probes 9-10 exist now: so this specific class of gap
+gets caught by CI going forward instead of depending on someone happening to
+build a reviewer account and check. Fixed in migration
+`20260722100000_org_integrations_admin_only.sql`, mirroring `profiles`'
+existing admin-gated update policy (same `EXISTS (... profiles.role =
+'admin')` mechanism, not a new pattern). Unlike probes 1-8, these use only
+org A's own JWT against org A's own seeded row — there's no second org
+involved, since the property being tested is "can a member of this org read
+this org's own secrets," not "can org A see org B's data."
 
 ## CI wiring
 
