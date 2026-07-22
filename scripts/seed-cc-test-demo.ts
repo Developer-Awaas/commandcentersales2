@@ -58,7 +58,26 @@ function isoDaysFromNow(n: number): string {
   return d.toISOString().split('T')[0]
 }
 
+// Storage buckets are never created by SQL migrations — a fresh project has
+// zero. Found the hard way: Aanya's image-gen succeeded (billed) but every
+// upload then failed because 'brand-assets' didn't exist. Idempotent:
+// createBucket errors (harmlessly) if the bucket is already there.
+const REQUIRED_BUCKETS = ['brand-assets', 'creative-assets', 'project-assets', 'quick-references']
+
+async function ensureBuckets() {
+  for (const name of REQUIRED_BUCKETS) {
+    const { error } = await supabase.storage.createBucket(name, { public: true })
+    if (error && !error.message.toLowerCase().includes('already exists')) {
+      console.error(`[SEED] bucket ${name} creation error (non-fatal):`, error.message)
+    } else {
+      console.log(`[SEED] bucket ready: ${name}`)
+    }
+  }
+}
+
 async function main() {
+  await ensureBuckets()
+
   // ── Org (idempotent lookup by name) ─────────────────────────────────────
   let orgId: string
   const { data: existingOrg } = await supabase
