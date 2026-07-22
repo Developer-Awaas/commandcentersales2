@@ -115,20 +115,41 @@ export async function runKavya(input: RunKavyaInput): Promise<RunKavyaResult> {
     input.context ? `Context: ${JSON.stringify(input.context)}` : null,
   ].filter(Boolean).join('\n')
 
-  const res = await fetch(CLAUDE_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: `${systemPrompt}\n\n[prompt_version: kavya ${version}]`,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-  })
+  // Hotfix: the 'plan' intent's 16000-token cap (raised from 4096 to stop
+  // truncation-crashes) can genuinely take 150s+ to generate a full 30-entry
+  // calendar (confirmed live: 8705 output tokens, stop_reason 'end_turn',
+  // took 151s). With no timeout on this fetch, a slow call hung until
+  // Supabase's own platform-level kill — by then runKavya() never returns,
+  // the catch block in aarav-orchestrate never fires, and the turn is stuck
+  // at status='working' forever (worse than the original truncation bug:
+  // that at least failed fast and cleanly). AbortSignal.timeout matches the
+  // same fix already applied to claude-proxy for the identical failure
+  // class (bug #35) — converts a silent hang into a clean, retriable error.
+  let res: Response
+  try {
+    res = await fetch(CLAUDE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: `${systemPrompt}\n\n[prompt_version: kavya ${version}]`,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')
+    throw new KavyaOutputError(
+      isTimeout
+        ? `${input.intent} generation timed out — please retry`
+        : (err instanceof Error ? err.message : 'Kavya request failed'),
+    )
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => res.statusText)
