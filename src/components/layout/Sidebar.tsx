@@ -22,14 +22,12 @@ import {
   Smartphone,
   Wand2,
   ChevronDown,
-  Bot,
 } from 'lucide-react';
 
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../lib/supabase';
 import { useNavigation, type AppSection } from '../../contexts/NavigationContext';
 import { hasModuleAccess } from '../../lib/access';
-import { LEADGEN_V2_ENABLED } from '../../lib/feature-flags';
 
 interface SidebarProps {
   activePage: string;
@@ -59,7 +57,8 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
   { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
-  ...(LEADGEN_V2_ENABLED ? [{ id: 'leadgen-v2', label: 'Aarav Agent ✦', icon: Bot }] : []),
+  // Aarav Agent (LeadGen V2) hidden from review-build's nav — not yet
+  // functional enough for reviewer testing, regardless of the feature flag.
 ];
 
 const SMM_NAV: NavItem[] = [

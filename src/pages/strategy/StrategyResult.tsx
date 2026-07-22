@@ -1326,6 +1326,9 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [creativesSaved, setCreativesSaved] = useState(false);
   const [savingCreatives, setSavingCreatives] = useState(false);
+  // Editable copy of Aanya's ad_copy — reviewer can tweak headline/subhead/
+  // primary text/CTA before saving; persisted to the `creatives` row on Save.
+  const [editedAdCopy, setEditedAdCopy] = useState<Record<string, string>>(() => ({ ...(data.ad_copy ?? {}) }));
   // Stable session ID groups the feed+story pair in creative_assets
   const sessionIdRef = useRef(crypto.randomUUID());
   // Guards the mount-effect below from React 18 StrictMode's dev-only double
@@ -1450,13 +1453,25 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
 
   async function saveCreatives() {
     const idsToSave = galleryImages.map(img => img.id).filter(Boolean) as string[];
-    if (idsToSave.length === 0) { setCreativesSaved(true); return; }
     setSavingCreatives(true);
     try {
-      await supabase
-        .from('creative_assets')
-        .update({ status: 'approved' })
-        .in('id', idsToSave);
+      if (idsToSave.length > 0) {
+        await supabase
+          .from('creative_assets')
+          .update({ status: 'approved' })
+          .in('id', idsToSave);
+      }
+      if (savedId) {
+        const primaryLang = (languages[0] ?? 'English').toLowerCase();
+        await supabase
+          .from('creatives')
+          .update({
+            headline: editedAdCopy[`headline_${primaryLang}`] ?? '',
+            primary_text: editedAdCopy[`primary_text_${primaryLang}`] ?? '',
+            cta: editedAdCopy.cta ?? 'Send WhatsApp Message',
+          })
+          .eq('id', savedId);
+      }
       setCreativesSaved(true);
     } finally {
       setSavingCreatives(false);
@@ -1614,45 +1629,65 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         </Card>
       )}
 
-      {/* Ad Copy — all languages */}
+      {/* Ad Copy — all languages, editable */}
       {data.ad_copy && (
         <Card className="p-5">
-          <SectionLabel>Ad Copy</SectionLabel>
+          <SectionLabel>Ad Copy (editable)</SectionLabel>
           <div className="space-y-4">
             {languages.map((lang) => {
               const k = lang.toLowerCase();
-              const headline = data.ad_copy?.[`headline_${k}`];
-              const subhead = data.ad_copy?.[`subhead_${k}`];
-              const primaryText = data.ad_copy?.[`primary_text_${k}`];
-              if (!headline && !subhead && !primaryText) return null;
+              const hasHeadline = `headline_${k}` in (data.ad_copy ?? {});
+              const hasSubhead = `subhead_${k}` in (data.ad_copy ?? {});
+              const hasPrimaryText = `primary_text_${k}` in (data.ad_copy ?? {});
+              if (!hasHeadline && !hasSubhead && !hasPrimaryText) return null;
               return (
-                <div key={lang} className="pb-4 border-b border-border last:border-0">
-                  <div className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">{lang}</div>
-                  {headline && (
-                    <div className="mb-2">
-                      <span className="text-[10px] text-text-tertiary uppercase tracking-wide mr-2">Headline:</span>
-                      <span className="text-sm font-semibold text-text-primary">{headline}</span>
-                    </div>
-                  )}
-                  {subhead && (
-                    <div className="mb-2">
-                      <span className="text-[10px] text-text-tertiary uppercase tracking-wide mr-2">Subhead:</span>
-                      <span className="text-sm text-text-primary">{subhead}</span>
-                    </div>
-                  )}
-                  {primaryText && (
+                <div key={lang} className="pb-4 border-b border-border last:border-0 space-y-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-1">{lang}</div>
+                  {hasHeadline && (
                     <div>
-                      <span className="text-[10px] text-text-tertiary uppercase tracking-wide block mb-1">Primary Text:</span>
-                      <p className="text-sm text-text-primary leading-relaxed">{primaryText}</p>
+                      <label className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1 block">Headline</label>
+                      <input
+                        type="text"
+                        className="w-full text-sm font-semibold text-text-primary bg-surface rounded-lg px-3 py-2 border border-border focus:outline-none focus:ring-1 focus:ring-brand"
+                        value={editedAdCopy[`headline_${k}`] ?? ''}
+                        onChange={(e) => setEditedAdCopy((prev) => ({ ...prev, [`headline_${k}`]: e.target.value }))}
+                      />
+                    </div>
+                  )}
+                  {hasSubhead && (
+                    <div>
+                      <label className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1 block">Subhead</label>
+                      <input
+                        type="text"
+                        className="w-full text-sm text-text-primary bg-surface rounded-lg px-3 py-2 border border-border focus:outline-none focus:ring-1 focus:ring-brand"
+                        value={editedAdCopy[`subhead_${k}`] ?? ''}
+                        onChange={(e) => setEditedAdCopy((prev) => ({ ...prev, [`subhead_${k}`]: e.target.value }))}
+                      />
+                    </div>
+                  )}
+                  {hasPrimaryText && (
+                    <div>
+                      <label className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1 block">Primary Text</label>
+                      <textarea
+                        rows={3}
+                        className="w-full text-sm text-text-primary leading-relaxed bg-surface rounded-lg px-3 py-2 border border-border focus:outline-none focus:ring-1 focus:ring-brand resize-y"
+                        value={editedAdCopy[`primary_text_${k}`] ?? ''}
+                        onChange={(e) => setEditedAdCopy((prev) => ({ ...prev, [`primary_text_${k}`]: e.target.value }))}
+                      />
                     </div>
                   )}
                 </div>
               );
             })}
-            {data.ad_copy.cta && (
+            {'cta' in (data.ad_copy ?? {}) && (
               <div>
-                <span className="text-[10px] text-text-tertiary uppercase tracking-wide mr-2">CTA:</span>
-                <span className="text-sm font-semibold text-emerald-300">{data.ad_copy.cta}</span>
+                <label className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1 block">CTA</label>
+                <input
+                  type="text"
+                  className="w-full text-sm font-semibold text-emerald-300 bg-surface rounded-lg px-3 py-2 border border-border focus:outline-none focus:ring-1 focus:ring-brand"
+                  value={editedAdCopy.cta ?? ''}
+                  onChange={(e) => setEditedAdCopy((prev) => ({ ...prev, cta: e.target.value }))}
+                />
               </div>
             )}
           </div>

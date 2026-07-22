@@ -6,7 +6,6 @@ import { Spinner } from '../../components/ui/Spinner';
 import {
   CampaignGoalSelector,
   LanguageSelector,
-  QuickReferenceUploader,
 } from '../../components/CreativeInputs';
 import { type QuickGenerateInputs, type StrategyProject } from './types';
 
@@ -178,12 +177,6 @@ export function QuickGenerateForm({
         value={inputs.languages}
         onChange={(v) => set('languages', v)}
         defaultLanguages={brandKitDefaultLanguages}
-      />
-
-      {/* Quick Reference Uploader */}
-      <QuickReferenceUploader
-        onChange={(refs) => set('quickRefs', refs)}
-        maxFiles={5}
       />
 
       {/* Competitor Analysis */}
