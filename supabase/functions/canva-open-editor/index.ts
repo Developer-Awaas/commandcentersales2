@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
+import { resolveCallerIdentity, initiateCanvaOAuth } from '../_shared/canva-oauth.ts'
 
 const CANVA_API_BASE = 'https://api.canva.com/rest/v1'
 
@@ -13,17 +14,26 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
 
-  const clientId = Deno.env.get('CANVA_CLIENT_ID')
   const appUrl = Deno.env.get('APP_URL') ?? 'http://localhost:5173'
 
-  let body: { creativeAssetId: string; userId: string }
+  let body: { creativeAssetId: string; returnUrl?: string }
   try {
     body = await req.json()
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders() })
   }
 
-  const { creativeAssetId, userId } = body
+  const { creativeAssetId, returnUrl } = body
+
+  // userId/orgId are never trusted from the request body — this is a
+  // service-role client (bypasses RLS), so identity has to be resolved
+  // from the caller's own JWT or a spoofed body value could act on any
+  // org's data. Same pattern as aarav-orchestrate.
+  const identityResult = await resolveCallerIdentity(req)
+  if (!identityResult.ok) {
+    return new Response(JSON.stringify({ error: identityResult.error }), { status: identityResult.status, headers: corsHeaders() })
+  }
+  const { userId, orgId } = identityResult.identity
 
   // Fetch the creative asset
   const { data: asset, error: assetErr } = await supabase
@@ -32,6 +42,11 @@ Deno.serve(async (req) => {
     .eq('id', creativeAssetId)
     .single()
   if (assetErr || !asset) {
+    return new Response(JSON.stringify({ error: 'Creative asset not found' }), { status: 404, headers: corsHeaders() })
+  }
+  // Belt-and-suspenders: the service-role client bypassed RLS to fetch this
+  // row, so explicitly verify it belongs to the caller's own org.
+  if (asset.org_id !== orgId) {
     return new Response(JSON.stringify({ error: 'Creative asset not found' }), { status: 404, headers: corsHeaders() })
   }
 
@@ -44,29 +59,21 @@ Deno.serve(async (req) => {
     .single()
 
   if (!tokenRow?.access_token) {
-    // redirect_uri must be the edge function's own URL (Canva calls back here
-    // directly, matching CanvaConnectButton.tsx's working flow) — this used
-    // to point at a client-side app route (/integrations/canva/callback)
-    // that doesn't exist, which would have broken the OAuth handshake for
-    // anyone hitting this cold-start fallback path. state must also be the
-    // {returnUrl, userId, orgId} JSON payload canva-oauth-callback expects —
-    // it was previously just a bare return-URL string, missing userId, which
-    // canva-oauth-callback explicitly rejects (stateUserId required).
-    const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/canva-oauth-callback`
-    const statePayload = encodeURIComponent(JSON.stringify({
-      returnUrl: `${appUrl}/creatives`,
+    // returnUrl is captured from the actual calling page (this app has no
+    // real URL routing — "pages" are React state — so the client passes
+    // `${origin}/?page=<activePage>`, which the return landing page later
+    // parses to know which page to navigate back to). Falls back to a
+    // sensible default if the caller didn't pass one.
+    const result = await initiateCanvaOAuth(supabase, {
       userId,
-      orgId: asset.org_id,
-    }))
-    const authUrl = [
-      'https://www.canva.com/api/oauth/authorize',
-      `?client_id=${encodeURIComponent(clientId ?? '')}`,
-      `&response_type=code`,
-      `&scope=${encodeURIComponent('design:content:read design:content:write asset:read asset:write')}`,
-      `&redirect_uri=${encodeURIComponent(redirectUri)}`,
-      `&state=${statePayload}`,
-    ].join('')
-    return new Response(JSON.stringify({ needsAuth: true, authUrl }), { headers: corsHeaders() })
+      orgId,
+      returnUrl: returnUrl ?? `${appUrl}/?page=creatives`,
+      creativeId: creativeAssetId,
+    })
+    if ('error' in result) {
+      return new Response(JSON.stringify({ error: result.error }), { status: 500, headers: corsHeaders() })
+    }
+    return new Response(JSON.stringify({ needsAuth: true, authUrl: result.authUrl }), { headers: corsHeaders() })
   }
 
   const accessToken = tokenRow.access_token

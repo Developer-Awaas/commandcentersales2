@@ -2,9 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
+import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
+
+// Mirrors _shared/vision-analysis.ts's EditSummary shape (server-only file,
+// not imported client-side) — just the 4 boolean flags this UI displays.
+interface EditSummary {
+  text_changed: boolean;
+  layout_changed: boolean;
+  color_changed: boolean;
+  imagery_changed: boolean;
+}
 
 export interface GalleryImage {
   id?: string;
@@ -27,6 +37,7 @@ interface LightboxState {
 
 export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
+  const { activePage } = useNavigation();
 
   // Local copy so the gallery reflects edits without needing a prop change from the parent
   const [localImages, setLocalImages] = useState<GalleryImage[]>(images);
@@ -37,6 +48,9 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
   const [canvaDesignIds, setCanvaDesignIds] = useState<Record<string, string>>({});
   // Tracks which image id is currently being synced from Canva (null = none)
   const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
+  // edit_summary is computed sync-side only (canva-sync-design); this just
+  // displays whatever comes back in its response, never recomputes it.
+  const [editSummaries, setEditSummaries] = useState<Record<string, EditSummary>>({});
 
   // Stable key representing the current generation session: length + first image id/url.
   // Changing this means a genuinely new set of images was passed (new generation),
@@ -52,20 +66,41 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
     if (isNewSession) setCanvaDesignIds({});
   }, [images]);
 
+  // Auto-resume: if this image is the one that triggered a Canva
+  // cold-start OAuth connect (creativeId round-tripped through
+  // oauth_flow_sessions -> CanvaReturn.tsx -> sessionStorage), re-open its
+  // editor automatically now that a token exists, instead of leaving the
+  // user to click "Edit in Canva" again.
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem('canva_resume_creative_id');
+    if (!resumeId) return;
+    const match = localImages.find((img) => img.id === resumeId);
+    if (!match) return;
+    sessionStorage.removeItem('canva_resume_creative_id');
+    handleCanva(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localImages]);
+
   if (!localImages.length) return null;
 
   async function handleCanva(img: GalleryImage) {
     setCanvaLoading(img.url);
     try {
       if (img.id) {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ creativeAssetId: img.id, userId: getUserId() }),
-        });
-        const json = await res.json() as { editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string };
+        // supabase.functions.invoke attaches the caller's own session JWT
+        // automatically — canva-open-editor derives identity from that, it
+        // never trusts a userId passed in the body (service-role client,
+        // bypasses RLS, so a spoofed value would act on any org's data).
+        // returnUrl encodes which app "page" to land back on (this app has
+        // no real URL routing) so a cold-start OAuth connect returns here,
+        // not the dashboard.
+        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
+        const { data: json, error: invokeErr } = await supabase.functions.invoke<{ editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string }>(
+          'canva-open-editor',
+          { body: { creativeAssetId: img.id, returnUrl } }
+        );
+        if (invokeErr) throw new Error(invokeErr.message);
+        if (!json) throw new Error('canva-open-editor returned no data');
         if (json.editUrl) {
           // Store designId so the "Sync from Canva" button appears after the user edits
           if (json.designId && img.id) {
@@ -97,13 +132,16 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
         body: JSON.stringify({ creativeAssetId: img.id, userId: getUserId() }),
       });
-      const json = await res.json() as { imageUrl?: string; error?: string };
+      const json = await res.json() as { imageUrl?: string; editSummary?: EditSummary | null; error?: string };
       if (json.imageUrl) {
         // Match by id (stable) not url (may have changed after a prior Adobe Express edit)
         setLocalImages((prev) => prev.map((i) =>
           (img.id ? i.id === img.id : i.url === img.url) ? { ...i, url: json.imageUrl! } : i
         ));
         setCanvaDesignIds((prev) => { const next = { ...prev }; delete next[img.id!]; return next; });
+        if (json.editSummary) {
+          setEditSummaries((prev) => ({ ...prev, [img.id!]: json.editSummary! }));
+        }
         showToast('Synced from Canva!', 'success');
         // Await DB update so errors are not silently swallowed
         const { error: dbErr } = await supabase.from('creative_assets').update({
@@ -218,6 +256,24 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 </button>
               )}
 
+              {/* Edit summary — computed sync-side by canva-sync-design, shown as-is */}
+              {img.id && editSummaries[img.id] && (
+                <div className="flex flex-wrap gap-1">
+                  {(['text_changed', 'layout_changed', 'color_changed', 'imagery_changed'] as const)
+                    .filter((k) => editSummaries[img.id!][k])
+                    .map((k) => (
+                      <span key={k} className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border text-[10px] text-text-tertiary">
+                        {k.replace('_changed', '')}
+                      </span>
+                    ))}
+                  {Object.values(editSummaries[img.id!]).every((v) => !v) && (
+                    <span className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border text-[10px] text-text-tertiary">
+                      no detected changes
+                    </span>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all"
@@ -300,6 +356,17 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                     : <RefreshCw size={13} />}
                   {canvaSyncing === current.id ? 'Syncing…' : 'Sync from Canva'}
                 </button>
+              )}
+              {current.id && editSummaries[current.id] && (
+                <div className="flex flex-wrap gap-1 w-full">
+                  {(['text_changed', 'layout_changed', 'color_changed', 'imagery_changed'] as const)
+                    .filter((k) => editSummaries[current.id!][k])
+                    .map((k) => (
+                      <span key={k} className="px-1.5 py-0.5 rounded bg-surface-elevated border border-border text-[10px] text-text-tertiary">
+                        {k.replace('_changed', '')}
+                      </span>
+                    ))}
+                </div>
               )}
               <button
                 onClick={() => downloadImage(current.url, `generated-${current.label ?? lightbox.index + 1}.jpg`)}

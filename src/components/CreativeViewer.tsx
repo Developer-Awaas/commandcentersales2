@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
+import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
@@ -325,6 +326,7 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
 export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, projectContext }: CreativeViewerProps) {
   const resolvedOrgId = orgId ?? getOrgId();
   const { showToast } = useToast();
+  const { activePage } = useNavigation();
   const [assets, setAssets] = useState<CreativeAsset[]>([]);
   const [generating, setGenerating] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -476,14 +478,18 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }
         showToast('Regenerated!', 'success');
       } else if (action === 'canva') {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ creativeAssetId: assetId, userId: getUserId() }),
-        });
-        const json = await res.json() as { needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string };
+        // supabase.functions.invoke attaches the caller's own session JWT —
+        // canva-open-editor derives identity from that server-side, never
+        // from a userId passed in the body. returnUrl encodes which app
+        // "page" to land back on (no real URL routing in this app) so a
+        // cold-start OAuth connect returns here, not the dashboard.
+        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
+        const { data: json, error: invokeErr } = await supabase.functions.invoke<{ needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string }>(
+          'canva-open-editor',
+          { body: { creativeAssetId: assetId, returnUrl } }
+        );
+        if (invokeErr) throw new Error(invokeErr.message);
+        if (!json) throw new Error('canva-open-editor returned no data');
         if (json.needsAuth) {
           setPendingCanvaAssetId(assetId);
           setShowCanvaConnect(true);

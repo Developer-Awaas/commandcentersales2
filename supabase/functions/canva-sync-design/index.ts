@@ -128,6 +128,13 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     }).eq('id', creativeAssetId)
 
+    // NOTE: review-build additionally computes a sync-side edit_summary
+    // (vision-analysis diff) here, returned to the client for display —
+    // main's canva-sync-design doesn't have the prerequisite versioned
+    // edit-tracking infrastructure (creative_asset_versions/
+    // canva_edit_sessions) that feature depends on yet, so it isn't
+    // ported in this commit. ImageGalleryViewer.tsx's edit_summary display
+    // is a harmless no-op here until that's ported separately.
     return new Response(JSON.stringify({ imageUrl }), { headers: corsHeaders() })
   } catch (err: unknown) {
     return new Response(
