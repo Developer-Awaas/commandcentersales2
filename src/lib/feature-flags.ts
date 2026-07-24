@@ -6,9 +6,7 @@ export const LEADGEN_V2_ENABLED =
 
 // GPT-Image-1 generation costs real money per image (~INR 60/image at the
 // sizes/quality this app uses) — testing on review-build with the full
-// 3-images-per-generation product behavior is not cost-feasible. Caps
-// Quick Generate and Creatives-page generation to 1 image instead of 3.
-// review-build only — flip to false (or delete this flag entirely) before
-// any of this ships to main/production, where all 3 images are the actual
-// product behavior.
-export const SINGLE_IMAGE_TESTING_MODE = true;
+// 3-images-per-generation product behavior is not cost-feasible there, so
+// review-build sets this to true. On main/production, all 3 images per
+// generation is the actual product behavior — this must stay false here.
+export const SINGLE_IMAGE_TESTING_MODE = false;
