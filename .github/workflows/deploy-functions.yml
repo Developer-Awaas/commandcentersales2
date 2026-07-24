@@ -40,6 +40,7 @@ jobs:
             aarav-orchestrate \
             canva-oauth-callback \
             canva-open-editor \
+            canva-connect-init \
             canva-sync-design \
             claude-proxy \
             generate-creatives \

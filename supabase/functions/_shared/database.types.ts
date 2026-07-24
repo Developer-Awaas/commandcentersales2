@@ -524,6 +524,40 @@ export interface Database {
         Relationships: Rel[]
       }
 
+      oauth_flow_sessions: {
+        Row: {
+          nonce: string
+          provider: string
+          user_id: string
+          org_id: string
+          code_verifier: string
+          return_url: string
+          created_at: string
+          expires_at: string
+        }
+        Insert: {
+          nonce?: string
+          provider?: string
+          user_id: string
+          org_id: string
+          code_verifier: string
+          return_url: string
+          created_at?: string
+          expires_at?: string
+        }
+        Update: {
+          nonce?: string
+          provider?: string
+          user_id?: string
+          org_id?: string
+          code_verifier?: string
+          return_url?: string
+          created_at?: string
+          expires_at?: string
+        }
+        Relationships: Rel[]
+      }
+
       campaign_metrics: {
         Row: {
           id: string

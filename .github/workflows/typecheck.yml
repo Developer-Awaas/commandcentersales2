@@ -65,6 +65,7 @@ jobs:
             supabase/functions/aarav-orchestrate/index.ts \
             supabase/functions/canva-oauth-callback/index.ts \
             supabase/functions/canva-open-editor/index.ts \
+            supabase/functions/canva-connect-init/index.ts \
             supabase/functions/canva-sync-design/index.ts \
             supabase/functions/generate-creatives/index.ts \
             supabase/functions/generate-image/index.ts \

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
 import { ExternalLink, Check, Trash2 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 
@@ -12,6 +11,7 @@ interface CanvaConnectButtonProps {
 export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonProps) {
   const [connected, setConnected] = useState<boolean | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     checkConnection();
@@ -39,32 +39,23 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
   }
 
   async function handleConnect() {
-    const clientId = import.meta.env.VITE_CANVA_CLIENT_ID as string | undefined;
-    if (!clientId) {
-      alert('VITE_CANVA_CLIENT_ID is not configured.');
-      return;
+    // Identity (userId/orgId) is resolved server-side from the caller's own
+    // session JWT — canva-connect-init never trusts a client-supplied value.
+    // PKCE + the returned nonce-based state are handled entirely server-side
+    // too; see _shared/canva-oauth.ts for why.
+    setConnecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke<{ authUrl?: string; error?: string }>(
+        'canva-connect-init',
+        { body: { returnUrl: window.location.href } }
+      );
+      if (error) throw new Error(error.message);
+      if (!data?.authUrl) throw new Error(data?.error ?? 'No authUrl returned');
+      window.location.href = data.authUrl;
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to start Canva connect');
+      setConnecting(false);
     }
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-    const redirectUri = `${supabaseUrl}/functions/v1/canva-oauth-callback`;
-
-    // Encode returnUrl + user identity in state so the callback can identify the user
-    // without relying on an Authorization header (browser redirects never carry one)
-    const statePayload = encodeURIComponent(JSON.stringify({
-      returnUrl: window.location.href,
-      userId,
-      orgId: getOrgId(),
-    }));
-
-    const authUrl = [
-      'https://www.canva.com/api/oauth/authorize',
-      `?client_id=${encodeURIComponent(clientId)}`,
-      `&response_type=code`,
-      `&scope=${encodeURIComponent('design:content:read design:content:write asset:read asset:write')}`,
-      `&redirect_uri=${encodeURIComponent(redirectUri)}`,
-      `&state=${statePayload}`,
-    ].join('');
-
-    window.location.href = authUrl;
   }
 
   async function handleDisconnect() {
@@ -109,10 +100,11 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
   return (
     <button
       onClick={handleConnect}
-      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium hover:bg-teal-500/20 transition-all"
+      disabled={connecting}
+      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-medium hover:bg-teal-500/20 transition-all disabled:opacity-40"
     >
-      <ExternalLink size={14} />
-      Connect Canva
+      {connecting ? <Spinner size="sm" /> : <ExternalLink size={14} />}
+      {connecting ? 'Connecting…' : 'Connect Canva'}
     </button>
   );
 }
