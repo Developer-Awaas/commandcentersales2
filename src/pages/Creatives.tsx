@@ -19,6 +19,7 @@ import { Select } from '../components/ui/Select';
 import { CopyButton } from '../components/ui/CopyButton';
 import { Spinner } from '../components/ui/Spinner';
 import { useNavigation } from '../contexts/NavigationContext';
+import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
 
 interface Project {
   id: string;
@@ -367,6 +368,27 @@ export function Creatives() {
     loadLibrary();
   }, [loadLibrary]);
 
+  // If a Canva cold-start OAuth connect was triggered from a specific
+  // creative here, CanvaReturn.tsx lands the user back on this page and
+  // stashes the creative's id — this page's own galleryImages state is
+  // ephemeral (lost on the OAuth round-trip's full-page navigation), so
+  // fetch that one creative back in so ImageGalleryViewer has something
+  // to auto-resume the Canva editor for.
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem('canva_resume_creative_id');
+    if (!resumeId) return;
+    (async () => {
+      const { data } = await supabase
+        .from('creative_assets')
+        .select('id, image_url, storage_path, prompt_used')
+        .eq('id', resumeId)
+        .maybeSingle();
+      if (data?.image_url) {
+        setGalleryImages([{ id: data.id, url: data.image_url, storagePath: data.storage_path ?? undefined, promptUsed: data.prompt_used ?? undefined }]);
+      }
+    })();
+  }, []);
+
   // Manage blob URL lifecycle — create once per file, revoke on change or unmount
   useEffect(() => {
     if (!image) { setImagePreviewUrl(null); return; }
@@ -590,10 +612,14 @@ export function Creatives() {
             },
           });
 
-          // Auto-generate actual images from nanoPrompts in background
-          const promptsToRender = aiVariants
+          // Auto-generate actual images from nanoPrompts in background.
+          // SINGLE_IMAGE_TESTING_MODE: only generate 1 of the 3 variants'
+          // images — real GPT-Image-1 generation cost, not feasible to
+          // spend 3x per test. All 3 variants' copy/prompts still show.
+          const allPromptsToRender = aiVariants
             .filter((v) => v.nanoPrompt)
             .map((v) => ({ label: v.angle, prompt: v.nanoPrompt, headline: v.headline, cta: v.cta }));
+          const promptsToRender = SINGLE_IMAGE_TESTING_MODE ? allPromptsToRender.slice(0, 1) : allPromptsToRender;
           if (promptsToRender.length > 0) {
             setGalleryImages([]);
             setGeneratingImages(true);

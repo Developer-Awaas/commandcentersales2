@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useNavigation } from '../contexts/NavigationContext';
 import { ExternalLink, Check, Trash2 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 
@@ -9,6 +10,7 @@ interface CanvaConnectButtonProps {
 }
 
 export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonProps) {
+  const { activePage } = useNavigation();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -16,15 +18,14 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
   useEffect(() => {
     checkConnection();
 
-    // Handle OAuth callback result
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('canva_connected') === '1') {
+    // Handle OAuth callback result — set by CanvaReturn.tsx after the
+    // server-side callback redirects there and validates same-origin; the
+    // query string itself is cleaned before we ever get here, so this
+    // reads sessionStorage instead of a URL param.
+    if (sessionStorage.getItem('canva_just_connected') === '1') {
+      sessionStorage.removeItem('canva_just_connected');
       setConnected(true);
       onConnected?.();
-      // Remove the query param without reload
-      const url = new URL(window.location.href);
-      url.searchParams.delete('canva_connected');
-      window.history.replaceState({}, '', url.toString());
     }
   }, [userId]);
 
@@ -45,9 +46,13 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
     // too; see _shared/canva-oauth.ts for why.
     setConnecting(true);
     try {
+      // This app has no real URL routing — "pages" are React state, and
+      // window.location.href never changes between them — so returnUrl is
+      // constructed to actually encode which page to land back on.
+      const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
       const { data, error } = await supabase.functions.invoke<{ authUrl?: string; error?: string }>(
         'canva-connect-init',
-        { body: { returnUrl: window.location.href } }
+        { body: { returnUrl } }
       );
       if (error) throw new Error(error.message);
       if (!data?.authUrl) throw new Error(data?.error ?? 'No authUrl returned');

@@ -16,14 +16,14 @@ Deno.serve(async (req) => {
 
   const appUrl = Deno.env.get('APP_URL') ?? 'http://localhost:5173'
 
-  let body: { creativeAssetId: string }
+  let body: { creativeAssetId: string; returnUrl?: string }
   try {
     body = await req.json()
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders() })
   }
 
-  const { creativeAssetId } = body
+  const { creativeAssetId, returnUrl } = body
 
   // userId/orgId are never trusted from the request body — this is a
   // service-role client (bypasses RLS), so identity has to be resolved
@@ -59,10 +59,16 @@ Deno.serve(async (req) => {
     .single()
 
   if (!tokenRow?.access_token) {
+    // returnUrl is captured from the actual calling page (this app has no
+    // real URL routing — "pages" are React state — so the client passes
+    // `${origin}/?page=<activePage>`, which the return landing page later
+    // parses to know which page to navigate back to). Falls back to a
+    // sensible default if the caller didn't pass one.
     const result = await initiateCanvaOAuth(supabase, {
       userId,
       orgId,
-      returnUrl: `${appUrl}/creatives`,
+      returnUrl: returnUrl ?? `${appUrl}/?page=creatives`,
+      creativeId: creativeAssetId,
     })
     if ('error' in result) {
       return new Response(JSON.stringify({ error: result.error }), { status: 500, headers: corsHeaders() })

@@ -23,6 +23,7 @@ import { TargetingVerifier } from '../../components/TargetingVerifier';
 import { InlineCreativeReview, type InlineReviewProject } from '../../components/InlineCreativeReview';
 import ReferenceImagePack from '../../components/ReferenceImagePack';
 import { ImageGalleryViewer, type GalleryImage } from '../../components/ImageGalleryViewer';
+import { SINGLE_IMAGE_TESTING_MODE } from '../../lib/feature-flags';
 import {
   type StrategyResult as StrategyResultType,
   type QuickGenerateInputs,
@@ -1389,10 +1390,12 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       const promptPortrait = data.nanobanana_prompt_portrait ?? data.nanobanana_prompt_main ?? '';
       const promptStory   = data.nanobanana_prompt_story    ?? data.nanobanana_prompt_main ?? '';
 
+      // SINGLE_IMAGE_TESTING_MODE: only generate the feed image — real
+      // GPT-Image-1 generation cost, not feasible to spend 3x per test.
       const [feedResult, portraitResult, storyResult] = await Promise.allSettled([
-        generateImageWithGemini(promptFeed,    '1:1'),
-        generateImageWithGemini(promptPortrait,'4:5'),
-        generateImageWithGemini(promptStory,   '9:16'),
+        generateImageWithGemini(promptFeed, '1:1'),
+        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptPortrait, '4:5'),
+        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptStory, '9:16'),
       ]);
 
       const collected: GalleryImage[] = [];

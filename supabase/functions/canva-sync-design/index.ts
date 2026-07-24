@@ -155,7 +155,10 @@ Deno.serve(async (req) => {
     // Step 6: Close the session opened by canva-open-editor and record a
     // structured before/after edit summary. Best-effort — a vision-analysis
     // or session-lookup failure must never fail the sync itself; the image
-    // is already safely versioned by this point.
+    // is already safely versioned by this point. The analysis is computed
+    // here (sync-side) only — the client never re-triggers or recomputes
+    // it, only displays whatever comes back in this response.
+    let editSummary: unknown = null
     try {
       const { data: session } = await supabase
         .from('canva_edit_sessions')
@@ -172,7 +175,7 @@ Deno.serve(async (req) => {
           analyzeCreativeVision(previousImageUrl, traceId),
           analyzeCreativeVision(imageUrl, traceId),
         ])
-        const editSummary = diffVisionAnalyses(beforeAnalysis, afterAnalysis)
+        editSummary = diffVisionAnalyses(beforeAnalysis, afterAnalysis)
 
         await supabase.from('canva_edit_sessions').update({
           version_after_id: versionAfter.id,
@@ -185,7 +188,7 @@ Deno.serve(async (req) => {
       console.error('canva_edit_sessions close/vision-analysis failed (non-fatal):', sessionErr instanceof Error ? sessionErr.message : sessionErr)
     }
 
-    return new Response(JSON.stringify({ imageUrl }), { headers: corsHeaders() })
+    return new Response(JSON.stringify({ imageUrl, editSummary }), { headers: corsHeaders() })
   } catch (err: unknown) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),

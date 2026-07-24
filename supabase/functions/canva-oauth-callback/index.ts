@@ -17,21 +17,42 @@ Deno.serve(async (req) => {
   const clientSecret = Deno.env.get('CANVA_CLIENT_SECRET')!
   const appUrl = Deno.env.get('APP_URL') ?? 'http://localhost:5173'
 
+  // Never redirect straight to an arbitrary returnUrl (open-redirect risk).
+  // Always land on our own known, trusted root first with the (validated)
+  // real target attached as a query param — the client-side landing step
+  // does its own same-origin check again before actually navigating there.
+  function buildReturnRedirect(opts: { connected?: boolean; error?: string; returnUrl?: string; creativeId?: string | null }): string {
+    const target = new URL(appUrl)
+    target.searchParams.set('canva_return', '1')
+    if (opts.connected) target.searchParams.set('connected', '1')
+    if (opts.error) target.searchParams.set('error', opts.error)
+    if (opts.returnUrl) {
+      try {
+        const parsed = new URL(opts.returnUrl)
+        if (parsed.origin === new URL(appUrl).origin) {
+          target.searchParams.set('returnUrl', opts.returnUrl)
+        }
+      } catch { /* invalid returnUrl — omit it, land page falls back to its default */ }
+    }
+    if (opts.creativeId) target.searchParams.set('creativeId', opts.creativeId)
+    return target.toString()
+  }
+
   if (!code) {
-    return Response.redirect(`${appUrl}/?canva_error=no_code`, 302)
+    return Response.redirect(buildReturnRedirect({ error: 'no_code' }), 302)
   }
 
   // state is now an opaque nonce only — never JSON, never carries identity.
   // The real identity, return URL, and PKCE code_verifier live server-side
   // in oauth_flow_sessions, resolved here single-use (deleted on read).
   if (!state) {
-    return Response.redirect(`${appUrl}/?canva_error=${encodeURIComponent('Missing OAuth state')}`, 302)
+    return Response.redirect(buildReturnRedirect({ error: 'Missing OAuth state' }), 302)
   }
   const sessionResult = await consumeOAuthFlowSession(supabase, state)
   if (!sessionResult.ok) {
-    return Response.redirect(`${appUrl}/?canva_error=${encodeURIComponent(sessionResult.error)}`, 302)
+    return Response.redirect(buildReturnRedirect({ error: sessionResult.error }), 302)
   }
-  const { userId: stateUserId, orgId: stateOrgId, codeVerifier, returnUrl } = sessionResult.session
+  const { userId: stateUserId, orgId: stateOrgId, codeVerifier, returnUrl, creativeId } = sessionResult.session
 
   try {
     // Exchange code for tokens — code_verifier is PKCE's proof that this
@@ -76,9 +97,9 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,provider' })
 
-    return Response.redirect(`${returnUrl}?canva_connected=1`, 302)
+    return Response.redirect(buildReturnRedirect({ connected: true, returnUrl, creativeId }), 302)
   } catch (err: unknown) {
-    const msg = encodeURIComponent(err instanceof Error ? err.message : String(err))
-    return Response.redirect(`${appUrl}/?canva_error=${msg}`, 302)
+    const msg = err instanceof Error ? err.message : String(err)
+    return Response.redirect(buildReturnRedirect({ error: msg, returnUrl, creativeId }), 302)
   }
 })
