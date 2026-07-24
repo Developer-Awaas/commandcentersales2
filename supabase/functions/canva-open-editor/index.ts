@@ -44,7 +44,28 @@ Deno.serve(async (req) => {
     .single()
 
   if (!tokenRow?.access_token) {
-    const authUrl = `https://www.canva.com/api/oauth/authorize?client_id=${clientId}&response_type=code&scope=design:content:read%20design:content:write%20asset:read%20asset:write&redirect_uri=${appUrl}/integrations/canva/callback&state=${encodeURIComponent(appUrl + '/creatives')}`
+    // redirect_uri must be the edge function's own URL (Canva calls back here
+    // directly, matching CanvaConnectButton.tsx's working flow) — this used
+    // to point at a client-side app route (/integrations/canva/callback)
+    // that doesn't exist, which would have broken the OAuth handshake for
+    // anyone hitting this cold-start fallback path. state must also be the
+    // {returnUrl, userId, orgId} JSON payload canva-oauth-callback expects —
+    // it was previously just a bare return-URL string, missing userId, which
+    // canva-oauth-callback explicitly rejects (stateUserId required).
+    const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/canva-oauth-callback`
+    const statePayload = encodeURIComponent(JSON.stringify({
+      returnUrl: `${appUrl}/creatives`,
+      userId,
+      orgId: asset.org_id,
+    }))
+    const authUrl = [
+      'https://www.canva.com/api/oauth/authorize',
+      `?client_id=${encodeURIComponent(clientId ?? '')}`,
+      `&response_type=code`,
+      `&scope=${encodeURIComponent('design:content:read design:content:write asset:read asset:write')}`,
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`,
+      `&state=${statePayload}`,
+    ].join('')
     return new Response(JSON.stringify({ needsAuth: true, authUrl }), { headers: corsHeaders() })
   }
 
