@@ -532,6 +532,7 @@ export interface Database {
           org_id: string
           code_verifier: string
           return_url: string
+          creative_id: string | null
           created_at: string
           expires_at: string
         }
@@ -542,6 +543,7 @@ export interface Database {
           org_id: string
           code_verifier: string
           return_url: string
+          creative_id?: string | null
           created_at?: string
           expires_at?: string
         }
@@ -552,6 +554,7 @@ export interface Database {
           org_id?: string
           code_verifier?: string
           return_url?: string
+          creative_id?: string | null
           created_at?: string
           expires_at?: string
         }

@@ -83,13 +83,16 @@ export async function resolveCallerIdentity(req: Request): Promise<IdentityResul
   return { ok: true, identity: { userId, orgId: profile.org_id as string } };
 }
 
-// Generates PKCE, stores {user_id, org_id, code_verifier, return_url} behind
-// a fresh opaque nonce (service-role only, RLS deny-all, single-use, 10 min
-// TTL), and returns the authUrl with state = that nonce alone — no identity
-// or verifier travels in the URL/redirect chain.
+// Generates PKCE, stores {user_id, org_id, code_verifier, return_url,
+// creative_id} behind a fresh opaque nonce (service-role only, RLS
+// deny-all, single-use, 10 min TTL), and returns the authUrl with state =
+// that nonce alone — no identity or verifier travels in the URL/redirect
+// chain. creativeId is set only when initiated from a specific creative's
+// "Edit in Canva" cold-start (canva-open-editor), so the return landing
+// page can auto-resume that creative once connected.
 export async function initiateCanvaOAuth(
   serviceClient: SupabaseClient<Database>,
-  params: { userId: string; orgId: string; returnUrl: string }
+  params: { userId: string; orgId: string; returnUrl: string; creativeId?: string }
 ): Promise<{ authUrl: string } | { error: string }> {
   const clientId = Deno.env.get('CANVA_CLIENT_ID');
   if (!clientId) return { error: 'CANVA_CLIENT_ID secret is not set' };
@@ -107,6 +110,7 @@ export async function initiateCanvaOAuth(
       org_id: params.orgId,
       code_verifier: codeVerifier,
       return_url: params.returnUrl,
+      creative_id: params.creativeId ?? null,
       expires_at: new Date(Date.now() + OAUTH_SESSION_TTL_MINUTES * 60_000).toISOString(),
     })
     .select('nonce')
@@ -135,12 +139,12 @@ export async function consumeOAuthFlowSession(
   serviceClient: SupabaseClient<Database>,
   nonce: string
 ): Promise<
-  | { ok: true; session: { userId: string; orgId: string; codeVerifier: string; returnUrl: string } }
+  | { ok: true; session: { userId: string; orgId: string; codeVerifier: string; returnUrl: string; creativeId: string | null } }
   | { ok: false; error: string }
 > {
   const { data: row, error } = await serviceClient
     .from('oauth_flow_sessions')
-    .select('user_id, org_id, code_verifier, return_url, expires_at')
+    .select('user_id, org_id, code_verifier, return_url, creative_id, expires_at')
     .eq('nonce', nonce)
     .maybeSingle();
 
@@ -162,6 +166,7 @@ export async function consumeOAuthFlowSession(
       orgId: row.org_id as string,
       codeVerifier: row.code_verifier as string,
       returnUrl: row.return_url as string,
+      creativeId: row.creative_id as string | null,
     },
   };
 }

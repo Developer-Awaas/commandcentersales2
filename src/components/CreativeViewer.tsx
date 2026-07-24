@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
+import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
@@ -325,6 +326,7 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
 export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, projectContext }: CreativeViewerProps) {
   const resolvedOrgId = orgId ?? getOrgId();
   const { showToast } = useToast();
+  const { activePage } = useNavigation();
   const [assets, setAssets] = useState<CreativeAsset[]>([]);
   const [generating, setGenerating] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -478,10 +480,13 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
       } else if (action === 'canva') {
         // supabase.functions.invoke attaches the caller's own session JWT —
         // canva-open-editor derives identity from that server-side, never
-        // from a userId passed in the body.
+        // from a userId passed in the body. returnUrl encodes which app
+        // "page" to land back on (no real URL routing in this app) so a
+        // cold-start OAuth connect returns here, not the dashboard.
+        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
         const { data: json, error: invokeErr } = await supabase.functions.invoke<{ needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string }>(
           'canva-open-editor',
-          { body: { creativeAssetId: assetId } }
+          { body: { creativeAssetId: assetId, returnUrl } }
         );
         if (invokeErr) throw new Error(invokeErr.message);
         if (!json) throw new Error('canva-open-editor returned no data');
