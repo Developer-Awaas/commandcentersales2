@@ -1,6 +1,7 @@
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
+import { consumeOAuthFlowSession } from '../_shared/canva-oauth.ts'
 
 Deno.serve(async (req) => {
   const url = new URL(req.url)
@@ -16,42 +17,26 @@ Deno.serve(async (req) => {
   const clientSecret = Deno.env.get('CANVA_CLIENT_SECRET')!
   const appUrl = Deno.env.get('APP_URL') ?? 'http://localhost:5173'
 
-  // State is a JSON payload {returnUrl, userId, orgId} encoded by CanvaConnectButton.
-  // Browser redirects never carry an Authorization header, so user identity must come
-  // from the state parameter that was set before the OAuth redirect.
-  let returnUrl = appUrl
-  let stateUserId: string | null = null
-  let stateOrgId: string | null = null
-
-  if (state) {
-    try {
-      const parsed = JSON.parse(decodeURIComponent(state)) as {
-        returnUrl?: string
-        userId?: string
-        orgId?: string
-      }
-      returnUrl = parsed.returnUrl ?? appUrl
-      stateUserId = parsed.userId ?? null
-      stateOrgId = parsed.orgId ?? null
-    } catch {
-      // Legacy format: state was just the plain return URL
-      returnUrl = decodeURIComponent(state)
-    }
-  }
-
   if (!code) {
     return Response.redirect(`${appUrl}/?canva_error=no_code`, 302)
   }
 
-  if (!stateUserId) {
-    return Response.redirect(
-      `${appUrl}/?canva_error=${encodeURIComponent('OAuth state missing user identity — please try connecting again')}`,
-      302
-    )
+  // state is now an opaque nonce only — never JSON, never carries identity.
+  // The real identity, return URL, and PKCE code_verifier live server-side
+  // in oauth_flow_sessions, resolved here single-use (deleted on read).
+  if (!state) {
+    return Response.redirect(`${appUrl}/?canva_error=${encodeURIComponent('Missing OAuth state')}`, 302)
   }
+  const sessionResult = await consumeOAuthFlowSession(supabase, state)
+  if (!sessionResult.ok) {
+    return Response.redirect(`${appUrl}/?canva_error=${encodeURIComponent(sessionResult.error)}`, 302)
+  }
+  const { userId: stateUserId, orgId: stateOrgId, codeVerifier, returnUrl } = sessionResult.session
 
   try {
-    // Exchange code for tokens
+    // Exchange code for tokens — code_verifier is PKCE's proof that this
+    // exchange is being made by the same party that initiated the
+    // authorize request (see _shared/canva-oauth.ts for why this exists).
     const tokenRes = await fetch('https://api.canva.com/rest/v1/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -61,6 +46,7 @@ Deno.serve(async (req) => {
         redirect_uri: `${Deno.env.get('SUPABASE_URL')}/functions/v1/canva-oauth-callback`,
         client_id: clientId,
         client_secret: clientSecret,
+        code_verifier: codeVerifier,
       }),
     })
 
@@ -78,10 +64,10 @@ Deno.serve(async (req) => {
 
     const expiresAt = new Date(Date.now() + (tokenJson.expires_in ?? 3600) * 1000).toISOString()
 
-    // Upsert token using user identity from the OAuth state parameter
+    // Upsert token using identity resolved server-side from the oauth_flow_sessions row
     await supabase.from('org_user_integrations').upsert({
       user_id: stateUserId,
-      org_id: stateOrgId ?? '00000000-0000-0000-0000-000000000001',
+      org_id: stateOrgId,
       provider: 'canva',
       access_token: tokenJson.access_token,
       refresh_token: tokenJson.refresh_token ?? null,

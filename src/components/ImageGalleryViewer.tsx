@@ -58,14 +58,16 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
     setCanvaLoading(img.url);
     try {
       if (img.id) {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ creativeAssetId: img.id, userId: getUserId() }),
-        });
-        const json = await res.json() as { editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string };
+        // supabase.functions.invoke attaches the caller's own session JWT
+        // automatically — canva-open-editor derives identity from that, it
+        // never trusts a userId passed in the body (service-role client,
+        // bypasses RLS, so a spoofed value would act on any org's data).
+        const { data: json, error: invokeErr } = await supabase.functions.invoke<{ editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string }>(
+          'canva-open-editor',
+          { body: { creativeAssetId: img.id } }
+        );
+        if (invokeErr) throw new Error(invokeErr.message);
+        if (!json) throw new Error('canva-open-editor returned no data');
         if (json.editUrl) {
           // Store designId so the "Sync from Canva" button appears after the user edits
           if (json.designId && img.id) {

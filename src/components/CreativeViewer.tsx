@@ -476,14 +476,15 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }
         showToast('Regenerated!', 'success');
       } else if (action === 'canva') {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ creativeAssetId: assetId, userId: getUserId() }),
-        });
-        const json = await res.json() as { needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string };
+        // supabase.functions.invoke attaches the caller's own session JWT —
+        // canva-open-editor derives identity from that server-side, never
+        // from a userId passed in the body.
+        const { data: json, error: invokeErr } = await supabase.functions.invoke<{ needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string }>(
+          'canva-open-editor',
+          { body: { creativeAssetId: assetId } }
+        );
+        if (invokeErr) throw new Error(invokeErr.message);
+        if (!json) throw new Error('canva-open-editor returned no data');
         if (json.needsAuth) {
           setPendingCanvaAssetId(assetId);
           setShowCanvaConnect(true);
