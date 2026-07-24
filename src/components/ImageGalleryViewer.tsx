@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -99,7 +99,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           'canva-open-editor',
           { body: { creativeAssetId: img.id, returnUrl } }
         );
-        if (invokeErr) throw new Error(invokeErr.message);
+        if (invokeErr) throw new Error(await extractFunctionErrorMessage(invokeErr, 'Canva editor request failed'));
         if (!json) throw new Error('canva-open-editor returned no data');
         if (json.editUrl) {
           // Store designId so the "Sync from Canva" button appears after the user edits

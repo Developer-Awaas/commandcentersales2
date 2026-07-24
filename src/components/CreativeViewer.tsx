@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -488,7 +488,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           'canva-open-editor',
           { body: { creativeAssetId: assetId, returnUrl } }
         );
-        if (invokeErr) throw new Error(invokeErr.message);
+        if (invokeErr) throw new Error(await extractFunctionErrorMessage(invokeErr, 'Canva editor request failed'));
         if (!json) throw new Error('canva-open-editor returned no data');
         if (json.needsAuth) {
           setPendingCanvaAssetId(assetId);

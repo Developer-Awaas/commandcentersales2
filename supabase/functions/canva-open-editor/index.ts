@@ -1,6 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
-import { resolveCallerIdentity, initiateCanvaOAuth } from '../_shared/canva-oauth.ts'
+import { resolveCallerIdentity, initiateCanvaOAuth, getValidCanvaAccessToken } from '../_shared/canva-oauth.ts'
+
+// Distinguishes "Canva's API rejected this request" (502 — an upstream
+// service problem, readable in the response body) from an actual bug in
+// this function (500). Previously every failure in the try block —
+// Canva rejections included — returned a bare 500 with no way to tell
+// which class of problem it was from the status code alone.
+class CanvaApiError extends Error {}
 
 const CANVA_API_BASE = 'https://api.canva.com/rest/v1'
 
@@ -50,15 +57,12 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Creative asset not found' }), { status: 404, headers: corsHeaders() })
   }
 
-  // Fetch the user's Canva token
-  const { data: tokenRow } = await supabase
-    .from('org_user_integrations')
-    .select('access_token')
-    .eq('user_id', userId)
-    .eq('provider', 'canva')
-    .single()
-
-  if (!tokenRow?.access_token) {
+  // Get a valid Canva access token — refreshes it first (with single-use
+  // refresh-token rotation) if it's expired or close to it. A dead/missing
+  // connection here (never connected, or refresh itself failed) means the
+  // same needsAuth cold-start path as before.
+  const tokenResult = await getValidCanvaAccessToken(supabase, userId)
+  if (!tokenResult.ok) {
     // returnUrl is captured from the actual calling page (this app has no
     // real URL routing — "pages" are React state — so the client passes
     // `${origin}/?page=<activePage>`, which the return landing page later
@@ -76,7 +80,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ needsAuth: true, authUrl: result.authUrl }), { headers: corsHeaders() })
   }
 
-  const accessToken = tokenRow.access_token
+  const accessToken = tokenResult.accessToken
 
   if (!asset.image_url) {
     return new Response(
@@ -86,23 +90,33 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Step 1: Upload image via URL import
+    // Step 1: Upload the image. POST /v1/asset-uploads does NOT support
+    // import-by-URL despite the field names our previous implementation
+    // used (import_type/import_url are not real params) — confirmed
+    // directly against Canva's docs and by reproducing the exact rejection
+    // it returns: {"code":"internal_error","message":"Unsupported content
+    // type, expected: application/octet-stream, ..."}. The real contract
+    // is raw file bytes as the body, Content-Type: application/octet-stream,
+    // and the asset name as a base64 JSON header (max 50 chars unencoded).
+    // https://www.canva.dev/docs/connect/api-reference/assets/create-asset-upload-job/
+    const imageFetchRes = await fetch(asset.image_url)
+    if (!imageFetchRes.ok) throw new Error(`Failed to fetch source image (${imageFetchRes.status})`)
+    const imageBytes = await imageFetchRes.arrayBuffer()
+
+    const assetName = `CC2-${asset.campaign_id ?? 'creative'}-${asset.angle}`.slice(0, 50)
     const uploadRes = await fetch(`${CANVA_API_BASE}/asset-uploads`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/octet-stream',
+        'Asset-Upload-Metadata': JSON.stringify({ name_base64: btoa(assetName) }),
       },
-      body: JSON.stringify({
-        import_type: 'url',
-        import_url: asset.image_url,
-        name: `CC2-${asset.campaign_id ?? 'creative'}-${asset.angle}`,
-      }),
+      body: imageBytes,
     })
     const uploadJson = await uploadRes.json() as { job?: { id?: string }; error?: { message?: string } }
-    if (!uploadRes.ok) throw new Error(uploadJson?.error?.message ?? `Canva upload error ${uploadRes.status}`)
+    if (!uploadRes.ok) throw new CanvaApiError(uploadJson?.error?.message ?? `Canva upload error ${uploadRes.status}`)
     const jobId = uploadJson.job?.id
-    if (!jobId) throw new Error('No upload job ID returned from Canva')
+    if (!jobId) throw new CanvaApiError('No upload job ID returned from Canva')
 
     // Step 2: Poll upload job status
     let uploadedAssetId: string | null = null
@@ -111,16 +125,23 @@ Deno.serve(async (req) => {
       const pollRes = await fetch(`${CANVA_API_BASE}/asset-uploads/${jobId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
-      const pollJson = await pollRes.json() as { job?: { status?: string; asset?: { id?: string } } }
+      const pollJson = await pollRes.json() as { job?: { status?: string; asset?: { id?: string }; error?: { message?: string } } }
       if (pollJson.job?.status === 'success') {
         uploadedAssetId = pollJson.job.asset?.id ?? null
         break
       }
-      if (pollJson.job?.status === 'failed') throw new Error('Canva asset upload failed')
+      if (pollJson.job?.status === 'failed') throw new CanvaApiError(pollJson.job?.error?.message ?? 'Canva asset upload failed')
     }
-    if (!uploadedAssetId) throw new Error('Canva upload timed out')
+    if (!uploadedAssetId) throw new CanvaApiError('Canva upload timed out')
 
-    // Step 3: Create design with uploaded asset
+    // Step 3: Create design with uploaded asset. 'InstagramPost' is not a
+    // real PresetDesignTypeName (the only presets are doc/email/
+    // presentation/whiteboard — confirmed against Canva's OpenAPI spec) and
+    // the request body was missing the required `type: 'type_and_asset'`
+    // discriminator entirely. Our generated creatives are 1080x1080 square
+    // (Quick Generate's feed slot) — CustomDesignTypeInput with matching
+    // dimensions is the correct shape, not a preset.
+    // https://www.canva.dev/docs/connect/api-reference/designs/create-design/
     const designRes = await fetch(`${CANVA_API_BASE}/designs`, {
       method: 'POST',
       headers: {
@@ -128,16 +149,17 @@ Deno.serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        design_type: { type: 'preset', name: 'InstagramPost' },
+        type: 'type_and_asset',
+        design_type: { type: 'custom', width: 1080, height: 1080 },
         asset_id: uploadedAssetId,
       }),
     })
     const designJson = await designRes.json() as { design?: { id?: string; urls?: { edit_url?: string } }; error?: { message?: string } }
-    if (!designRes.ok) throw new Error(designJson?.error?.message ?? `Canva design error ${designRes.status}`)
+    if (!designRes.ok) throw new CanvaApiError(designJson?.error?.message ?? `Canva design error ${designRes.status}`)
 
     const designId = designJson.design?.id
     const editUrl = designJson.design?.urls?.edit_url
-    if (!editUrl) throw new Error('No edit URL returned from Canva')
+    if (!editUrl) throw new CanvaApiError('No edit URL returned from Canva')
 
     // Step 4: Update creative_assets row
     await supabase
@@ -153,9 +175,13 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ editUrl, designId }), { headers: corsHeaders() })
   } catch (err: unknown) {
+    // 502 = Canva's own API rejected the request or timed out (readable in
+    // the message — an upstream problem, not a bug here). 500 = anything
+    // else (a genuine unexpected failure in this function).
+    const status = err instanceof CanvaApiError ? 502 : 500
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: corsHeaders() }
+      { status, headers: corsHeaders() }
     )
   }
 })

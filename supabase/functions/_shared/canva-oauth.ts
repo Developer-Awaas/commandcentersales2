@@ -135,6 +135,106 @@ export async function initiateCanvaOAuth(
 // Single-use lookup: deletes the row as part of resolving it, so a nonce
 // can never be replayed even if the callback URL leaks (browser history,
 // referrer headers, logs).
+const CANVA_TOKEN_URL = 'https://api.canva.com/rest/v1/oauth/token';
+// Refresh a bit before actual expiry so a request never races a token that
+// expires mid-flight.
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+export type CanvaTokenResult =
+  | { ok: true; accessToken: string }
+  | { ok: false; needsReconnect: true; error: string };
+
+/**
+ * Returns a valid Canva access token for (userId, 'canva'), refreshing it
+ * first if it's expired or close to it. Canva's refresh tokens are
+ * single-use and rotate on every refresh (confirmed against their docs:
+ * https://www.canva.dev/docs/connect/api-reference/authentication/generate-access-token/
+ * — reusing a stale refresh token revokes the ENTIRE token family, not just
+ * that one call), so the NEW refresh_token from the response is always
+ * persisted alongside the new access_token — never just the access_token.
+ * If the refresh itself fails (refresh token expired/already used/revoked),
+ * the stale row is removed so the caller can fall back to needsAuth
+ * (re-connect) instead of retrying with a token that will never work.
+ */
+export async function getValidCanvaAccessToken(
+  serviceClient: SupabaseClient<Database>,
+  userId: string
+): Promise<CanvaTokenResult> {
+  const { data: row, error } = await serviceClient
+    .from('org_user_integrations')
+    .select('access_token, refresh_token, token_expires_at')
+    .eq('user_id', userId)
+    .eq('provider', 'canva')
+    .maybeSingle();
+
+  if (error || !row?.access_token) {
+    return { ok: false, needsReconnect: true, error: 'Canva is not connected' };
+  }
+
+  const expiresAt = row.token_expires_at ? new Date(row.token_expires_at as string).getTime() : 0;
+  const needsRefresh = !expiresAt || expiresAt - Date.now() < TOKEN_REFRESH_BUFFER_MS;
+
+  if (!needsRefresh) {
+    return { ok: true, accessToken: row.access_token as string };
+  }
+
+  if (!row.refresh_token) {
+    // Access token is expired/expiring and there's no refresh token to use
+    // — nothing left to do but ask the user to reconnect.
+    await serviceClient.from('org_user_integrations').delete().eq('user_id', userId).eq('provider', 'canva');
+    return { ok: false, needsReconnect: true, error: 'Canva session expired — please reconnect' };
+  }
+
+  const clientId = Deno.env.get('CANVA_CLIENT_ID');
+  const clientSecret = Deno.env.get('CANVA_CLIENT_SECRET');
+  if (!clientId || !clientSecret) {
+    return { ok: false, needsReconnect: true, error: 'CANVA_CLIENT_ID/CANVA_CLIENT_SECRET secret is not set' };
+  }
+
+  const refreshRes = await fetch(CANVA_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: row.refresh_token as string,
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+
+  const refreshJson = await refreshRes.json() as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    error?: string;
+    error_description?: string;
+  };
+
+  if (!refreshRes.ok || !refreshJson.access_token || !refreshJson.refresh_token) {
+    // A used/expired/revoked refresh token means this connection is dead —
+    // remove it rather than leaving a row that will fail forever.
+    await serviceClient.from('org_user_integrations').delete().eq('user_id', userId).eq('provider', 'canva');
+    return {
+      ok: false,
+      needsReconnect: true,
+      error: refreshJson.error_description ?? refreshJson.error ?? 'Canva token refresh failed — please reconnect',
+    };
+  }
+
+  const newExpiresAt = new Date(Date.now() + (refreshJson.expires_in ?? 3600) * 1000).toISOString();
+
+  // Both the new access_token AND the new refresh_token must be saved —
+  // the old refresh_token is now invalid (single-use rotation).
+  await serviceClient.from('org_user_integrations').update({
+    access_token: refreshJson.access_token,
+    refresh_token: refreshJson.refresh_token,
+    token_expires_at: newExpiresAt,
+    updated_at: new Date().toISOString(),
+  }).eq('user_id', userId).eq('provider', 'canva');
+
+  return { ok: true, accessToken: refreshJson.access_token };
+}
+
 export async function consumeOAuthFlowSession(
   serviceClient: SupabaseClient<Database>,
   nonce: string
