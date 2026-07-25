@@ -1331,6 +1331,15 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   // start in the "saved" state instead of falsely flagging them unsaved.
   const [creativesSaved, setCreativesSaved] = useState(() => !!resumedGalleryImages?.length && resumedGalleryImages.every((img) => img.approved));
   const [savingCreatives, setSavingCreatives] = useState(false);
+  // Which image ids actually need a Save — freshly generated ones, and any
+  // synced/edited since the last save. Save should only touch these, never
+  // blanket-approve the whole gallery (an untouched image from three
+  // generations ago sitting next to a just-synced one shouldn't be
+  // re-stamped just because Save was clicked). Resumed images that weren't
+  // already approved count as pending too — nothing approved them yet.
+  const [pendingSaveIds, setPendingSaveIds] = useState<Set<string>>(
+    () => new Set((resumedGalleryImages ?? []).filter((img) => !img.approved && img.id).map((img) => img.id as string))
+  );
   // Editable copy of Aanya's ad_copy — reviewer can tweak headline/subhead/
   // primary text/CTA before saving; persisted to the `creatives` row on Save.
   const [editedAdCopy, setEditedAdCopy] = useState<Record<string, string>>(() => ({ ...(data.ad_copy ?? {}) }));
@@ -1461,6 +1470,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         setGeminiError(`Image generation failed${detail || '. The service may be temporarily busy — try again.'}`);
       } else {
         setGalleryImages(collected);
+        setPendingSaveIds(new Set(collected.map((img) => img.id).filter(Boolean) as string[]));
       }
     } catch (err) {
       setGeminiError(err instanceof Error ? err.message : 'Image generation failed.');
@@ -1471,7 +1481,11 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   }
 
   async function saveCreatives() {
-    const idsToSave = galleryImages.map(img => img.id).filter(Boolean) as string[];
+    // Only the images actually pending a save — freshly generated or
+    // changed via Canva/Adobe since the last save — not the whole gallery.
+    // An image nobody touched since it was last approved has no reason to
+    // be re-stamped just because Save was clicked for a sibling image.
+    const idsToSave = Array.from(pendingSaveIds);
     setSavingCreatives(true);
     try {
       if (idsToSave.length > 0) {
@@ -1491,6 +1505,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           })
           .eq('id', savedId);
       }
+      setPendingSaveIds(new Set());
       setCreativesSaved(true);
     } finally {
       setSavingCreatives(false);
@@ -1568,10 +1583,14 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           </div>
           <ImageGalleryViewer
             images={galleryImages}
-            onImagesChanged={() => setCreativesSaved(false)}
+            onImagesChanged={(imageId) => {
+              setCreativesSaved(false);
+              setPendingSaveIds((prev) => new Set(prev).add(imageId));
+            }}
             onBeforeCanvaNavigate={() => { suppressBeforeUnloadRef.current = true; }}
           />
-          {/* Save Creative — marks all images as approved in creative_assets */}
+          {/* Save Creative — marks only images pending a save (freshly
+              generated or changed since the last save) as approved */}
           <div className={`flex items-center justify-between px-4 py-3 rounded-xl border ${creativesSaved ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
             <div className="flex items-center gap-2">
               {creativesSaved

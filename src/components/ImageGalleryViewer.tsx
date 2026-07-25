@@ -34,10 +34,11 @@ interface ImageGalleryViewerProps {
   images: GalleryImage[];
   onClose?: () => void;
   // Fires whenever an image's pixels change post-generation (Canva sync,
-  // Adobe Express save) — lets a parent tracking a page-level "saved" flag
-  // (e.g. StrategyResult's Save Creative Changes banner) know the approved
-  // version is now stale and re-prompt, instead of silently staying "saved".
-  onImagesChanged?: () => void;
+  // Adobe Express save), with the id of the specific image that changed —
+  // lets a parent tracking a page-level "saved" flag (e.g. StrategyResult's
+  // Save Creative Changes banner) know that one image needs re-approving,
+  // without treating the rest of an unrelated gallery as stale too.
+  onImagesChanged?: (imageId: string) => void;
   // Fires immediately before a Canva cold-start OAuth connect does a
   // full top-level navigation away (window.location.href) — lets a parent
   // with its own `beforeunload` "unsaved changes" guard (e.g.
@@ -177,8 +178,9 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
         }).eq('id', img.id!);
         if (dbErr) console.warn('[canva-sync] DB update failed:', dbErr.message);
         // The pixels a parent's "saved"/"approved" flag was tracking no
-        // longer match what's on screen — let it know to re-prompt.
-        onImagesChanged?.();
+        // longer match what's on screen for THIS image — let it know which
+        // one, so a re-save doesn't blanket-touch unrelated images too.
+        onImagesChanged?.(img.id!);
       } else {
         throw new Error(json.error ?? 'Sync failed');
       }
@@ -201,7 +203,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
       setLocalImages((prev) =>
         prev.map((img) => img.url === adobeImage.url ? { ...img, url: editedUrl } : img)
       );
-      onImagesChanged?.();
+      if (adobeImage.id) onImagesChanged?.(adobeImage.id);
     }
     setAdobeImage(null);
   }

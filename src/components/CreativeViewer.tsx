@@ -336,19 +336,27 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
   const [pendingCanvaAssetId, setPendingCanvaAssetId] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
+  // Viewing is intentionally NOT scoped to `funnelStage` — a project's
+  // creatives get tagged with whatever funnel stage was selected at
+  // generation time (Strategy's Quick Generate derives it from
+  // campaignGoal, defaulting to BOFU/conversion for most goals), which
+  // rarely matches Creatives.tsx's own funnel-stage selector default
+  // (TOFU/awareness). Filtering the grid by that selector meant a project
+  // with real generated creatives could show an empty grid depending on
+  // which stage happened to be selected. `funnelStage` is still used below
+  // to tag newly-generated assets — only the read/display path ignores it.
   const loadAssets = useCallback(async () => {
     const { data } = await supabase
       .from('creative_assets')
       .select('*')
       .eq('org_id', resolvedOrgId)
-      .eq('funnel_stage', funnelStage)
       .order('created_at', { ascending: true });
     if (campaignId) {
       setAssets(((data ?? []) as CreativeAsset[]).filter((a) => a.campaign_id === campaignId));
     } else {
       setAssets((data ?? []) as CreativeAsset[]);
     }
-  }, [resolvedOrgId, campaignId, funnelStage]);
+  }, [resolvedOrgId, campaignId]);
 
   useEffect(() => {
     loadAssets();
@@ -361,7 +369,6 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         (payload) => {
           const updated = payload.new as CreativeAsset;
           if (!updated?.id) { loadAssets(); return; }
-          if (updated.funnel_stage !== funnelStage) return;
           if (campaignId && updated.campaign_id !== campaignId) return;
 
           setAssets((prev) => {
