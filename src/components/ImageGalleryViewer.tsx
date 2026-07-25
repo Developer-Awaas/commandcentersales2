@@ -23,11 +23,20 @@ export interface GalleryImage {
   storagePath?: string;
   promptUsed?: string;
   adCopy?: { headline?: string; cta?: string };
+  // Set only when reconstructing gallery state from a DB read (e.g. Strategy
+  // page's Canva-return resume) — mirrors creative_assets.status === 'approved'
+  // so callers can infer whether a resumed set was already saved.
+  approved?: boolean;
 }
 
 interface ImageGalleryViewerProps {
   images: GalleryImage[];
   onClose?: () => void;
+  // Fires whenever an image's pixels change post-generation (Canva sync,
+  // Adobe Express save) — lets a parent tracking a page-level "saved" flag
+  // (e.g. StrategyResult's Save Creative Changes banner) know the approved
+  // version is now stale and re-prompt, instead of silently staying "saved".
+  onImagesChanged?: () => void;
 }
 
 interface LightboxState {
@@ -35,7 +44,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
@@ -151,6 +160,9 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           updated_at: new Date().toISOString(),
         }).eq('id', img.id!);
         if (dbErr) console.warn('[canva-sync] DB update failed:', dbErr.message);
+        // The pixels a parent's "saved"/"approved" flag was tracking no
+        // longer match what's on screen — let it know to re-prompt.
+        onImagesChanged?.();
       } else {
         throw new Error(json.error ?? 'Sync failed');
       }
@@ -173,6 +185,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
       setLocalImages((prev) =>
         prev.map((img) => img.url === adobeImage.url ? { ...img, url: editedUrl } : img)
       );
+      onImagesChanged?.();
     }
     setAdobeImage(null);
   }

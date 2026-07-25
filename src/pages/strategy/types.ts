@@ -1,3 +1,5 @@
+import type { GalleryImage } from '../../components/ImageGalleryViewer';
+
 export interface StrategyProject {
   id: string;
   name: string;
@@ -207,6 +209,11 @@ export type StrategyResult =
       aiData?: SeniorDesignerResult | null;
       savedId?: string;
       error?: string;
+      // Populated only when this result was reconstructed from the DB after
+      // a Canva OAuth cold-start's full-page round-trip wiped React state —
+      // see the resume effect in Strategy.tsx. Lets SeniorDesignerResultPanel
+      // skip its normal auto-generate-on-mount and show what already exists.
+      resumedGalleryImages?: GalleryImage[];
     }
   | {
       type: 'full';

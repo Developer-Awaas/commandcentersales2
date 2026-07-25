@@ -159,12 +159,91 @@ export function Strategy() {
         .order('name');
       const rows = (data ?? []) as StrategyProject[];
       setProjects(rows);
-      if (rows.length > 0) {
+      // Skip the default-select when a Canva-return resume is pending below —
+      // that effect sets the real originating project; this would otherwise
+      // race it and could win with the wrong (first-in-list) project.
+      if (rows.length > 0 && !sessionStorage.getItem('canva_resume_creative_id')) {
         setQuickInputs((prev) => ({ ...prev, projectId: rows[0].id }));
       }
       setProjectsLoading(false);
     }
     loadProjects();
+  }, []);
+
+  // A Canva cold-start OAuth connect is a full top-level browser navigation
+  // to Canva.com and back — every bit of this component's React state (the
+  // generated strategy result, its images) is gone by the time
+  // CanvaReturn.tsx lands the user back on this page. The underlying data
+  // isn't actually lost though: handleQuickSubmit already persists the full
+  // AI result to `creatives.senior_designer_brief` and each image to
+  // `creative_assets` before the user ever gets to the edit step — reload
+  // both from there instead of leaving the user looking at an empty "create
+  // a strategy" form. Reads (not removes) canva_resume_creative_id —
+  // ImageGalleryViewer's own resume effect still needs to see it to
+  // auto-reopen the Canva editor once these images are back in place.
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem('canva_resume_creative_id');
+    if (!resumeId) return;
+    (async () => {
+      const { data: asset } = await supabase
+        .from('creative_assets')
+        .select('id, creative_id, session_id')
+        .eq('id', resumeId)
+        .maybeSingle();
+      if (!asset?.creative_id) return;
+
+      const { data: creative } = await supabase
+        .from('creatives')
+        .select('id, project_id, languages, senior_designer_brief')
+        .eq('id', asset.creative_id)
+        .maybeSingle();
+      const aiData = creative?.senior_designer_brief as SeniorDesignerResult | undefined;
+      if (!creative || !aiData) return;
+
+      const { data: siblingRows } = await supabase
+        .from('creative_assets')
+        .select('id, image_url, storage_path, status')
+        .eq('creative_id', asset.creative_id)
+        .eq('session_id', asset.session_id ?? '')
+        .order('created_at', { ascending: true });
+
+      const resumedGalleryImages = (siblingRows ?? [])
+        .filter((row) => !!row.image_url)
+        .map((row) => {
+          const suffix = (row.storage_path as string | null)?.match(/-(feed|portrait|story)\.[a-z0-9]+$/i)?.[1]?.toLowerCase();
+          const label = suffix === 'portrait' ? 'Portrait Feed (1080×1350)' : suffix === 'story' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
+          const promptUsed = suffix === 'portrait' ? aiData.nanobanana_prompt_portrait : suffix === 'story' ? aiData.nanobanana_prompt_story : aiData.nanobanana_prompt_main;
+          return {
+            id: row.id as string,
+            url: row.image_url as string,
+            label,
+            storagePath: (row.storage_path as string | null) ?? undefined,
+            promptUsed: promptUsed ?? undefined,
+            adCopy: { headline: aiData.ad_copy?.headline_english, cta: aiData.ad_copy?.cta },
+            approved: row.status === 'approved',
+          };
+        });
+      if (resumedGalleryImages.length === 0) return;
+
+      const restoredProjectId = (creative.project_id as string | null) ?? 'custom';
+      const restoredLanguages = (creative.languages as string[] | null) ?? DEFAULT_QUICK.languages;
+      setQuickInputs((prev) => ({ ...prev, projectId: restoredProjectId, languages: restoredLanguages }));
+
+      let projectName = 'Restored Project';
+      if (restoredProjectId !== 'custom') {
+        const { data: proj } = await supabase.from('projects').select('name').eq('id', restoredProjectId).maybeSingle();
+        projectName = proj?.name ?? projectName;
+      }
+
+      setResult({
+        type: 'quick_senior',
+        inputs: { ...DEFAULT_QUICK, projectId: restoredProjectId, languages: restoredLanguages },
+        projectName,
+        aiData,
+        savedId: creative.id as string,
+        resumedGalleryImages,
+      });
+    })();
   }, []);
 
   // Load full project data when projectId changes
