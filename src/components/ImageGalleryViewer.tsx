@@ -37,6 +37,13 @@ interface ImageGalleryViewerProps {
   // (e.g. StrategyResult's Save Creative Changes banner) know the approved
   // version is now stale and re-prompt, instead of silently staying "saved".
   onImagesChanged?: () => void;
+  // Fires immediately before a Canva cold-start OAuth connect does a
+  // full top-level navigation away (window.location.href) — lets a parent
+  // with its own `beforeunload` "unsaved changes" guard (e.g.
+  // StrategyResult, right after a fresh generation) suppress it for this
+  // one known-recoverable navigation instead of surfacing a native "Leave
+  // site?" prompt that silently swallows the redirect if dismissed.
+  onBeforeCanvaNavigate?: () => void;
 }
 
 interface LightboxState {
@@ -44,7 +51,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose, onImagesChanged }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
@@ -118,7 +125,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged }: ImageGa
           window.open(json.editUrl, '_blank');
           return;
         }
-        if (json.authUrl) { window.location.href = json.authUrl; return; }
+        if (json.authUrl) { onBeforeCanvaNavigate?.(); window.location.href = json.authUrl; return; }
         if (json.error) throw new Error(json.error);
       }
       // Fallback when no DB record yet
