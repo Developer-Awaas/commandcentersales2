@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigation } from '../contexts/NavigationContext';
+import { openCanvaOAuthPopup } from '../lib/canva-oauth-popup';
 import { ExternalLink, Check, Trash2 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 
@@ -56,7 +57,14 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
       );
       if (error) throw new Error(error.message);
       if (!data?.authUrl) throw new Error(data?.error ?? 'No authUrl returned');
-      window.location.href = data.authUrl;
+      // Opens in a popup so this tab (and whatever it's showing) is never
+      // touched — see canva-oauth-popup.ts. Falls back to a same-tab
+      // redirect internally if the popup is blocked.
+      openCanvaOAuthPopup(
+        data.authUrl,
+        () => { setConnecting(false); setConnected(true); onConnected?.(); },
+        (msg) => { setConnecting(false); alert(msg); }
+      );
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to start Canva connect');
       setConnecting(false);

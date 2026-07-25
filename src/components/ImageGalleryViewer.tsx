@@ -4,6 +4,7 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
+import { openCanvaOAuthPopup } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
 
@@ -125,7 +126,15 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           window.open(json.editUrl, '_blank');
           return;
         }
-        if (json.authUrl) { onBeforeCanvaNavigate?.(); window.location.href = json.authUrl; return; }
+        if (json.authUrl) {
+          // Suppress a parent's beforeunload "unsaved changes" guard in case
+          // the popup below is blocked and falls back to a same-tab redirect
+          // — harmless no-op when the popup opens normally, since nothing
+          // then navigates this tab away at all.
+          onBeforeCanvaNavigate?.();
+          openCanvaOAuthPopup(json.authUrl, () => handleCanva(img));
+          return;
+        }
         if (json.error) throw new Error(json.error);
       }
       // Fallback when no DB record yet

@@ -24,6 +24,23 @@ export function CanvaReturn() {
     const rawReturnUrl = params.get('returnUrl');
     const creativeId = params.get('creativeId');
 
+    // Opened as a popup (openCanvaOAuthPopup) rather than a same-tab
+    // redirect — hand the result back to the tab that opened us via
+    // postMessage and close, instead of navigating ourselves. The opener
+    // never left its page, so there's no state to restore there at all.
+    // (window.opener can be severed by cross-origin COOP policy on Canva's
+    // side, outside our control — falls through to the same-tab logic
+    // below if so, which still works, just as a second window instead of
+    // a handoff.)
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        { type: 'canva-oauth-complete', connected, error: errorMsg, creativeId },
+        window.location.origin
+      );
+      window.close();
+      return;
+    }
+
     let targetPage = SAFE_DEFAULT_PAGE;
     if (rawReturnUrl) {
       try {
