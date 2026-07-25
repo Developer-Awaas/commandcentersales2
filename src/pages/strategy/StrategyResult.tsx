@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { supabase } from '../../lib/supabase';
+import { getOrgId } from '../../lib/constants';
+import { enforceCreativeHistoryLimit } from '../../lib/creative-history';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
@@ -1507,6 +1509,14 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       }
       setPendingSaveIds(new Set());
       setCreativesSaved(true);
+      // Ad Creatives' saved-history grid is a rolling window of the 10 most
+      // recent entries per project — prune anything older now that this
+      // save may have pushed the count past that. Best-effort: a failure
+      // here shouldn't undo the save that just succeeded above.
+      if (projectId) {
+        try { await enforceCreativeHistoryLimit(getOrgId(), projectId); }
+        catch (err) { console.warn('[saveCreatives] history limit enforcement failed:', err); }
+      }
     } finally {
       setSavingCreatives(false);
     }

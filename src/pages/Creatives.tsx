@@ -850,7 +850,7 @@ Return ONLY a JSON object:
             <div className="flex items-center gap-2">
               <ImageIcon size={14} className="text-brand" />
               <span className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">
-                Gemini AI Images
+                Saved Creative History
               </span>
             </div>
             <div className="h-px flex-1 bg-border" />

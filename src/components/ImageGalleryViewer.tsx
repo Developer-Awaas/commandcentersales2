@@ -4,7 +4,6 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
-import { openCanvaOAuthPopup } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
 
@@ -128,12 +127,16 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           return;
         }
         if (json.authUrl) {
-          // Suppress a parent's beforeunload "unsaved changes" guard in case
-          // the popup below is blocked and falls back to a same-tab redirect
-          // — harmless no-op when the popup opens normally, since nothing
-          // then navigates this tab away at all.
+          // Same-window redirect — a popup here turned out unreliable in
+          // practice (the round trip crosses three origins: this app,
+          // canva.com, and this project's own Supabase edge function
+          // domain, and browsers can sever window.opener across hops like
+          // that as a security default, silently stranding the popup).
+          // Suppress the parent's beforeunload guard first — this is a
+          // genuine top-level navigation, and Strategy.tsx's DB-backed
+          // resume makes the round trip fully recoverable anyway.
           onBeforeCanvaNavigate?.();
-          openCanvaOAuthPopup(json.authUrl, () => handleCanva(img));
+          window.location.href = json.authUrl;
           return;
         }
         if (json.error) throw new Error(json.error);
@@ -228,7 +231,16 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
         </div>
 
         <div className={`grid gap-4 ${localImages.length === 1 ? 'grid-cols-1 max-w-sm' : localImages.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {localImages.map((img, i) => (
+          {localImages.map((img, i) => {
+          // While ANY Canva action is in flight for this image, every other
+          // action on it is disabled. Without this, clicking Sync then
+          // immediately clicking Edit in Canva before the sync response
+          // lands opens the editor against the pre-sync (stale) image —
+          // canva-open-editor fetches whatever creative_assets.image_url
+          // currently is at request time, which the in-flight sync hasn't
+          // updated yet.
+          const isBusy = canvaLoading === img.url || (!!img.id && canvaSyncing === img.id);
+          return (
             <div key={img.id ?? img.url} className="flex flex-col gap-2">
               {/* Image card */}
               <div
@@ -256,7 +268,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleCanva(img)}
-                  disabled={canvaLoading === img.url}
+                  disabled={isBusy}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-medium hover:bg-teal-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
                   {canvaLoading === img.url
@@ -266,7 +278,8 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 </button>
                 <button
                   onClick={() => handleAdobe(img)}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-medium hover:bg-purple-500/20 active:scale-95 transition-all"
+                  disabled={isBusy}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-medium hover:bg-purple-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
                   <Layers size={12} />
                   Adobe Express
@@ -277,7 +290,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
               {img.id && canvaDesignIds[img.id] && (
                 <button
                   onClick={() => handleCanvaSync(img)}
-                  disabled={canvaSyncing === img.id}
+                  disabled={isBusy}
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[11px] font-medium hover:bg-teal-500/20 transition-all disabled:opacity-50"
                 >
                   {canvaSyncing === img.id
@@ -307,13 +320,14 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
 
               <button
                 onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all"
+                disabled={isBusy}
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all disabled:opacity-50"
               >
                 <Download size={11} />
                 Download
               </button>
             </div>
-          ))}
+          );})}
         </div>
       </div>
 

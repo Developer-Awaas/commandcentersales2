@@ -24,26 +24,6 @@ export function CanvaReturn() {
     const rawReturnUrl = params.get('returnUrl');
     const creativeId = params.get('creativeId');
 
-    // If this is the popup opened by openCanvaOAuthPopup, hand the result
-    // back to the tab that opened it and close — that tab never left its
-    // page, so there's no state to restore there at all. Broadcasting is
-    // unconditional and doesn't check window.opener: getting here involved
-    // three distinct origins (this app -> canva.com -> this project's own
-    // Supabase edge function domain -> this app again), and browsers can
-    // sever window.opener across cross-origin hops like that as a security
-    // default. BroadcastChannel has no such dependency — any same-origin
-    // browsing context can pick it up.
-    if (typeof BroadcastChannel !== 'undefined') {
-      const channel = new BroadcastChannel('canva-oauth-return');
-      channel.postMessage({ type: 'canva-oauth-complete', connected, error: errorMsg, creativeId });
-      channel.close();
-    }
-    // window.close() only actually closes a window that was opened by
-    // script (our popup case) — on a real tab the user navigated to
-    // directly, it's a silent no-op and execution just continues into the
-    // same-tab fallback below, which is exactly what should happen there.
-    window.close();
-
     let targetPage = SAFE_DEFAULT_PAGE;
     if (rawReturnUrl) {
       try {

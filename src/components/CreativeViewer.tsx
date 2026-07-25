@@ -4,6 +4,7 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
+import { enforceCreativeHistoryLimit } from '../lib/creative-history';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
@@ -336,13 +337,15 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
   const [pendingCanvaAssetId, setPendingCanvaAssetId] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // Viewing is intentionally NOT scoped to `funnelStage` — a project's
-  // creatives get tagged with whatever funnel stage was selected at
-  // generation time (Strategy's Quick Generate derives it from
-  // campaignGoal, defaulting to BOFU/conversion for most goals), which
-  // rarely matches Creatives.tsx's own funnel-stage selector default
-  // (TOFU/awareness). Filtering the grid by that selector meant a project
-  // with real generated creatives could show an empty grid depending on
+  // This grid is a history of SAVED creatives only (status === 'approved',
+  // set by StrategyResult's "Save Creative Changes" / this component's own
+  // Approve action) — not every image that's ever been generated. Also NOT
+  // scoped to `funnelStage`: a project's creatives get tagged with whatever
+  // funnel stage was selected at generation time (Strategy's Quick Generate
+  // derives it from campaignGoal, defaulting to BOFU/conversion for most
+  // goals), which rarely matches Creatives.tsx's own funnel-stage selector
+  // default (TOFU/awareness) — filtering the grid by that selector meant a
+  // project with real saved creatives could show an empty grid depending on
   // which stage happened to be selected. `funnelStage` is still used below
   // to tag newly-generated assets — only the read/display path ignores it.
   const loadAssets = useCallback(async () => {
@@ -350,6 +353,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
       .from('creative_assets')
       .select('*')
       .eq('org_id', resolvedOrgId)
+      .eq('status', 'approved')
       .order('created_at', { ascending: true });
     if (campaignId) {
       setAssets(((data ?? []) as CreativeAsset[]).filter((a) => a.campaign_id === campaignId));
@@ -368,8 +372,17 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         { event: '*', schema: 'public', table: 'creative_assets', filter: `org_id=eq.${resolvedOrgId}` },
         (payload) => {
           const updated = payload.new as CreativeAsset;
+          // DELETE events carry an empty `new` (no id) — a full reload is
+          // simplest and cheap rather than tracking `old` separately.
           if (!updated?.id) { loadAssets(); return; }
           if (campaignId && updated.campaign_id !== campaignId) return;
+          if (updated.status !== 'approved') {
+            // No longer part of the saved history (synced/edited back out
+            // of 'approved' pending a re-save) — drop it live instead of
+            // leaving a stale approved-looking row on screen.
+            setAssets((prev) => prev.filter((a) => a.id !== updated.id));
+            return;
+          }
 
           setAssets((prev) => {
             const idx = prev.findIndex((a) => a.id === updated.id);
@@ -461,6 +474,12 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }).eq('id', assetId);
         setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'approved' } : a));
         showToast('Creative approved!', 'success');
+        // Same rolling 10-entry cap as StrategyResult's Save action —
+        // best-effort, a failure here shouldn't undo the approval above.
+        if (campaignId) {
+          try { await enforceCreativeHistoryLimit(resolvedOrgId, campaignId); }
+          catch (err) { console.warn('[handleAction] history limit enforcement failed:', err); }
+        }
       } else if (action === 'reject') {
         await supabase.from('creative_assets').update({ status: 'rejected', updated_at: new Date().toISOString() }).eq('id', assetId);
         setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'rejected' } : a));
