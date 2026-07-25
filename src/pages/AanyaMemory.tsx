@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Brain, Upload, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, Image as ImageIcon, TrendingUp, Eye, Copy, Check, Bot, Zap, Download, X, Layers } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
-import { aiCall, logToLangfuse } from '../lib/ai-service';
+import { aiCall, logToLangfuse, callClaudeProxyStream } from '../lib/ai-service';
 import { generateImageWithGemini } from '../lib/gemini-service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -101,17 +101,16 @@ const PLATFORM_LABELS: Record<Platform, string> = {
 
 async function analyzeCreativeWithVision(imageUrl: string): Promise<VisionAnalysis | null> {
   try {
-    const { data, error } = await supabase.functions.invoke('claude-proxy', {
-      body: {
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'url', url: imageUrl } },
-            {
-              type: 'text',
-              text: `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising. Analyze this ad creative and extract structured design intelligence for image generation.
+    const outcome = await callClaudeProxyStream({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url: imageUrl } },
+          {
+            type: 'text',
+            text: `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising. Analyze this ad creative and extract structured design intelligence for image generation.
 
 Return a JSON object with exactly these fields:
 {
@@ -130,24 +129,22 @@ Return a JSON object with exactly these fields:
 For section_6_typography_elements use these element type names: MIXED_WEIGHT_HEADLINE | PRICE_BADGE | PHOTO_CAPTION_BAR | FEATURE_CHECKLIST | FOOTER_STRIP | CTA_BUTTON | SUBHEADLINE | TAGLINE.
 For section_5_hex_colors: read or estimate the 3-5 most dominant hex values visible in the image.
 Return ONLY the JSON object, no markdown, no preamble.`,
-            },
-          ],
-        }],
-      },
+          },
+        ],
+      }],
     });
 
-    if (error) {
-      logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: error.message });
+    if (!outcome.ok) {
+      logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: outcome.error });
       return null;
     }
-    const text = ((data?.content ?? []) as { type: string; text: string }[])
-      .filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    const text = outcome.result.text.trim();
     const parsed = JSON.parse(text.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim());
     logToLangfuse('aanya-memory-vision-analysis', {
       output: parsed,
       model: 'claude-haiku-4-5-20251001',
-      inputTokens: data?.usage?.input_tokens,
-      outputTokens: data?.usage?.output_tokens,
+      inputTokens: outcome.result.inputTokens,
+      outputTokens: outcome.result.outputTokens,
     });
     return parsed as VisionAnalysis;
   } catch (err) {

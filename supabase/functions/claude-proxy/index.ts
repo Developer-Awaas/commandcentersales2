@@ -40,39 +40,62 @@ Deno.serve(async (req: Request) => {
   }
   if (beta) headers['anthropic-beta'] = beta
 
-  // Wrap the upstream call — if fetch throws (network error, timeout, DNS),
-  // the runtime would crash with HTTP 546 without this try/catch.
-  let responseText: string
-  let upstreamStatus: number
+  // Stream from Anthropic. Supabase's 150s limit is specifically a
+  // *request-idle* timeout — "if an Edge Function doesn't send a response
+  // before the timeout, 504 Gateway Timeout will be returned" — separate
+  // from the actual 400s wall-clock ceiling
+  // (https://supabase.com/docs/guides/functions/limits). A buffered
+  // (non-streaming) call with a large max_tokens can take well past 150s
+  // to receive Anthropic's complete response before this function ever
+  // sends a single byte back, which 504s regardless of how much wall-clock
+  // time would otherwise remain. Streaming sends the first bytes back
+  // almost immediately, satisfying that check, while generation continues
+  // under the higher ceiling. Every caller (aiCall/aiVision/
+  // describeImageForFlux and the two direct-invoke callers) only ever
+  // consumed the concatenated text + usage totals, never individual
+  // content-block structure — see callClaudeProxyStream in ai-service.ts
+  // — so passing the raw SSE stream through requires no server-side
+  // reconstruction, no separate non-streaming code path.
+  body.stream = true
+
+  let upstream: Response
   try {
-    const upstream = await fetch(ANTHROPIC_API_URL, {
+    upstream = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      // Also fixes a real gap: this fetch previously had NO timeout at
+      // all — a genuinely hung upstream call would run until the
+      // platform's own wall-clock kill, which reports as a resource
+      // error (HTTP 546) rather than a clean, readable timeout message
+      // (the exact failure mode bug #35 was written about, but this
+      // AbortSignal was never actually present in the shipped file).
+      // 350s leaves headroom under the 400s wall-clock ceiling.
+      signal: AbortSignal.timeout(350_000),
     })
-    upstreamStatus = upstream.status
-    responseText = await upstream.text()
   } catch (err) {
-    return errorResponse(`Anthropic API unreachable: ${err instanceof Error ? err.message : String(err)}`)
+    const msg = err instanceof Error && err.name === 'TimeoutError'
+      ? 'Anthropic API timed out after 350s'
+      : `Anthropic API unreachable: ${err instanceof Error ? err.message : String(err)}`
+    return errorResponse(msg)
   }
 
-  // Always return HTTP 200 so the Supabase SDK never throws FunctionsHttpError.
-  // If Anthropic returned a non-2xx the response body already contains
-  // { type: 'error', error: { ... } } which aiCall/aiVision check for.
-  if (upstreamStatus >= 200 && upstreamStatus < 300) {
-    return new Response(responseText, {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-    })
+  // A rejected request (bad params, auth failure, etc.) gets a normal JSON
+  // error body from Anthropic even with stream:true — streaming only
+  // starts once generation actually begins. Normalise it the same way the
+  // non-streaming path always did.
+  if (!upstream.ok || !upstream.body) {
+    const errText = await upstream.text().catch(() => '')
+    try {
+      const errJson = JSON.parse(errText)
+      return errorResponse(errJson?.error?.message ?? `Anthropic error ${upstream.status}`)
+    } catch {
+      return errorResponse(`Anthropic error ${upstream.status}: ${errText.slice(0, 200)}`)
+    }
   }
 
-  // Anthropic error response — parse and normalise so callers always
-  // get { type: 'error', error: { message: '...' } }
-  try {
-    const errJson = JSON.parse(responseText)
-    const message = errJson?.error?.message ?? `Anthropic error ${upstreamStatus}`
-    return errorResponse(message)
-  } catch {
-    return errorResponse(`Anthropic error ${upstreamStatus}: ${responseText.slice(0, 200)}`)
-  }
+  return new Response(upstream.body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream', ...CORS_HEADERS },
+  })
 })
