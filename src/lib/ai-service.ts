@@ -247,6 +247,115 @@ function extractJson(text: string): unknown | null {
   return null;
 }
 
+export interface ClaudeStreamResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  stopReason: string | null;
+}
+
+export type ClaudeStreamOutcome =
+  | { ok: true; result: ClaudeStreamResult }
+  | { ok: false; error: string };
+
+/**
+ * claude-proxy always streams now (see that function for why: Supabase's
+ * 150s limit is a request-*idle* timeout, not the actual 400s wall-clock
+ * ceiling — a buffered response for a large max_tokens generation can miss
+ * that window before ever sending a byte back). Every caller here only
+ * ever consumed the concatenated text plus input/output token totals,
+ * never individual content-block structure (tool-use blocks included —
+ * Analyzer.tsx's web-search call only reads the text blocks too), so this
+ * is the one place that parses Anthropic's SSE format; every caller below
+ * gets back the same shape it always did.
+ *
+ * supabase.functions.invoke() doesn't expose a raw ReadableStream, so this
+ * calls the function directly via fetch — replicating invoke()'s own
+ * behavior of attaching the current session's JWT (falling back to the
+ * anon key when signed out, matching invoke()'s own fallback).
+ */
+export async function callClaudeProxyStream(payload: Record<string, unknown>): Promise<ClaudeStreamOutcome> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const authToken = sessionData.session?.access_token ?? anonKey;
+
+  let res: Response;
+  try {
+    res = await fetch(`${supabaseUrl}/functions/v1/claude-proxy`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: anonKey,
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Failed to reach claude-proxy' };
+  }
+
+  const contentType = res.headers.get('content-type') ?? '';
+
+  // claude-proxy returns a normal JSON body (not a stream) for errors that
+  // happen before generation starts — missing secret, bad request, auth
+  // failure, or Anthropic rejecting the request outright.
+  if (!contentType.includes('text/event-stream')) {
+    const json = await res.json().catch(() => null) as { type?: string; error?: { message?: string } } | null;
+    return { ok: false, error: json?.error?.message ?? `claude-proxy returned ${res.status}` };
+  }
+
+  if (!res.body) return { ok: false, error: 'claude-proxy returned no response body' };
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let stopReason: string | null = null;
+  let streamError: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by a blank line; each event is one or more
+    // "field: value" lines. Anthropic's format only ever uses "event:" and
+    // "data:" here.
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? ''; // last chunk may be incomplete — keep it for next read
+
+    for (const rawEvent of events) {
+      const dataLine = rawEvent.split('\n').find((l) => l.startsWith('data:'));
+      if (!dataLine) continue;
+      let parsed: Record<string, unknown>;
+      try { parsed = JSON.parse(dataLine.slice(5).trim()); } catch { continue; }
+
+      const type = parsed.type as string | undefined;
+      if (type === 'message_start') {
+        const usage = (parsed.message as Record<string, unknown> | undefined)?.usage as Record<string, unknown> | undefined;
+        inputTokens = (usage?.input_tokens as number) ?? 0;
+      } else if (type === 'content_block_delta') {
+        const delta = parsed.delta as Record<string, unknown> | undefined;
+        if (delta?.type === 'text_delta') text += (delta.text as string) ?? '';
+      } else if (type === 'message_delta') {
+        const usage = parsed.usage as Record<string, unknown> | undefined;
+        if (usage?.output_tokens != null) outputTokens = usage.output_tokens as number;
+        const delta = parsed.delta as Record<string, unknown> | undefined;
+        if (delta?.stop_reason) stopReason = delta.stop_reason as string;
+      } else if (type === 'error') {
+        const err = parsed.error as Record<string, unknown> | undefined;
+        streamError = (err?.message as string) ?? 'Anthropic stream error';
+      }
+    }
+  }
+
+  if (streamError) return { ok: false, error: streamError };
+  return { ok: true, result: { text, inputTokens, outputTokens, stopReason } };
+}
+
 export async function aiCall(
   prompt: string,
   system?: string,
@@ -259,34 +368,19 @@ export async function aiCall(
   if (quotaErr) return { error: quotaErr };
 
   try {
-    const { data, error } = await supabase.functions.invoke('claude-proxy', {
-      body: {
-        model: CLAUDE_MODEL,
-        max_tokens: maxTokens,
-        system: system ?? DEFAULT_SYSTEM,
-        messages: [{ role: 'user', content: prompt }],
-      },
+    const outcome = await callClaudeProxyStream({
+      model: CLAUDE_MODEL,
+      max_tokens: maxTokens,
+      system: system ?? DEFAULT_SYSTEM,
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    if (error) {
-      logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: error.message, metadata: trace.metadata });
-      return { error: error.message };
+    if (!outcome.ok) {
+      logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: outcome.error, metadata: trace.metadata });
+      return { error: outcome.error };
     }
 
-    // Anthropic errors come back as { type: 'error', error: { message: '...' } }
-    if (data?.type === 'error' || data?.error) {
-      const errMsg: string = (data?.error as Record<string,unknown>)?.message as string ?? JSON.stringify(data?.error) ?? 'Anthropic API error';
-      logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: errMsg, metadata: trace.metadata });
-      return { error: errMsg };
-    }
-
-    const inputTokens: number = data?.usage?.input_tokens ?? 0;
-    const outputTokens: number = data?.usage?.output_tokens ?? 0;
-
-    const rawText: string = (data?.content ?? [])
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('');
+    const { text: rawText, inputTokens, outputTokens } = outcome.result;
 
     const parsed = extractJson(rawText);
     logToLangfuse(traceName, { input: prompt, output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
@@ -314,37 +408,31 @@ export async function describeImageForFlux(
     : { type: 'base64' as const, media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: image.base64 };
 
   try {
-    const { data, error } = await supabase.functions.invoke('claude-proxy', {
-      body: {
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: imageSource },
-            {
-              type: 'text',
-              text: 'Describe this image in 3–4 sentences for use as a text-to-image model reference. Cover: the architectural subject and its visual characteristics (materials, style, color, scale), the composition and camera angle, the lighting quality (time of day, approximate Kelvin, shadow direction), the dominant color palette (hex codes if clearly identifiable), and the overall aesthetic style and mood. Do NOT mention any visible text, logos, watermarks, or people by name. Output only the visual description — no preamble, no labels.',
-            },
-          ],
-        }],
-      },
+    const outcome = await callClaudeProxyStream({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: imageSource },
+          {
+            type: 'text',
+            text: 'Describe this image in 3–4 sentences for use as a text-to-image model reference. Cover: the architectural subject and its visual characteristics (materials, style, color, scale), the composition and camera angle, the lighting quality (time of day, approximate Kelvin, shadow direction), the dominant color palette (hex codes if clearly identifiable), and the overall aesthetic style and mood. Do NOT mention any visible text, logos, watermarks, or people by name. Output only the visual description — no preamble, no labels.',
+          },
+        ],
+      }],
     });
 
-    if (error) {
-      logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: error.message });
+    if (!outcome.ok) {
+      logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: outcome.error });
       return null;
     }
-    const text = (data?.content ?? [])
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('')
-      .trim();
+    const text = outcome.result.text.trim();
     logToLangfuse('claude-vision-describe-image', {
       output: text,
       model: 'claude-haiku-4-5-20251001',
-      inputTokens: data?.usage?.input_tokens,
-      outputTokens: data?.usage?.output_tokens,
+      inputTokens: outcome.result.inputTokens,
+      outputTokens: outcome.result.outputTokens,
     });
     return text || null;
   } catch (err) {
@@ -364,33 +452,19 @@ export async function aiVision(
   if (quotaErr) return { error: quotaErr };
 
   try {
-    const { data, error } = await supabase.functions.invoke('claude-proxy', {
-      body: {
-        model: CLAUDE_MODEL,
-        max_tokens: 16000,
-        system,
-        messages,
-      },
+    const outcome = await callClaudeProxyStream({
+      model: CLAUDE_MODEL,
+      max_tokens: 16000,
+      system,
+      messages,
     });
 
-    if (error) {
-      logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: error.message, metadata: trace.metadata });
-      return { error: error.message };
+    if (!outcome.ok) {
+      logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: outcome.error, metadata: trace.metadata });
+      return { error: outcome.error };
     }
 
-    if (data?.type === 'error' || data?.error) {
-      const errMsg: string = (data?.error as Record<string,unknown>)?.message as string ?? JSON.stringify(data?.error) ?? 'Anthropic API error';
-      logToLangfuse(traceName, { input: redactImages(messages), model: CLAUDE_MODEL, level: 'ERROR', statusMessage: errMsg, metadata: trace.metadata });
-      return { error: errMsg };
-    }
-
-    const inputTokens: number = data?.usage?.input_tokens ?? 0;
-    const outputTokens: number = data?.usage?.output_tokens ?? 0;
-
-    const rawText: string = (data?.content ?? [])
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('');
+    const { text: rawText, inputTokens, outputTokens } = outcome.result;
 
     const parsed = extractJson(rawText);
     logToLangfuse(traceName, { input: redactImages(messages), output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
