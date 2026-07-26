@@ -4,6 +4,7 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
+import { openCanvaOAuthPopup } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
 
@@ -104,13 +105,14 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
     // Open the tab SYNCHRONOUSLY, before any await — window.open() called
     // after an async gap (the canva-open-editor round-trip below) can lose
     // "user activation" in stricter browsers and get silently blocked, even
-    // though it was triggered by a real click. Verified server-side was
-    // never the problem here (canva-open-editor returns a valid editUrl
-    // every time) — this was purely the browser dropping the popup.
-    // Navigating this already-open tab once the real URL is known sidesteps
-    // that entirely. Only relevant for a direct click — the auto-resume
-    // effect below calls handleCanva() with no click at all, so there's no
-    // activation to preserve there either way; unchanged from before.
+    // though it was triggered by a real click. Shared by both outcomes
+    // below: the already-connected editUrl case navigates it straight to
+    // the editor; the cold-start authUrl case hands it to
+    // openCanvaOAuthPopup, which navigates it to Canva's OAuth screen and
+    // waits for a completion signal. Only relevant for a direct click — the
+    // auto-resume effect below calls handleCanva() with no click at all, so
+    // there's no activation to preserve there either way; unchanged from
+    // before.
     const pendingTab = window.open('', '_blank');
     setCanvaLoading(img.url);
     try {
@@ -139,17 +141,18 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           return;
         }
         if (json.authUrl) {
-          // Same-window redirect — a popup here turned out unreliable in
-          // practice (the round trip crosses three origins: this app,
-          // canva.com, and this project's own Supabase edge function
-          // domain, and browsers can sever window.opener across hops like
-          // that as a security default, silently stranding the popup).
-          // Suppress the parent's beforeunload guard first — this is a
-          // genuine top-level navigation, and Strategy.tsx's DB-backed
-          // resume makes the round trip fully recoverable anyway.
-          pendingTab?.close(); // not needed for a same-window redirect
+          // Popup, not a same-window redirect — Canva's own OAuth screen
+          // sends X-Frame-Options: SAMEORIGIN (can't be iframed at all) and
+          // Cross-Origin-Opener-Policy: same-origin (severs window.opener
+          // the moment the popup navigates there, which is why two earlier
+          // popup attempts using window.opener/postMessage/BroadcastChannel
+          // both failed). openCanvaOAuthPopup signals completion via
+          // localStorage's storage event instead, which has no dependency
+          // on window.opener at all. Still suppress the parent's
+          // beforeunload guard — the internal fallback to a same-window
+          // redirect (if the popup was blocked) is still a real navigation.
           onBeforeCanvaNavigate?.();
-          window.location.href = json.authUrl;
+          openCanvaOAuthPopup(pendingTab, json.authUrl, () => handleCanva(img));
           return;
         }
         if (json.error) throw new Error(json.error);

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigation } from '../contexts/NavigationContext';
+import { signalCanvaOAuthComplete } from '../lib/canva-oauth-popup';
 import { Spinner } from '../components/ui/Spinner';
 
 // Landing page for the Canva OAuth callback's redirect. canva-oauth-callback
@@ -23,6 +24,18 @@ export function CanvaReturn() {
     const errorMsg = params.get('error');
     const rawReturnUrl = params.get('returnUrl');
     const creativeId = params.get('creativeId');
+
+    // If this is the popup opened by openCanvaOAuthPopup, signal the tab
+    // that opened it via localStorage's storage event (not window.opener —
+    // Canva sends Cross-Origin-Opener-Policy: same-origin, which severs
+    // that reference the moment this popup navigated to Canva's domain,
+    // regardless of anything on our side) and close. window.close() only
+    // actually closes a window opened by script — on a real tab the user
+    // navigated to directly, it's a silent no-op and execution falls
+    // through to the same-tab landing logic below, which is what should
+    // happen there anyway.
+    signalCanvaOAuthComplete({ connected, error: errorMsg ?? undefined });
+    window.close();
 
     let targetPage = SAFE_DEFAULT_PAGE;
     if (rawReturnUrl) {
