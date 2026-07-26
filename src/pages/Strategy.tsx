@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, Zap } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, RefreshCw, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
+import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -170,81 +171,106 @@ export function Strategy() {
     loadProjects();
   }, []);
 
-  // A Canva cold-start OAuth connect is a full top-level browser navigation
-  // to Canva.com and back — every bit of this component's React state (the
-  // generated strategy result, its images) is gone by the time
-  // CanvaReturn.tsx lands the user back on this page. The underlying data
-  // isn't actually lost though: handleQuickSubmit already persists the full
-  // AI result to `creatives.senior_designer_brief` and each image to
-  // `creative_assets` before the user ever gets to the edit step — reload
-  // both from there instead of leaving the user looking at an empty "create
-  // a strategy" form. Reads (not removes) canva_resume_creative_id —
-  // ImageGalleryViewer's own resume effect still needs to see it to
-  // auto-reopen the Canva editor once these images are back in place.
+  // Shared by two callers: (1) the Canva-return resume effect below — a
+  // cold-start OAuth connect is a full top-level browser navigation to
+  // Canva.com and back, wiping all of this component's React state, but the
+  // underlying data isn't actually lost (handleQuickSubmit already persists
+  // the full AI result + images before the user ever reaches the edit
+  // step), so this reloads both instead of leaving an empty "create a
+  // strategy" form; and (2) the "Load Historical Creative" testing button
+  // (SINGLE_IMAGE_TESTING_MODE only), which reuses the exact same
+  // reconstruction to preview a past result with zero new AI/image spend —
+  // also doubles as a way to test whether the restore-and-display logic
+  // itself works, decoupled from the Canva round-trip that normally
+  // triggers it.
+  async function restoreCreativeFromAssetId(resumeId: string): Promise<boolean> {
+    const { data: asset } = await supabase
+      .from('creative_assets')
+      .select('id, creative_id, session_id')
+      .eq('id', resumeId)
+      .maybeSingle();
+    if (!asset?.creative_id) return false;
+
+    const { data: creative } = await supabase
+      .from('creatives')
+      .select('id, project_id, languages, senior_designer_brief')
+      .eq('id', asset.creative_id)
+      .maybeSingle();
+    const aiData = creative?.senior_designer_brief as SeniorDesignerResult | undefined;
+    if (!creative || !aiData) return false;
+
+    const { data: siblingRows } = await supabase
+      .from('creative_assets')
+      .select('id, image_url, storage_path, status')
+      .eq('creative_id', asset.creative_id)
+      .eq('session_id', asset.session_id ?? '')
+      .order('created_at', { ascending: true });
+
+    const resumedGalleryImages = (siblingRows ?? [])
+      .filter((row) => !!row.image_url)
+      .map((row) => {
+        const suffix = (row.storage_path as string | null)?.match(/-(feed|portrait|story)\.[a-z0-9]+$/i)?.[1]?.toLowerCase();
+        const label = suffix === 'portrait' ? 'Portrait Feed (1080×1350)' : suffix === 'story' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
+        const promptUsed = suffix === 'portrait' ? aiData.nanobanana_prompt_portrait : suffix === 'story' ? aiData.nanobanana_prompt_story : aiData.nanobanana_prompt_main;
+        return {
+          id: row.id as string,
+          url: row.image_url as string,
+          label,
+          storagePath: (row.storage_path as string | null) ?? undefined,
+          promptUsed: promptUsed ?? undefined,
+          adCopy: { headline: aiData.ad_copy?.headline_english, cta: aiData.ad_copy?.cta },
+          approved: row.status === 'approved',
+        };
+      });
+    if (resumedGalleryImages.length === 0) return false;
+
+    const restoredProjectId = (creative.project_id as string | null) ?? 'custom';
+    const restoredLanguages = (creative.languages as string[] | null) ?? DEFAULT_QUICK.languages;
+    setQuickInputs((prev) => ({ ...prev, projectId: restoredProjectId, languages: restoredLanguages }));
+
+    let projectName = 'Restored Project';
+    if (restoredProjectId !== 'custom') {
+      const { data: proj } = await supabase.from('projects').select('name').eq('id', restoredProjectId).maybeSingle();
+      projectName = proj?.name ?? projectName;
+    }
+
+    setResult({
+      type: 'quick_senior',
+      inputs: { ...DEFAULT_QUICK, projectId: restoredProjectId, languages: restoredLanguages },
+      projectName,
+      aiData,
+      savedId: creative.id as string,
+      resumedGalleryImages,
+    });
+    return true;
+  }
+
   useEffect(() => {
     const resumeId = sessionStorage.getItem('canva_resume_creative_id');
     if (!resumeId) return;
-    (async () => {
-      const { data: asset } = await supabase
-        .from('creative_assets')
-        .select('id, creative_id, session_id')
-        .eq('id', resumeId)
-        .maybeSingle();
-      if (!asset?.creative_id) return;
-
-      const { data: creative } = await supabase
-        .from('creatives')
-        .select('id, project_id, languages, senior_designer_brief')
-        .eq('id', asset.creative_id)
-        .maybeSingle();
-      const aiData = creative?.senior_designer_brief as SeniorDesignerResult | undefined;
-      if (!creative || !aiData) return;
-
-      const { data: siblingRows } = await supabase
-        .from('creative_assets')
-        .select('id, image_url, storage_path, status')
-        .eq('creative_id', asset.creative_id)
-        .eq('session_id', asset.session_id ?? '')
-        .order('created_at', { ascending: true });
-
-      const resumedGalleryImages = (siblingRows ?? [])
-        .filter((row) => !!row.image_url)
-        .map((row) => {
-          const suffix = (row.storage_path as string | null)?.match(/-(feed|portrait|story)\.[a-z0-9]+$/i)?.[1]?.toLowerCase();
-          const label = suffix === 'portrait' ? 'Portrait Feed (1080×1350)' : suffix === 'story' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
-          const promptUsed = suffix === 'portrait' ? aiData.nanobanana_prompt_portrait : suffix === 'story' ? aiData.nanobanana_prompt_story : aiData.nanobanana_prompt_main;
-          return {
-            id: row.id as string,
-            url: row.image_url as string,
-            label,
-            storagePath: (row.storage_path as string | null) ?? undefined,
-            promptUsed: promptUsed ?? undefined,
-            adCopy: { headline: aiData.ad_copy?.headline_english, cta: aiData.ad_copy?.cta },
-            approved: row.status === 'approved',
-          };
-        });
-      if (resumedGalleryImages.length === 0) return;
-
-      const restoredProjectId = (creative.project_id as string | null) ?? 'custom';
-      const restoredLanguages = (creative.languages as string[] | null) ?? DEFAULT_QUICK.languages;
-      setQuickInputs((prev) => ({ ...prev, projectId: restoredProjectId, languages: restoredLanguages }));
-
-      let projectName = 'Restored Project';
-      if (restoredProjectId !== 'custom') {
-        const { data: proj } = await supabase.from('projects').select('name').eq('id', restoredProjectId).maybeSingle();
-        projectName = proj?.name ?? projectName;
-      }
-
-      setResult({
-        type: 'quick_senior',
-        inputs: { ...DEFAULT_QUICK, projectId: restoredProjectId, languages: restoredLanguages },
-        projectName,
-        aiData,
-        savedId: creative.id as string,
-        resumedGalleryImages,
-      });
-    })();
+    restoreCreativeFromAssetId(resumeId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const [loadingHistorical, setLoadingHistorical] = useState(false);
+  async function loadMostRecentHistoricalCreative() {
+    setLoadingHistorical(true);
+    try {
+      const { data: recent } = await supabase
+        .from('creative_assets')
+        .select('id')
+        .eq('org_id', getOrgId())
+        .not('image_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!recent) { showToast('No historical creative found to load.', 'error'); return; }
+      const ok = await restoreCreativeFromAssetId(recent.id as string);
+      if (!ok) showToast('That creative had no reconstructable strategy data.', 'error');
+    } finally {
+      setLoadingHistorical(false);
+    }
+  }
 
   // Load full project data when projectId changes
   useEffect(() => {
@@ -979,6 +1005,17 @@ export function Strategy() {
         >
           {submitting ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
           {submitting ? 'Crafting strategy…' : geminiActive ? 'Generating images…' : 'Quick Generate Ad'}
+        </button>
+      )}
+
+      {mode === 'quick' && SINGLE_IMAGE_TESTING_MODE && (
+        <button
+          onClick={loadMostRecentHistoricalCreative}
+          disabled={loadingHistorical || submitting || geminiActive}
+          className="mt-2 w-full py-2 rounded-lg border border-dashed border-border text-text-tertiary font-medium text-xs flex items-center justify-center gap-2 hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-50"
+        >
+          {loadingHistorical ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          {loadingHistorical ? 'Loading…' : 'Load Most Recent Historical Creative (no new AI/image spend)'}
         </button>
       )}
 
