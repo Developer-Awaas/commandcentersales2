@@ -504,6 +504,13 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }
         showToast('Regenerated!', 'success');
       } else if (action === 'canva') {
+        // Open the tab SYNCHRONOUSLY, before the await below —
+        // window.open() called after an async gap (the canva-open-editor
+        // round-trip) can lose "user activation" in stricter browsers and
+        // get silently blocked, even though this was triggered by a real
+        // click. Navigating this already-open tab once the real URL is
+        // known sidesteps that.
+        const pendingTab = window.open('', '_blank');
         // supabase.functions.invoke attaches the caller's own session JWT —
         // canva-open-editor derives identity from that server-side, never
         // from a userId passed in the body. returnUrl encodes which app
@@ -514,15 +521,18 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           'canva-open-editor',
           { body: { creativeAssetId: assetId, returnUrl } }
         );
-        if (invokeErr) throw new Error(await extractFunctionErrorMessage(invokeErr, 'Canva editor request failed'));
-        if (!json) throw new Error('canva-open-editor returned no data');
+        if (invokeErr) { pendingTab?.close(); throw new Error(await extractFunctionErrorMessage(invokeErr, 'Canva editor request failed')); }
+        if (!json) { pendingTab?.close(); throw new Error('canva-open-editor returned no data'); }
         if (json.needsAuth) {
+          pendingTab?.close(); // this path goes through the inline Connect Canva prompt instead
           setPendingCanvaAssetId(assetId);
           setShowCanvaConnect(true);
         } else if (json.editUrl) {
-          window.open(json.editUrl, '_blank');
+          if (pendingTab) pendingTab.location.href = json.editUrl;
+          else window.open(json.editUrl, '_blank'); // blank open was blocked too — last resort, likely blocked again
           setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'editing' } : a));
         } else if (json.error) {
+          pendingTab?.close();
           showToast(json.error, 'error');
         }
       } else if (action === 'adobe') {

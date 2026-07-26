@@ -101,6 +101,17 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
   if (!localImages.length) return null;
 
   async function handleCanva(img: GalleryImage) {
+    // Open the tab SYNCHRONOUSLY, before any await — window.open() called
+    // after an async gap (the canva-open-editor round-trip below) can lose
+    // "user activation" in stricter browsers and get silently blocked, even
+    // though it was triggered by a real click. Verified server-side was
+    // never the problem here (canva-open-editor returns a valid editUrl
+    // every time) — this was purely the browser dropping the popup.
+    // Navigating this already-open tab once the real URL is known sidesteps
+    // that entirely. Only relevant for a direct click — the auto-resume
+    // effect below calls handleCanva() with no click at all, so there's no
+    // activation to preserve there either way; unchanged from before.
+    const pendingTab = window.open('', '_blank');
     setCanvaLoading(img.url);
     try {
       if (img.id) {
@@ -123,7 +134,8 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           if (json.designId && img.id) {
             setCanvaDesignIds((prev) => ({ ...prev, [img.id!]: json.designId! }));
           }
-          window.open(json.editUrl, '_blank');
+          if (pendingTab) pendingTab.location.href = json.editUrl;
+          else window.open(json.editUrl, '_blank'); // blank open was blocked too — last resort, likely blocked again
           return;
         }
         if (json.authUrl) {
@@ -135,6 +147,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           // Suppress the parent's beforeunload guard first — this is a
           // genuine top-level navigation, and Strategy.tsx's DB-backed
           // resume makes the round trip fully recoverable anyway.
+          pendingTab?.close(); // not needed for a same-window redirect
           onBeforeCanvaNavigate?.();
           window.location.href = json.authUrl;
           return;
@@ -142,8 +155,10 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
         if (json.error) throw new Error(json.error);
       }
       // Fallback when no DB record yet
-      window.open('https://www.canva.com/create/instagram-posts/', '_blank');
+      if (pendingTab) pendingTab.location.href = 'https://www.canva.com/create/instagram-posts/';
+      else window.open('https://www.canva.com/create/instagram-posts/', '_blank');
     } catch (err: unknown) {
+      pendingTab?.close();
       showToast(err instanceof Error ? err.message : 'Canva error', 'error');
     } finally {
       setCanvaLoading(null);
