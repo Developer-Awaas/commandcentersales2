@@ -123,8 +123,12 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
         // bypasses RLS, so a spoofed value would act on any org's data).
         // returnUrl encodes which app "page" to land back on (this app has
         // no real URL routing) so a cold-start OAuth connect returns here,
-        // not the dashboard.
-        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
+        // not the dashboard. &via=popup is ONLY added when pendingTab
+        // actually opened — if it's null (the blank tab itself got
+        // blocked), the authUrl branch below falls back to a real
+        // same-window redirect, and that tab must still land on the real
+        // app, not get stuck showing "you can close this tab" forever.
+        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}${pendingTab ? '&via=popup' : ''}`;
         const { data: json, error: invokeErr } = await supabase.functions.invoke<{ editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string }>(
           'canva-open-editor',
           { body: { creativeAssetId: img.id, returnUrl } }

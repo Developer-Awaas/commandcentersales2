@@ -54,8 +54,12 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
     try {
       // This app has no real URL routing — "pages" are React state, and
       // window.location.href never changes between them — so returnUrl is
-      // constructed to actually encode which page to land back on.
-      const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
+      // constructed to actually encode which page to land back on. &via=popup
+      // is ONLY added when pendingTab actually opened — if it's null (the
+      // blank tab itself got blocked), openCanvaOAuthPopup falls back to a
+      // real same-window redirect, and that tab must still land on the
+      // real app, not get stuck showing "you can close this tab" forever.
+      const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}${pendingTab ? '&via=popup' : ''}`;
       const { data, error } = await supabase.functions.invoke<{ authUrl?: string; error?: string }>(
         'canva-connect-init',
         { body: { returnUrl } }

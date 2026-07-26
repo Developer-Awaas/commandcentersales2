@@ -68,6 +68,9 @@ export function openCanvaOAuthPopup(
     try { result = JSON.parse(e.newValue); } catch { return; }
     window.removeEventListener('storage', handleStorage);
     window.clearInterval(pollClosed);
+    // Bring this (the original) tab back into focus — the popup closing
+    // itself doesn't always return focus to the tab that opened it.
+    window.focus();
     if (result.connected) onConnected();
     else if (result.error) onError?.(result.error);
   }
