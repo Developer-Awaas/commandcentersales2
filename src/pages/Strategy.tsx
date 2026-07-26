@@ -371,6 +371,24 @@ export function Strategy() {
   }
 
   async function handleQuickSubmit() {
+    // SINGLE_IMAGE_TESTING_MODE means real spend is off the table right
+    // now (currently testing Canva integration only, not generation) —
+    // "Quick Generate Ad" loads the most recent historical creative
+    // instead of ever calling Claude/GPT-Image-1, so every test cycle
+    // through the Canva flow costs nothing. Use the dedicated "Load Most
+    // Recent Historical Creative" button below instead if you specifically
+    // want to reload without going through this button.
+    if (SINGLE_IMAGE_TESTING_MODE) {
+      showToast('Testing mode: loading a historical creative instead of generating (no AI/image spend).', 'info');
+      setSubmitting(true);
+      try {
+        await loadMostRecentHistoricalCreative();
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     const selectedProject = projects.find((p) => p.id === quickInputs.projectId);
     const projectName =
       quickInputs.projectId === 'custom'
