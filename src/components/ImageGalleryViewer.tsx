@@ -189,7 +189,12 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
         setLocalImages((prev) => prev.map((i) =>
           (img.id ? i.id === img.id : i.url === img.url) ? { ...i, url: json.imageUrl! } : i
         ));
-        setCanvaDesignIds((prev) => { const next = { ...prev }; delete next[img.id!]; return next; });
+        // Deliberately does NOT clear canvaDesignIds[img.id] here — the
+        // Canva design itself still exists and is still editable after a
+        // sync, so "Sync from Canva" must stay available for further
+        // edit-then-sync rounds. Clearing it made the button vanish
+        // entirely after the first sync, with no way to sync again short
+        // of reopening the editor from scratch.
         if (json.editSummary) {
           setEditSummaries((prev) => ({ ...prev, [img.id!]: json.editSummary! }));
         }

@@ -61,8 +61,15 @@ export function CanvaReturn() {
       // can cause a browser to "forget" that this window was originally
       // script-opened by the time it navigates back from Canva's origin,
       // making close() silently do nothing. Never render/navigate to the
-      // real app in this window either way.
+      // real app in this window either way, regardless of whether any of
+      // these actually succeed.
       window.close();
+      // A commonly-used workaround for the same "browser forgot this was
+      // script-opened" case above — reassigning the window via
+      // open('', '_self') can make some browsers treat the current script
+      // as authoritative over closing it. Not guaranteed, but cheap to try
+      // before falling back to asking the user to close it manually.
+      try { window.open('', '_self'); window.close(); } catch { /* ignore */ }
       setStuckPopup(true);
       return;
     }
