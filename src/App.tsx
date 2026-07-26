@@ -93,10 +93,16 @@ function getSectionFromPage(page: string): AppSection {
 
 const SECTION_DEFAULT_PAGE: Record<AppSection, string> = {
   dashboard: 'dashboard',
-  // When LEADGEN_V2_ENABLED, clicking the Lead Gen section tab lands on the
-  // Aarav Agent page. Old pages (Strategy, CampaignWizard, etc.) remain
-  // accessible via the sidebar — they are NOT deleted for this release.
-  lead_gen: LEADGEN_V2_ENABLED ? 'leadgen-v2' : 'strategy',
+  // Always 'strategy', not flag-conditional. Sidebar.tsx deliberately hides
+  // the Aarav Agent (LeadGen V2) nav item in review-build ("not yet
+  // functional enough for reviewer testing, regardless of the feature
+  // flag") — but this line still honored LEADGEN_V2_ENABLED independently,
+  // so clicking the Lead Gen section tab landed on Aarav's full workspace
+  // ("Aarav welcomes you" / "loading aarav") with no visible nav item for
+  // it anywhere, looking like an unexplained auto-opening chat. Matches
+  // the Sidebar comment's actual intent now: hidden means hidden, the
+  // section tab shouldn't have its own separate route to it either.
+  lead_gen: 'strategy',
   smm: 'smm-planner',
 };
 
