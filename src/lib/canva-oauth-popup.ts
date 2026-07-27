@@ -85,3 +85,51 @@ export function openCanvaOAuthPopup(
     }
   }, 500);
 }
+
+// ─── Canva's separate "Return Navigation" feature ──────────────────────────
+//
+// Distinct from the OAuth connect flow above. Once "Return navigation" is
+// enabled for this integration in the Canva Developer Portal (a single
+// fixed return URL configured there, not something this app sets
+// per-request), Canva's editor shows a "Return" button once the user opens
+// a design created via the API. Clicking it navigates that SAME editor tab
+// to `{returnUrl}?correlation_jwt=...` — landing in the tab this app
+// originally opened via `pendingTab` for the editor, not the tab that
+// opened it. Signalled back the same way as the OAuth flow, via
+// localStorage (see above for why, not window.opener/postMessage).
+const EDITOR_RETURN_KEY = 'canva_editor_return_result';
+
+// Called by CanvaEditorReturn.tsx once it has verified the correlation_jwt
+// server-side (never trust it unverified — see canva-verify-return-nav).
+export function signalCanvaEditorReturn(ok: boolean): void {
+  try {
+    localStorage.setItem(EDITOR_RETURN_KEY, JSON.stringify({ ok, ts: Date.now() }));
+    localStorage.removeItem(EDITOR_RETURN_KEY);
+  } catch { /* localStorage unavailable (rare) */ }
+}
+
+/**
+ * Listens for the editor-return signal on the tab that opened the Canva
+ * editor. `pendingTab` is polled so the listener cleans itself up if the
+ * user just closes the editor tab without ever clicking "Return".
+ */
+export function listenForCanvaEditorReturn(pendingTab: Window | null, onReturned: (ok: boolean) => void): void {
+  if (!pendingTab) return; // no popup was actually opened — nothing to listen for
+  function handleStorage(e: StorageEvent) {
+    if (e.key !== EDITOR_RETURN_KEY || !e.newValue) return;
+    window.removeEventListener('storage', handleStorage);
+    window.clearInterval(pollClosed);
+    let result: { ok: boolean };
+    try { result = JSON.parse(e.newValue); } catch { return; }
+    window.focus();
+    onReturned(result.ok);
+  }
+  window.addEventListener('storage', handleStorage);
+
+  const pollClosed = window.setInterval(() => {
+    if (pendingTab.closed) {
+      window.clearInterval(pollClosed);
+      window.removeEventListener('storage', handleStorage);
+    }
+  }, 500);
+}

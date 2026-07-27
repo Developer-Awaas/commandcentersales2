@@ -4,6 +4,7 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
+import { listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
 import { enforceCreativeHistoryLimit } from '../lib/creative-history';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
@@ -528,8 +529,20 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           setPendingCanvaAssetId(assetId);
           setShowCanvaConnect(true);
         } else if (json.editUrl) {
-          if (pendingTab) pendingTab.location.href = json.editUrl;
-          else window.open(json.editUrl, '_blank'); // blank open was blocked too — last resort, likely blocked again
+          // correlation_state rides along on Canva's own "Return Navigation"
+          // feature (Developer Portal setting, separate from OAuth) —
+          // capped at 50 chars, `${page}:${uuid}` fits comfortably. This
+          // page has no sync-from-Canva capability, so the return signal
+          // just brings the tab back into focus with a reminder toast.
+          const editUrlWithCorrelation = `${json.editUrl}${json.editUrl.includes('?') ? '&' : '?'}correlation_state=${encodeURIComponent(`${activePage}:${assetId}`)}`;
+          if (pendingTab) {
+            pendingTab.location.href = editUrlWithCorrelation;
+            listenForCanvaEditorReturn(pendingTab, (ok) => {
+              if (ok) showToast('Editing finished in Canva — download or re-open to check your changes.', 'success');
+            });
+          } else {
+            window.open(editUrlWithCorrelation, '_blank'); // blank open was blocked too — last resort, likely blocked again
+          }
           setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'editing' } : a));
         } else if (json.error) {
           pendingTab?.close();

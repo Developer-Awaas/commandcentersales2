@@ -4,7 +4,7 @@ import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
-import { openCanvaOAuthPopup } from '../lib/canva-oauth-popup';
+import { openCanvaOAuthPopup, listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
 
@@ -140,8 +140,25 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           if (json.designId && img.id) {
             setCanvaDesignIds((prev) => ({ ...prev, [img.id!]: json.designId! }));
           }
-          if (pendingTab) pendingTab.location.href = json.editUrl;
-          else window.open(json.editUrl, '_blank'); // blank open was blocked too — last resort, likely blocked again
+          // correlation_state rides along on Canva's own "Return Navigation"
+          // feature (Canva Developer Portal setting, separate from the
+          // OAuth flow) — capped at 50 chars, `${page}:${uuid}` fits
+          // comfortably. Lets CanvaEditorReturn.tsx's signal below fire
+          // specifically for this image once the user clicks "Return"
+          // inside Canva's editor.
+          const editUrlWithCorrelation = img.id
+            ? `${json.editUrl}${json.editUrl.includes('?') ? '&' : '?'}correlation_state=${encodeURIComponent(`${activePage}:${img.id}`)}`
+            : json.editUrl;
+          if (pendingTab) {
+            pendingTab.location.href = editUrlWithCorrelation;
+            // Auto-sync once the user clicks "Return" in Canva's editor —
+            // a much stronger "I'm done editing" signal than just leaving
+            // the tab open, and closes the loop the user actually asked
+            // for: come back to where this was called from automatically.
+            listenForCanvaEditorReturn(pendingTab, (ok) => { if (ok) handleCanvaSync(img); });
+          } else {
+            window.open(editUrlWithCorrelation, '_blank'); // blank open was blocked too — last resort, likely blocked again
+          }
           return;
         }
         if (json.authUrl) {
