@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, RefreshCw, Zap } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
-import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -171,18 +170,13 @@ export function Strategy() {
     loadProjects();
   }, []);
 
-  // Shared by two callers: (1) the Canva-return resume effect below — a
-  // cold-start OAuth connect is a full top-level browser navigation to
+  // A cold-start OAuth connect is a full top-level browser navigation to
   // Canva.com and back, wiping all of this component's React state, but the
   // underlying data isn't actually lost (handleQuickSubmit already persists
   // the full AI result + images before the user ever reaches the edit
-  // step), so this reloads both instead of leaving an empty "create a
-  // strategy" form; and (2) the "Load Historical Creative" testing button
-  // (SINGLE_IMAGE_TESTING_MODE only), which reuses the exact same
-  // reconstruction to preview a past result with zero new AI/image spend —
-  // also doubles as a way to test whether the restore-and-display logic
-  // itself works, decoupled from the Canva round-trip that normally
-  // triggers it.
+  // step) — this reloads both instead of leaving an empty "create a
+  // strategy" form. (The Return Navigation flow — bug #55 — doesn't need
+  // this at all: it never navigates this tab away in the first place.)
   async function restoreCreativeFromAssetId(resumeId: string): Promise<boolean> {
     const { data: asset } = await supabase
       .from('creative_assets')
@@ -251,26 +245,6 @@ export function Strategy() {
     restoreCreativeFromAssetId(resumeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const [loadingHistorical, setLoadingHistorical] = useState(false);
-  async function loadMostRecentHistoricalCreative() {
-    setLoadingHistorical(true);
-    try {
-      const { data: recent } = await supabase
-        .from('creative_assets')
-        .select('id')
-        .eq('org_id', getOrgId())
-        .not('image_url', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!recent) { showToast('No historical creative found to load.', 'error'); return; }
-      const ok = await restoreCreativeFromAssetId(recent.id as string);
-      if (!ok) showToast('That creative had no reconstructable strategy data.', 'error');
-    } finally {
-      setLoadingHistorical(false);
-    }
-  }
 
   // Load full project data when projectId changes
   useEffect(() => {
@@ -371,24 +345,6 @@ export function Strategy() {
   }
 
   async function handleQuickSubmit() {
-    // SINGLE_IMAGE_TESTING_MODE means real spend is off the table right
-    // now (currently testing Canva integration only, not generation) —
-    // "Quick Generate Ad" loads the most recent historical creative
-    // instead of ever calling Claude/GPT-Image-1, so every test cycle
-    // through the Canva flow costs nothing. Use the dedicated "Load Most
-    // Recent Historical Creative" button below instead if you specifically
-    // want to reload without going through this button.
-    if (SINGLE_IMAGE_TESTING_MODE) {
-      showToast('Testing mode: loading a historical creative instead of generating (no AI/image spend).', 'info');
-      setSubmitting(true);
-      try {
-        await loadMostRecentHistoricalCreative();
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
-
     const selectedProject = projects.find((p) => p.id === quickInputs.projectId);
     const projectName =
       quickInputs.projectId === 'custom'
@@ -1023,17 +979,6 @@ export function Strategy() {
         >
           {submitting ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
           {submitting ? 'Crafting strategy…' : geminiActive ? 'Generating images…' : 'Quick Generate Ad'}
-        </button>
-      )}
-
-      {mode === 'quick' && SINGLE_IMAGE_TESTING_MODE && (
-        <button
-          onClick={loadMostRecentHistoricalCreative}
-          disabled={loadingHistorical || submitting || geminiActive}
-          className="mt-2 w-full py-2 rounded-lg border border-dashed border-border text-text-tertiary font-medium text-xs flex items-center justify-center gap-2 hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-50"
-        >
-          {loadingHistorical ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-          {loadingHistorical ? 'Loading…' : 'Load Most Recent Historical Creative (no new AI/image spend)'}
         </button>
       )}
 
