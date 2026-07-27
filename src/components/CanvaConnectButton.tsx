@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigation } from '../contexts/NavigationContext';
+import { openCanvaOAuthPopup } from '../lib/canva-oauth-popup';
 import { ExternalLink, Check, Trash2 } from 'lucide-react';
 import { Spinner } from './ui/Spinner';
 
@@ -40,6 +41,11 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
   }
 
   async function handleConnect() {
+    // Open the tab SYNCHRONOUSLY, before any await — window.open() called
+    // after an async gap (the canva-connect-init round-trip below) can lose
+    // "user activation" in stricter browsers and get silently blocked, even
+    // though it was triggered by a real click.
+    const pendingTab = window.open('', '_blank');
     // Identity (userId/orgId) is resolved server-side from the caller's own
     // session JWT — canva-connect-init never trusts a client-supplied value.
     // PKCE + the returned nonce-based state are handled entirely server-side
@@ -48,16 +54,30 @@ export function CanvaConnectButton({ userId, onConnected }: CanvaConnectButtonPr
     try {
       // This app has no real URL routing — "pages" are React state, and
       // window.location.href never changes between them — so returnUrl is
-      // constructed to actually encode which page to land back on.
-      const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
+      // constructed to actually encode which page to land back on. &via=popup
+      // is ONLY added when pendingTab actually opened — if it's null (the
+      // blank tab itself got blocked), openCanvaOAuthPopup falls back to a
+      // real same-window redirect, and that tab must still land on the
+      // real app, not get stuck showing "you can close this tab" forever.
+      const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}${pendingTab ? '&via=popup' : ''}`;
       const { data, error } = await supabase.functions.invoke<{ authUrl?: string; error?: string }>(
         'canva-connect-init',
         { body: { returnUrl } }
       );
       if (error) throw new Error(error.message);
       if (!data?.authUrl) throw new Error(data?.error ?? 'No authUrl returned');
-      window.location.href = data.authUrl;
+      // Popup, not a same-window redirect — see canva-oauth-popup.ts for why
+      // (Canva's OAuth screen can't be iframed at all, and severs
+      // window.opener the moment it navigates there, so completion is
+      // signalled via localStorage's storage event instead).
+      openCanvaOAuthPopup(
+        pendingTab,
+        data.authUrl,
+        () => { setConnecting(false); setConnected(true); onConnected?.(); },
+        (msg) => { setConnecting(false); alert(msg); }
+      );
     } catch (err: unknown) {
+      pendingTab?.close();
       alert(err instanceof Error ? err.message : 'Failed to start Canva connect');
       setConnecting(false);
     }
