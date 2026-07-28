@@ -63,7 +63,10 @@ const PLATFORM_OPTIONS = [
   { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
 ];
 
-const CREATIVE_PLATFORM_OPTIONS = [
+// Kept for TODO(multi-platform) re-exposure — the picker UI using this was
+// removed (see DEFAULT_CREATIVE_PLATFORM in lib/constants.ts). Exported so
+// the unused-in-this-file array doesn't trip noUnusedLocals.
+export const CREATIVE_PLATFORM_OPTIONS = [
   { value: 'Nanobanana (Gemini)', label: 'Nanobanana (Gemini)' },
   { value: 'ChatGPT / DALL-E', label: 'ChatGPT / DALL-E' },
   { value: 'Midjourney', label: 'Midjourney' },

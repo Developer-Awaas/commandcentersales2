@@ -24,7 +24,10 @@ const CREATIVE_TYPES = [
   { value: 'testimonial', label: 'Testimonial', desc: 'Happy customer stories', icon: '⭐' },
 ];
 
-const PLATFORMS = ['Nanobanana (Gemini)', 'ChatGPT / DALL-E', 'Canva', 'Adobe Express', 'Midjourney', 'Manual'];
+// Kept for TODO(multi-platform) re-exposure — the picker UI using this was
+// removed (see DEFAULT_CREATIVE_PLATFORM in lib/constants.ts). Exported so
+// the unused-in-this-file array doesn't trip noUnusedLocals.
+export const PLATFORMS = ['Nanobanana (Gemini)', 'ChatGPT / DALL-E', 'Canva', 'Adobe Express', 'Midjourney', 'Manual'];
 
 export default function SMMCreatives() {
   const { showToast } = useToast();
