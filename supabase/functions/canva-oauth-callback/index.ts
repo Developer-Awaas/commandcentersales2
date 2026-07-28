@@ -16,6 +16,16 @@ Deno.serve(async (req) => {
   const clientSecret = Deno.env.get('CANVA_CLIENT_SECRET')!
   const appUrl = Deno.env.get('APP_URL') ?? 'http://localhost:5173'
 
+  // Data-driven allowlist, not a hardcoded origin. Comma-separated, trimmed,
+  // empty entries dropped. FAIL CLOSED: if the env var is unset or empty,
+  // this is an empty array — never falls back to a wildcard or to trusting
+  // appUrl alone, so returnUrl is simply never honored until this is
+  // actually configured (see the check below).
+  const ALLOWED_RETURN_ORIGINS = (Deno.env.get('ALLOWED_RETURN_ORIGINS') ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+
   // Never redirect straight to an arbitrary returnUrl (open-redirect risk).
   // Always land on our own known, trusted root first with the (validated)
   // real target attached as a query param — the client-side landing step
@@ -28,7 +38,7 @@ Deno.serve(async (req) => {
     if (opts.returnUrl) {
       try {
         const parsed = new URL(opts.returnUrl)
-        if (parsed.origin === new URL(appUrl).origin) {
+        if (ALLOWED_RETURN_ORIGINS.includes(parsed.origin)) {
           target.searchParams.set('returnUrl', opts.returnUrl)
         }
       } catch { /* invalid returnUrl — omit it, land page falls back to its default */ }
