@@ -37,13 +37,26 @@ export function useAuth(): AuthState {
   const [error, setError] = useState<string | null>(null);
 
   const fetchOrCreateProfile = useCallback(async (authUser: User) => {
+    let existing: Profile | null = null;
     try {
-      const { data: existing } = await supabase
+      const { data, error: fetchErr } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authUser.id)
         .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      existing = data as Profile | null;
+    } catch {
+      // Transient failure (network blip, momentary RLS hiccup, token-refresh race) —
+      // NOT proof the account is unprovisioned. Signing out here was killing valid
+      // sessions on routine background token refreshes (~every 50-60 min), which
+      // surfaced to the user as a spurious "Session expired" error. Leave the
+      // existing session/profile state untouched and let the next auth-state-change
+      // (or the next screen the user visits) retry naturally.
+      return;
+    }
 
+    try {
       if (existing) {
         if (!existing.org_id) {
           setError(UNPROVISIONED_MSG);
@@ -80,8 +93,8 @@ export function useAuth(): AuthState {
       storeUserId(authUser.id);
       if (authUser.email) setUserEmail(authUser.email);
     } catch {
-      setError(UNPROVISIONED_MSG);
-      await supabase.auth.signOut();
+      // Unexpected failure after the explicit unprovisioned checks above already
+      // passed (e.g. localStorage write failure) — transient, do not sign out.
     }
   }, []);
 

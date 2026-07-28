@@ -35,6 +35,7 @@ import type { Database, Json } from '../_shared/database.types.ts'
 
 type DB = SupabaseClient<Database>
 import { runArjun, ArjunOutputError, type StrategyConfig } from '../_shared/agents/arjun.ts'
+import { projectApprovedCampaign } from '../_shared/agent-memory.ts'
 import { runAanya, AanyaOutputError, type CreativeVariant, type CreativeAngle } from '../_shared/agents/aanya.ts'
 import { runKavya, KavyaOutputError, type KavyaIntent, type KavyaPlan, type KavyaPlanEntry } from '../_shared/agents/kavya.ts'
 import { runDhruv, DhruvOutputError, type DhruvIntent } from '../_shared/agents/dhruv.ts'
@@ -817,7 +818,7 @@ async function handleApprove(
   if (firstMsg) userBrief = (firstMsg as { content: string }).content
 
   // Write approved decision to agent_memory for future recall.
-  await adminClient.from('agent_memory').insert({
+  const { data: memoryRow } = await adminClient.from('agent_memory').insert({
     org_id:             orgId,
     project_id:         turn.project_id ?? null,
     turn_id:            body.turn_id,
@@ -827,7 +828,17 @@ async function handleApprove(
     brand_verdict:      (canvas.brand ?? null) as unknown as Json,
     summary,
     user_brief:         userBrief,
-  })
+  }).select('id').single()
+
+  // Project into agent_memory_chunks for semantic recall — fire-and-forget.
+  // A chunk-write or embedding failure must never fail the approve action.
+  // projectApprovedCampaign derives org_id/project_id from the source row
+  // (not from parameters) so tenancy is verified by the DB, not the caller.
+  if (memoryRow) {
+    projectApprovedCampaign(adminClient, (memoryRow as { id: string }).id).catch((err) => {
+      console.error('projectApprovedCampaign failed (non-fatal):', err instanceof Error ? err.message : err)
+    })
+  }
 
   // Mark turn approved. No real launch integration exists — 'ready_to_launch'
   // is the honest terminal state until a Meta create-campaign edge function

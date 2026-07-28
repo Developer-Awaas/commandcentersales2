@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, invokeEdgeFn } from './supabase';
 import { getOrgId } from './constants';
 
 export interface GeminiGeneratedImage {
@@ -47,17 +47,19 @@ export async function generateImageWithGemini(
   // Always high quality — production-grade images required for customer-facing use
   const resolvedQuality = quality ?? 'high';
 
-  const { data, error } = await supabase.functions.invoke('generate-image', {
-    body: { prompt, width, height, quality: resolvedQuality },
+  const { data, error } = await invokeEdgeFn('generate-image', {
+    prompt, width, height, quality: resolvedQuality,
   });
 
   if (error) {
-    let detail = error.message ?? 'Image generation failed';
-    try {
-      const ctx = await (error as unknown as { context?: Response }).context?.json?.();
-      if (ctx?.error) detail = ctx.error;
-    } catch { /* ignore */ }
-    throw new Error(detail);
+    // invokeEdgeFn normalises crash errors (500/546) before they reach here,
+    // so 'non-2xx' is not checked — that was incorrectly triggering "Session expired"
+    // for every edge function crash. Only genuine auth rejections (401/403) have
+    // UNAUTHORIZED or Missing authorization in their message.
+    const isAuth = error.message?.includes('UNAUTHORIZED') || error.message?.includes('Missing authorization');
+    console.error('[generateImageWithGemini] edge fn error:', { message: error.message, isAuth });
+    if (isAuth) throw new Error('Session expired — please refresh the page and log in again.');
+    throw new Error(error.message ?? 'Image generation failed');
   }
   if (!data?.base64) throw new Error(data?.error ?? 'No image returned from generation service');
 

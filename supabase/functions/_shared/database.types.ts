@@ -652,6 +652,7 @@ export interface Database {
           canva_edit_url: string | null
           editor_used: 'canva' | 'adobe_express' | null
           status: 'generating' | 'generated' | 'editing' | 'edited' | 'approved' | 'rejected'
+          text_layers: Json | null
           approved_by: string | null
           approved_at: string | null
           created_at: string
@@ -674,6 +675,7 @@ export interface Database {
           canva_edit_url?: string | null
           editor_used?: 'canva' | 'adobe_express' | null
           status?: 'generating' | 'generated' | 'editing' | 'edited' | 'approved' | 'rejected'
+          text_layers?: Json | null
           approved_by?: string | null
           approved_at?: string | null
           created_at?: string
@@ -696,6 +698,7 @@ export interface Database {
           canva_edit_url?: string | null
           editor_used?: 'canva' | 'adobe_express' | null
           status?: 'generating' | 'generated' | 'editing' | 'edited' | 'approved' | 'rejected'
+          text_layers?: Json | null
           approved_by?: string | null
           approved_at?: string | null
           created_at?: string
@@ -1639,12 +1642,84 @@ export interface Database {
         }
         Relationships: Rel[]
       }
+
+      agent_memory_chunks: {
+        Row: {
+          id: string
+          org_id: string
+          project_id: string | null
+          scope: 'decision' | 'project' | 'builder' | 'domain' | 'shared' | 'agent'
+          agent_name: string | null
+          content: string
+          embedding: number[] | null  // vector(1024); PostgREST may return as string
+          salience: number
+          access_count: number
+          last_accessed_at: string | null
+          expires_at: string | null
+          source_memory_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          project_id?: string | null
+          scope: 'decision' | 'project' | 'builder' | 'domain' | 'shared' | 'agent'
+          agent_name?: string | null
+          content: string
+          embedding?: number[] | null
+          salience?: number
+          access_count?: number
+          last_accessed_at?: string | null
+          expires_at?: string | null
+          source_memory_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          project_id?: string | null
+          scope?: 'decision' | 'project' | 'builder' | 'domain' | 'shared' | 'agent'
+          agent_name?: string | null
+          content?: string
+          embedding?: number[] | null
+          salience?: number
+          access_count?: number
+          last_accessed_at?: string | null
+          expires_at?: string | null
+          source_memory_id?: string | null
+          created_at?: string
+        }
+        Relationships: Rel[]
+      }
     }
     Views: Record<string, { Row: Record<string, unknown>; Relationships: Rel[] }>
     Functions: {
       get_current_user_org_id: {
         Args: Record<string, never>
         Returns: string
+      }
+      match_memory_chunks: {
+        Args: {
+          query_embedding: number[]
+          query_text: string
+          filter_scope?: string | null
+          filter_project?: string | null
+          match_count?: number
+        }
+        Returns: Array<{
+          id: string
+          content: string
+          scope: string
+          agent_name: string | null
+          salience: number
+          similarity: number
+          hybrid_score: number
+          created_at: string
+        }>
+      }
+      touch_memory_chunks: {
+        Args: { chunk_ids: string[] }
+        Returns: void
       }
     }
     Enums: Record<string, string[]>

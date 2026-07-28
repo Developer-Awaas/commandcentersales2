@@ -7,6 +7,22 @@ on:
     branches: [main]
 
 jobs:
+  client-unit-tests:
+    name: Client unit tests (Vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: vitest run
+        run: npm test
+
   build:
     name: Client build (TypeScript + Vite)
     runs-on: ubuntu-latest
@@ -41,9 +57,9 @@ jobs:
           key: deno-${{ runner.os }}-${{ hashFiles('supabase/functions/**/*.ts', 'supabase/functions/deno.json', 'supabase/functions/deno.lock') }}
           restore-keys: deno-${{ runner.os }}-
 
-      # Explicit deno install, not left to nodeModulesDir:auto lazy
+      # Explicit deno install, not left to nodeModulesDir:auto's lazy
       # trigger during check/test - that lazy path reproducibly failed on
-      # Linux CI (Could not find a matching package for npm:@types/node)
+      # Linux CI ("Could not find a matching package for npm:@types/node")
       # while never reproducing locally under any invocation tried. A
       # dedicated install step removes the ambiguity about when/whether
       # auto-install actually fires.
@@ -54,10 +70,10 @@ jobs:
       # supabase/functions/deno.json is picked up automatically (Deno walks up
       # from each file's directory to find the nearest config file).
       # --lock is explicit, not left to auto-detection: without it, an
-      # unpinned esm.sh/@supabase/supabase-js@2 specifier can resolve to
-      # whatever esm.sh serves that request (observed drifting across
-      # 2.108.2/2.110.7 within the same day) even with deno.lock sitting
-      # right next to deno.json - --lock forces the pinned redirect.
+      # unpinned `esm.sh/@supabase/supabase-js@2` specifier can resolve to
+      # whatever esm.sh's edge serves that request (observed drifting
+      # across 2.108.2/2.110.7 within the same day) even with deno.lock
+      # sitting right next to deno.json - --lock forces the pinned redirect.
       - name: deno check — all Edge Function entry points
         run: |
           deno check \
@@ -86,6 +102,7 @@ jobs:
           deno-version: v2.x
 
       - name: Cache Deno modules
+        id: deno-cache
         uses: actions/cache@v4
         with:
           path: ~/.deno
@@ -96,21 +113,71 @@ jobs:
         run: deno install --lock=supabase/functions/deno.lock
         working-directory: supabase/functions
 
-      # Confirmed root cause (2026-07-21, via a temporary diagnostic step -
-      # see git history for commits 6279f60/498e705 if this ever needs
-      # re-diagnosing): deno check (works) always targets files directly
+      # TEMPORARY — remove once the npm:@types/node CI-only failure is
+      # actually root-caused. Prints real evidence instead of guessing.
+      - name: DIAGNOSTIC (temporary)
+        run: |
+          echo "::group::deno --version"
+          deno --version
+          echo "::endgroup::"
+
+          echo "::group::deno info"
+          deno info
+          echo "::endgroup::"
+
+          echo "::group::cache step result"
+          echo "cache-hit=${{ steps.deno-cache.outputs.cache-hit }}"
+          echo "primary-key=${{ steps.deno-cache.outputs.cache-primary-key }}"
+          echo "matched-key=${{ steps.deno-cache.outputs.cache-matched-key }}"
+          echo "::endgroup::"
+
+          echo "::group::DENO_DIR contents"
+          # Strip ANSI color codes — the raw grep|sed previously captured
+          # them and every downstream ls/find silently no-op'd on a garbage
+          # path (visible as "No such file or directory" in the prior run).
+          DENO_DIR_PATH="$(deno info 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep 'DENO_DIR location' | sed 's/.*: //')"
+          echo "resolved DENO_DIR: $DENO_DIR_PATH"
+          ls -la "$DENO_DIR_PATH" 2>&1 || true
+          echo "--- npm subfolder ---"
+          ls -la "$DENO_DIR_PATH/npm" 2>&1 || true
+          echo "--- @types/node anywhere under DENO_DIR ---"
+          find "$DENO_DIR_PATH" -maxdepth 6 -iname "*types*node*" 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::node_modules (if any exist)"
+          find . -maxdepth 4 -type d -name node_modules -exec ls -la {} \; 2>&1
+          find . -maxdepth 8 -ipath "*node_modules*types*node*" 2>&1 || true
+          echo "::endgroup::"
+
+          # H1 (symlink integrity) — free rider, settles this regardless of
+          # whether the H2 CWD fix below turns out to be the real cause.
+          echo "::group::@types/node symlink resolution (H1)"
+          ls -la supabase/functions/node_modules/@types/ 2>&1 || true
+          readlink -f supabase/functions/node_modules/@types/node 2>&1 || true
+          ls -la "$(readlink -f supabase/functions/node_modules/@types/node 2>/dev/null)" 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::deno.lock identity"
+          sha256sum supabase/functions/deno.lock
+          echo "last commit touching deno.lock (note: fetch-depth:1 checkout means this can only ever show HEAD):"
+          git log -1 --format=%H -- supabase/functions/deno.lock
+          echo "::endgroup::"
+
+      # Discovers *_test.ts and *.test.ts in the agents directory.
+      # Tests requiring live credentials are auto-skipped via ignore:true or
+      # ignore: !SMOKE_ENV_VAR. No secrets are configured for THIS job.
+      #
+      # H2 fix (2026-07-21): run from the SAME working directory deno
+      # install populated (supabase/functions), targeting a relative path,
+      # instead of invoking from repo root against an absolute-from-root
+      # path. deno check (which never fails) always targets files directly
       # inside supabase/functions/, walking up from each file's own
-      # directory to find deno.json/deno.lock. deno test previously
-      # targeted a directory from repo root - one level removed from where
-      # deno install (working-directory: supabase/functions) actually
-      # populated node_modules - and its directory-target config discovery
-      # never resolved against that tree on this Linux runner, even though
-      # deno install had installed @types/node correctly seconds earlier
-      # and its symlink was fully intact (both confirmed via the removed
-      # diagnostic's output - this was not a cache, install, or symlink
-      # problem, all three were separately ruled out with direct evidence).
-      # Fix: run deno test from the same working directory deno install
-      # populated, with paths relative to it.
+      # directory to find deno.json/deno.lock. deno test's prior invocation
+      # targeted a directory one level removed from where deno install (its
+      # own working-directory: supabase/functions) actually populated
+      # node_modules — the working hypothesis is deno test's config/
+      # node_modules discovery for a directory target didn't resolve
+      # against the same tree deno install populated, on this Linux runner.
       - name: deno test — credential-free unit tests
         run: |
           deno test --allow-env \

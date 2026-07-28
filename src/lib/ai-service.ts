@@ -247,6 +247,17 @@ function extractJson(text: string): unknown | null {
   return null;
 }
 
+// PARKED WIP — NOTE FOR REVIEW: the stashed side of every conflict in this
+// file was an alternate, older aiCall/aiVision implementation built on
+// invokeEdgeFn (buffered JSON response) with its own auth-error detection
+// (isAuthError/SESSION_EXPIRED_MSG) and a modelOverride parameter. It is
+// fully superseded by PR#12's streaming rewrite (already on main, verified
+// working live this session) and incompatible with it — kept upstream's
+// version throughout this file. modelOverride has no live callers anywhere
+// in the auto-merged tree (checked: Strategy.tsx, the one place it would
+// have been used, doesn't reference it) so nothing is silently broken by
+// dropping it. invokeEdgeFn itself is preserved in supabase.ts for
+// reference if that auth-retry behavior is wanted back.
 export interface ClaudeStreamResult {
   text: string;
   inputTokens: number;
@@ -360,37 +371,39 @@ export async function aiCall(
   prompt: string,
   system?: string,
   maxTokens: number = 16000,
-  trace: TraceOptions = {}
+  trace: TraceOptions = {},
+  modelOverride?: string,
 ): Promise<Record<string, unknown>> {
   const traceName = trace.traceName ?? 'claude-call';
+  const model = modelOverride ?? CLAUDE_MODEL;
 
   const quotaErr = await checkQuota();
   if (quotaErr) return { error: quotaErr };
 
   try {
     const outcome = await callClaudeProxyStream({
-      model: CLAUDE_MODEL,
+      model,
       max_tokens: maxTokens,
       system: system ?? DEFAULT_SYSTEM,
       messages: [{ role: 'user', content: prompt }],
     });
 
     if (!outcome.ok) {
-      logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: outcome.error, metadata: trace.metadata });
+      logToLangfuse(traceName, { input: prompt, model, level: 'ERROR', statusMessage: outcome.error, metadata: trace.metadata });
       return { error: outcome.error };
     }
 
     const { text: rawText, inputTokens, outputTokens } = outcome.result;
 
     const parsed = extractJson(rawText);
-    logToLangfuse(traceName, { input: prompt, output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
+    logToLangfuse(traceName, { input: prompt, output: parsed ?? rawText, model, inputTokens, outputTokens, metadata: trace.metadata });
 
     if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 
     return { raw: rawText, _inputTokens: inputTokens, _outputTokens: outputTokens };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
-    logToLangfuse(traceName, { input: prompt, model: CLAUDE_MODEL, level: 'ERROR', statusMessage: msg, metadata: trace.metadata });
+    logToLangfuse(traceName, { input: prompt, model, level: 'ERROR', statusMessage: msg, metadata: trace.metadata });
     return { error: msg };
   }
 }

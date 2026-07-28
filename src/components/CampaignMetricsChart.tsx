@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, invokeEdgeFn } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { Card } from './ui/Card';
 import { MetricsFreshnessBadge } from './MetricsFreshnessBadge';
@@ -77,7 +77,7 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
     setSyncing(true);
     setSyncMsg(null);
     try {
-      const { error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
+      const { error } = await invokeEdgeFn('meta-insights-sync', {});
       if (error) {
         setSyncMsg('Sync failed: ' + error.message);
       } else {

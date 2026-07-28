@@ -33,13 +33,29 @@ Deno.serve(async (req: Request) => {
   const beta = body._beta as string | undefined
   delete body._beta
 
+  // Prompt caching: if system is a plain string ≥ 1024 tokens (~4096 chars),
+  // convert to the cache_control array format so Anthropic caches it across
+  // requests with the same system prompt. Cuts ~2700 tokens of re-processing
+  // per call — significant for large system prompts like AANYA_SYSTEM_PROMPT.
+  const betaParts: string[] = beta ? [beta] : []
+  if (typeof body.system === 'string' && body.system.length >= 4096) {
+    body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral' } }]
+    betaParts.push('prompt-caching-2024-07-31')
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-api-key': apiKey,
     'anthropic-version': '2023-06-01',
   }
-  if (beta) headers['anthropic-beta'] = beta
+  if (betaParts.length > 0) headers['anthropic-beta'] = betaParts.join(',')
 
+  // PARKED WIP — NOTE FOR REVIEW: the stashed side of this conflict was an
+  // earlier, superseded fix attempt for the same bug (#35 in CLAUDE.md,
+  // non-streaming + a 120s AbortSignal). PR#12 (already on main) replaced it
+  // with streaming, which is strictly better (dodges the 150s idle-timeout
+  // entirely rather than racing it) and incompatible with the non-streaming
+  // approach — kept upstream's version here, not both.
   // Stream from Anthropic. Supabase's 150s limit is specifically a
   // *request-idle* timeout — "if an Edge Function doesn't send a response
   // before the timeout, 504 Gateway Timeout will be returned" — separate

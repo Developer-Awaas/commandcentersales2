@@ -32,3 +32,4 @@ _secrets.json
 
 # A/B test scratch artifacts (GPT-Image-1 currency-symbol investigation)
 .ab-test-tmp/
+backups/

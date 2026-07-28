@@ -1,7 +1,27 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(mkdir -p ~/.claude/skills)",
+      "Bash(cp -r .claude/skills/langfuse ~/.claude/skills/langfuse)",
+      "Bash(node -e ' *)",
+      "Bash(git log *)",
+      "Skill(run)",
+      "Bash(grep -Hm1 '^description:' .claude/skills/*/SKILL.md)",
+      "Bash(ls .claude/skills)",
+      "Bash(chromium-cli --version)",
+      "Bash(mkdir -p \"C:/Users/ACER/AppData/Local/Temp/claude/D--Developer-Awaas-commandcentersales2/68dc0215-8786-4404-9e0c-b8ab32faef4f/scratchpad/ab-out\")",
+      "Bash(AB_EMAIL='email-rdev332@gmail.com' AB_PASSWORD='pass@1234' AB_MODEL_TAG='sonnet' AB_OUT_DIR=\"C:/Users/ACER/AppData/Local/Temp/claude/D--Developer-Awaas-commandcentersales2/68dc0215-8786-4404-9e0c-b8ab32faef4f/scratchpad/ab-out\" node \"C:/Users/ACER/AppData/Local/Temp/claude/D--Developer-Awaas-commandcentersales2/68dc0215-8786-4404-9e0c-b8ab32faef4f/scratchpad/ab-test.mjs\")",
+      "Bash(node --experimental-vm-modules -e \"console.log\\(require.resolve\\('playwright'\\)\\)\")",
+      "Bash(node -e \"import\\('playwright'\\).then\\(m=>console.log\\('ok'\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
+      "Bash(AB_EMAIL='email-rdev332@gmail.com' AB_PASSWORD='pass@1234' AB_MODEL_TAG='sonnet' AB_OUT_DIR=\"D:/Developer-Awaas/commandcentersales2/.ab-test-tmp/out\" node .ab-test-tmp/ab-test.mjs)",
+      "Bash(npx playwright *)",
+      "Bash(AB_EMAIL='rdev332@gmail.com' AB_PASSWORD='pass@1234' AB_MODEL_TAG='sonnet' AB_OUT_DIR=\"D:/Developer-Awaas/commandcentersales2/.ab-test-tmp/out\" node .ab-test-tmp/ab-test.mjs)",
+      "Bash(AB_EMAIL='rdev332@gmail.com' AB_PASSWORD='pass@1234' AB_MODEL_TAG='haiku' AB_OUT_DIR=\"D:/Developer-Awaas/commandcentersales2/.ab-test-tmp/out\" node .ab-test-tmp/ab-test.mjs)",
+      "Bash(curl *)",
+      "Skill(langfuse)",
+      "Bash(node -e \"const s=require\\('./_secrets.json'\\); console.log\\(Object.keys\\(s\\)\\)\")",
+      "Skill(dev)"
     ]
   }
 }

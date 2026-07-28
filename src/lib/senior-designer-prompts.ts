@@ -93,6 +93,7 @@ export interface ProjectAsset {
   title?: string;
   description?: string;
   is_primary?: boolean;
+  visual_description?: string; // Claude Vision analysis — rich visual context for GPT-Image-1
 }
 
 export interface QuickReference {
@@ -175,6 +176,8 @@ RULE 5 — LIGHTING WITH INTENT: Section 4 names time, color temperature in Kelv
 
 RULE 6 — TYPOGRAPHY LAYER (RENDER IN IMAGE): Section 6 specifies each text element as TEXT ELEMENT 1, TEXT ELEMENT 2, etc. with Content, Font, Size, Color, Position, and Treatment. The image model MUST render these text elements exactly as specified, integrated into the composition. Include graphical containers (colored panels, borders, badges) as needed to frame text zones.
 
+NANOBANANA TYPOGRAPHY DOUBLE-QUOTE PROTOCOL (CRITICAL): Every text string that must appear rendered in the image MUST be enclosed in double quotes — both in the Content field of Section 6 AND in any narrative description of that text's placement. Example Content: "₹57 Lakhs". Example narrative: 'large bold condensed typography reading "₹57 LAKHS ONWARDS" floated in the clear sky at top-left'. Double quotes are the exact rendering signal to GPT-Image-1 — missing quotes means missed or garbled text. Keep text strings SHORT and PUNCHY — never attempt to render more than 8–10 words per text element. Always ensure HIGH CONTRAST between text color and its background zone: white or gold text on dark backgrounds, dark text on bright walls or sky areas.
+
 RECOGNIZED TEXT ELEMENT TYPES (name the type in the element header):
 - MIXED_WEIGHT_HEADLINE: word-level font switching within one headline line (e.g., "READY" ultra-bold condensed + "to" italic gold script + "MOVE" ultra-bold condensed). Specify font and color per word-group.
 - PRICE_BADGE: standalone large price callout with its own box and border at headline visual weight. NOT buried inside an info bar with other items. Size: 24–34pt. Specify box dimensions, border color.
@@ -188,13 +191,24 @@ RULE 7 — THREE DISTINCT LAYOUT PARADIGMS: Every brief produces three visually 
 
 nanobanana_prompt_main — GRAPHIC_DESIGN_FRAME: Full-bleed dark background (navy or deep brand color) fills 100% of canvas. Building photos placed as framed photo cards with white borders and gold corner-bracket accents. Structured info zones stacked top-to-bottom: headline → dual photo panels → feature checklist → CTA → footer contact strip. MIXED_WEIGHT_HEADLINE required. PRICE_BADGE overlapping one photo card. FEATURE_CHECKLIST (2×2 grid) below photos. FOOTER_STRIP at very bottom. Decorative geometry (hatched-stripe circles, corner bracket lines) adds depth to the flat background. This is the professional Indian real estate ad standard — Neelachala Homes / Lodha India / DLF India style. Maximum information density. Aspect ratio 1:1.
 
-nanobanana_prompt_portrait — PHOTOREALISTIC_SCENE: Single cinematic hero building photograph with real sky and landscape depth. Text as overlaid elements placed in natural negative-space zones (sky area, foreground). Premium minimal feel matching Sobha / DLF Camellias aesthetic. No dark background fill — the photo IS the background. Aspect ratio 4:5 (1024×1536). 400–600 words.
+nanobanana_prompt_portrait — PHOTOREALISTIC_SCENE: Single cinematic hero building photograph with real sky and landscape depth. Text as overlaid elements placed in natural negative-space zones (sky area, foreground). Premium minimal feel matching Sobha / DLF Camellias aesthetic. No dark background fill — the photo IS the background. Aspect ratio 4:5 (1024×1536). 200–300 words.
 
-nanobanana_prompt_story — TYPOGRAPHY_FORWARD: Bold statement headline occupies 35–45% of the frame. Building photo is secondary — a framed inset card (30–40% of frame) or blurred background. Three or four text elements maximum. High-contrast type treatment, vertical-native layout for Stories / Reels — sized for mobile thumb-stop scrolling. Feels like a poster, not a real estate brochure. Aspect ratio 9:16 (1024×1792). 400–600 words.
+nanobanana_prompt_story — TYPOGRAPHY_FORWARD: Bold statement headline occupies 35–45% of the frame. Building photo is secondary — a framed inset card (30–40% of frame) or blurred background. Three or four text elements maximum. High-contrast type treatment, vertical-native layout for Stories / Reels — sized for mobile thumb-stop scrolling. Feels like a poster, not a real estate brochure. Aspect ratio 9:16 (1024×1792). 200–300 words.
 
 RULE 8 — INDIAN CURRENCY ONLY (CRITICAL): Every price value rendered as text in Section 6 MUST use Indian currency format. Use ₹ symbol (e.g., "₹57 Lakhs", "₹1.18 Cr*", "Starting ₹95 Lakhs") or "Rs." prefix. NEVER render $, USD, Dollars, EUR, or any non-Indian currency symbol. The market is India — a $ symbol on a Bhubaneswar real estate ad is disqualifying. If the brief gives a price like "57 lakhs", you render "₹57 Lakhs". Always.
 
 RULE 9 — SUBSTITUTE ALL PLACEHOLDERS: The reference examples contain placeholder values: "NAYAPALLI, BBSR", "RS 57 LAKHS", "THE ZENITH", "+91-XXXXXXXXXX", "www.brand.com", "ONLY 8", "HOMES LEFT". You MUST replace EVERY placeholder with the real value from the CAMPAIGN CONTEXT section of this brief. Using a placeholder from the reference example verbatim in your output is a critical failure.
+
+RULE 10 — SCENARIO-VISUAL CONTRACT (campaign goal → primary visual approach):
+Before writing any prompt, classify the brief into one of three scenarios and anchor each layout paradigm to its scenario:
+
+SCENARIO A — LEAD GENERATION (goal: lead_generation): Wide-angle exterior of the apartment building or high-end entrance gates. Brand colors applied as architectural accents (illuminated signage, facade banding, colored window mullions). Typography is action-oriented — price, BHK configuration, location proximity, urgency. GRAPHIC_DESIGN_FRAME is the lead layout. Subject focus: the building as product, not as lifestyle symbol.
+
+SCENARIO B — LIFESTYLE / EMOTIONAL BRANDING (goal: branding, awareness): Premium interiors, clubhouse amenities, or blurred human elements enjoying the space. Brand secondary colors appear in decor — cushions, ambient lighting, accent walls. Typography is aspirational — project name, tagline, brand statement. No pricing in this scenario. PHOTOREALISTIC_SCENE is the lead layout. Sell the future self the buyer will become, not the unit spec.
+
+SCENARIO C — TEASER / COMING SOON (goal: awareness with mystery, festive_event teasers): Moody cinematic twilight drone shot over the development site OR extreme close-up of luxury material texture (Carrara marble veining, structural steel detail, glass curtain wall). Deep cinematic application of brand colors in shadows and sky — dark blues, glowing amber. High-contrast dramatic reveal copy: "SOMETHING EXTRAORDINARY IS COMING", "THE WAITLIST IS OPEN". Build hype — do not sell yet. No pricing, no floor plan. TYPOGRAPHY_FORWARD is the lead layout. Mystery is the message.
+
+TEXT CONTRAST INVARIANT (all three scenarios): White or gold text on dark/sky backgrounds. Dark navy text on gold/light backgrounds. Never light text on light backgrounds. State the contrast explicitly in Section 6 Treatment field for every TEXT ELEMENT.
 
 You always respond ONLY in valid JSON. No markdown fences, no preamble. Just the JSON object.`;
 
@@ -234,20 +248,27 @@ function getGoalStrategy(goal: string, _funnel: string): string {
 - Mandatory: Price point, RERA, clear CTA button, urgency cue (only if real)
 - Default angle types: Price-led, urgency-led (units left), location-led (proximity), amenity-led`,
 
-    branding: `BRANDING (TOFU/MOFU)
-- Hero: Lifestyle moment, brand symbol, or aspirational scene
-- Composition: 80% visual / 20% information density
-- Color: Brand palette restraint — 2 colors max
-- Copy hierarchy: Tagline/brand statement → company name (small)
-- Mandatory: Logo, tagline. NO direct sell elements.
+    branding: `BRANDING — SCENARIO B: LIFESTYLE / EMOTIONAL (TOFU/MOFU)
+- Hero: Premium interiors, clubhouse, or blurred lifestyle vignettes with human elements
+- Subject Focus: People enjoying the space — not the building facade
+- Composition: 80% visual / 20% information density. Photo IS the background (PHOTOREALISTIC_SCENE)
+- Color: Brand secondary colors in decor — cushions, ambient lighting, accent walls
+- Copy hierarchy: Aspirational tagline / project name → brand statement → NO price
+- Typography: Short, punchy double-quoted hooks. E.g. "WELCOME HOME" resting on the floor, "THE LIFE YOU DESERVE" in sky zone
+- Text contrast: Gold or off-white on natural scene darks. Never overlay on bright blown-out zones
+- Mandatory: Logo, tagline. NO pricing, NO feature checklists, NO footer strip
 - Default angle types: Trust-led, legacy-led, vision-led, craftsmanship-led`,
 
-    awareness: `AWARENESS (TOFU)
-- Hero: Bold statement, single striking visual, or curiosity-driven imagery
-- Composition: Editorial / minimalist
-- Color: One bold accent color against neutral
-- Copy hierarchy: Big idea statement → small attribution
-- Default angle types: Pattern-interrupt, contrarian, educational, emotional`,
+    awareness: `AWARENESS / TEASER — SCENARIO C: COMING SOON (TOFU)
+- Hero: Moody cinematic twilight drone shot over the development site OR extreme close-up of a luxury material texture (Carrara marble veining, structural steel detail, glass curtain wall reflection)
+- Subject Focus: Mystery and cinematic beauty — never reveal the full building or price
+- Composition: Typography-forward. Bold display headline occupies 35–45% of frame. Building or texture is a secondary atmospheric element
+- Color: Deep cinematic application of brand primary color in shadows and sky. Brand accent glows in the dark — neon-edge or golden-rim lighting
+- Copy hierarchy: Dramatic reveal hook → teaser line → NO price, NO spec, NO floor plan
+- Typography (CRITICAL — double-quote all text): High-contrast dramatic copy. E.g. "SOMETHING EXTRAORDINARY IS COMING" in large condensed caps, "THE WAITLIST IS OPEN" below in smaller weight. Text must glow or have strong contrast against the moody dark background
+- Text contrast: White or gold text on deep shadow/dark sky. Never place light text over the bright rim-lit horizon
+- Mandatory: High-contrast type treatment. Build hype — mystery IS the message
+- Default angle types: Curiosity-lead, pattern-interrupt, luxury-material-reveal, cinematic-location-tease`,
 
     festive_event: `FESTIVE / EVENT
 - Hero: Festival motif blended with brand asset, OR event-specific imagery
@@ -348,7 +369,12 @@ function buildReferenceManifest(input: CreativeBriefInput): { manifest: string[]
                       input.project_assets.find(a => a.asset_type === 'hero_exterior');
 
     if (heroAsset) {
-      refs.push(`Image ${imgIndex} [PROJECT_HERO]: Use this exact building as the architectural subject. Preserve all facade details, balcony patterns, color, and proportions. Do not invent new architectural elements. ${heroAsset.description ? `Context: ${heroAsset.description}` : ''}`);
+      const assetContext = heroAsset.visual_description
+        ? `VISUAL ANALYSIS: ${heroAsset.visual_description}`
+        : heroAsset.description
+        ? `Context: ${heroAsset.description}`
+        : '';
+      refs.push(`Image ${imgIndex} [PROJECT_HERO]: Use this exact building as the architectural subject. Preserve all facade details, balcony patterns, color, and proportions. Do not invent new architectural elements. ${assetContext}`);
       imgIndex++;
     }
 
@@ -574,6 +600,13 @@ ${languageBlock}
 ---
 
 ## YOUR TASK
+
+SCENARIO CLASSIFICATION (determine before writing any prompt):
+- lead_generation → SCENARIO A (GRAPHIC_DESIGN_FRAME lead): Wide-angle exterior, action copy, price + features + footer. Double-quote all text.
+- branding → SCENARIO B (PHOTOREALISTIC_SCENE lead): Lifestyle interior or aspirational scene, tagline only, no price. Double-quote all text.
+- awareness → SCENARIO C (TYPOGRAPHY_FORWARD lead): Moody twilight or texture close-up, dramatic reveal copy, no price. Double-quote all text.
+- festive_event / milestone / engagement / educational → match to nearest scenario by visual intent; festive teasers = C, celebratory factual = A, community = B.
+This brief is: ${input.campaign_goal.toUpperCase()} → classify it now before writing Section 1 of any prompt.
 
 Produce a GPT-Image-1 image generation prompt for ${aspectRatio}.
 
@@ -815,9 +848,9 @@ OUTPUT JSON SCHEMA:
 {
   "creative_concept": "1-line concept statement",
   "designer_rationale": "Aanya's POV: why this concept for this brief, 2-3 sentences. Reference design DNA if available.",
-  "nanobanana_prompt_main": "LAYOUT: GRAPHIC_DESIGN_FRAME (Reference A). Full-bleed dark background + dual photo cards + MIXED_WEIGHT_HEADLINE + PRICE_BADGE + PHOTO_CAPTION_BAR + FEATURE_CHECKLIST (2×2 grid with ✓ icons) + CTA_BUTTON + FOOTER_STRIP. Nine sections, 500–800 words. All six TEXT ELEMENT types required in Section 6.",
-  "nanobanana_prompt_portrait": "LAYOUT: PHOTOREALISTIC_SCENE (Reference B). Single cinematic hero building photo, sky/landscape depth, minimal premium overlay text. Aspect ratio 4:5 (1024×1536). Nine sections, 400–600 words. Section 9 must specify 4:5 aspect ratio.",
-  "nanobanana_prompt_story": "LAYOUT: TYPOGRAPHY_FORWARD (Reference C). Bold display headline dominates 40% of frame (64–76pt, NOT 96pt+), building as secondary photo card, max 3 text elements. Canvas: 1024×1792px. Nine sections, 400–600 words. Section 9 must specify 9:16 aspect ratio AND quality: high.",
+  "nanobanana_prompt_main": "LAYOUT: GRAPHIC_DESIGN_FRAME (Reference A). Full-bleed dark background + dual photo cards + MIXED_WEIGHT_HEADLINE + PRICE_BADGE + PHOTO_CAPTION_BAR + FEATURE_CHECKLIST (2×2 grid with ✓ icons) + CTA_BUTTON + FOOTER_STRIP. Nine sections, 300–400 words. All six TEXT ELEMENT types required in Section 6.",
+  "nanobanana_prompt_portrait": "LAYOUT: PHOTOREALISTIC_SCENE (Reference B). Single cinematic hero building photo, sky/landscape depth, minimal premium overlay text. Aspect ratio 4:5 (1024×1536). Nine sections, 200–300 words. Section 9 must specify 4:5 aspect ratio.",
+  "nanobanana_prompt_story": "LAYOUT: TYPOGRAPHY_FORWARD (Reference C). Bold display headline dominates 40% of frame (64–76pt, NOT 96pt+), building as secondary photo card, max 3 text elements. Canvas: 1024×1792px. Nine sections, 200–300 words. Section 9 must specify 9:16 aspect ratio AND quality: high.",
   "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
   "ad_copy": {
     ${(input.ad_platform === 'AiSensy'
@@ -905,6 +938,7 @@ export async function buildVariantBriefs(args: {
   languages: string[];
   ad_platform?: 'AiSensy' | 'Meta Ads Manager';
   quick_references?: QuickReference[];
+  project_assets?: ProjectAsset[]; // pre-enriched with visual_description — skips DB fetch
 }) {
   const variants: Array<{label: 'A' | 'B' | 'C', angle: string}> = [
     { label: 'A', angle: 'price_led_with_urgency' },
@@ -922,12 +956,159 @@ export async function buildVariantBriefs(args: {
       languages: args.languages,
       quick_references: args.quick_references,
       ad_platform: args.ad_platform,
+      project_assets: args.project_assets,
       variant_label: v.label,
       variant_angle: v.angle,
     })
   ));
 
   return prompts;
+}
+
+// ============================================================
+// TWO-STAGE GENERATION
+// Stage 1: concept + ad copy (1 Sonnet call, ~600 token output, ~20s)
+// Stage 2: 3 parallel image prompts (3 Sonnet calls, ~500 tokens each, ~17s wall-clock)
+// Total: ~37s vs. single-call ~65s — same quality, no timeout risk
+// ============================================================
+
+export interface TwoStageBrief {
+  stage1: { systemPrompt: string; userPrompt: string };
+  buildStage2: (stage1Result: Record<string, unknown>) => {
+    main:    { systemPrompt: string; userPrompt: string };
+    portrait: { systemPrompt: string; userPrompt: string };
+    story:   { systemPrompt: string; userPrompt: string };
+  };
+}
+
+export async function buildTwoStageQuickGenerateBrief(args: {
+  user_brief: string;
+  project_id?: string;
+  project_data?: ProjectData;
+  campaign_goal?: CreativeBriefInput['campaign_goal'];
+  funnel_stage?: CreativeBriefInput['funnel_stage'];
+  placement?: CreativeBriefInput['placement'];
+  languages: string[];
+  quick_references?: QuickReference[];
+  ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  project_assets?: ProjectAsset[];
+  variant_label?: 'A' | 'B' | 'C';
+  variant_angle?: string;
+}): Promise<TwoStageBrief> {
+  // One DB fetch — load the full brief (includes context + references + schema).
+  // Stage 1 strips the reference examples and replaces the output schema.
+  // Stage 2 uses the full userPrompt (up to END REFERENCE EXAMPLES) + stage1 result.
+  const { systemPrompt, userPrompt } = await buildSeniorDesignerCreativePrompt({
+    user_brief: args.user_brief,
+    project_id: args.project_id,
+    project_data: args.project_data,
+    campaign_goal: args.campaign_goal ?? 'lead_generation',
+    funnel_stage: args.funnel_stage ?? 'BOFU',
+    placement: args.placement ?? 'feed_square',
+    languages: args.languages,
+    quick_references: args.quick_references,
+    ad_platform: args.ad_platform,
+    project_assets: args.project_assets,
+    variant_label: args.variant_label,
+    variant_angle: args.variant_angle,
+  });
+
+  // Context block = everything before the "YOUR TASK" section (no references, no schema)
+  const taskMarker = '\n## YOUR TASK';
+  const taskIdx = userPrompt.indexOf(taskMarker);
+  const contextOnly = taskIdx > -1 ? userPrompt.slice(0, taskIdx) : userPrompt;
+
+  // Prompt base up to end of reference examples (for Stage 2)
+  const endRefMarker = '━━━ END REFERENCE EXAMPLES ━━━';
+  const endRefIdx = userPrompt.indexOf(endRefMarker);
+  const upToEndRefs = endRefIdx > -1
+    ? userPrompt.slice(0, endRefIdx + endRefMarker.length)
+    : userPrompt;
+
+  // Ad copy field hint for Stage 1 (so model knows what fields to produce)
+  const platform = args.ad_platform ?? 'Meta Ads Manager';
+  const langs = args.languages;
+  const adCopyHint = platform === 'AiSensy'
+    ? langs.map(l => `"headline_${l.toLowerCase()}", "primary_text_${l.toLowerCase()}", "description_${l.toLowerCase()}"`).join(', ')
+    : langs.map(l => `"headline_${l.toLowerCase()}", "subhead_${l.toLowerCase()}", "primary_text_${l.toLowerCase()}", "description_${l.toLowerCase()}"`).join(', ');
+
+  const stage1UserPrompt = `${contextOnly}
+
+---
+
+## YOUR TASK — STAGE 1: Creative Concept & Ad Copy
+
+Generate ONLY the creative strategy and ad copy. Do NOT produce any image prompts (nanobanana_prompt_* fields) — those are generated separately in Stage 2 as parallel calls.
+
+CRITICAL CHECK — CURRENCY: All prices in ad_copy must use ₹ symbol (never $, USD, Dollars).
+CRITICAL CHECK — SUBSTITUTION: Replace all values from CAMPAIGN CONTEXT. No placeholders in output.
+
+ALSO PRODUCE "visual_anchor" — a single literal physical description (60-100 words) of ONE specific building/scene: architectural style, material, color, height/floors, facade details, era, landscaping. If a [PROJECT_HERO] reference image was provided above, describe THAT exact building. If not, invent ONE consistent building appropriate to the brief. This exact description will be locked and reused verbatim across all three image layouts in Stage 2 — it is the single source of truth for "what building is in this ad," so it must be concrete enough that three independent writers would draw the same structure from it.
+
+OUTPUT JSON ONLY — no markdown fences:
+{
+  "creative_concept": "1-line concept statement",
+  "designer_rationale": "Aanya's POV — why this concept for this brief, 2-3 sentences. Reference Design DNA if available.",
+  "visual_anchor": "Literal physical description of the one building/scene — see instructions above.",
+  "ad_copy": { ${adCopyHint}, "cta": "..." },
+  "design_dna_tags": { "angle": "...", "composition": "...", "color_treatment": "...", "copy_angle": "...", "lighting": "..." },
+  "predicted_performance": "Brief WoW or CPL prediction based on Design DNA",
+  "post_production_notes": "Any manual overlay or canvas adjustments needed."
+}`;
+
+  // Stage 2 builder — closure captures pre-loaded context via upToEndRefs
+  const buildStage2 = (stage1Result: Record<string, unknown>) => {
+    const lockedDir = `\n\n---\n\n## STAGE 1 CREATIVE DIRECTION (locked — use for consistency)\nCreative Concept: "${stage1Result.creative_concept ?? ''}"\nDesigner Rationale: "${stage1Result.designer_rationale ?? ''}"\nVisual Anchor (LOCKED — this exact building/scene MUST be what Section 1's scene narrative describes. Do not invent a different building, style, material, or color. All three layouts share this one physical structure): "${stage1Result.visual_anchor ?? ''}"\nAd Copy (LOCKED — reproduce exact strings in Section 6 TEXT ELEMENTs): ${JSON.stringify(stage1Result.ad_copy ?? {})}\nDesign DNA: ${JSON.stringify(stage1Result.design_dna_tags ?? {})}`;
+
+    const makeS2 = (layoutKey: string, layoutName: string, wordCount: string) => ({
+      systemPrompt,
+      userPrompt: `${upToEndRefs}${lockedDir}\n\n## YOUR OUTPUT — ${layoutName}\n\nGenerate ONLY "${layoutKey}". ${wordCount}. All nine sections required. Section 1's scene narrative must describe the LOCKED Visual Anchor above, not a new building. Use the Stage 1 locked concept for text content.\n\nCRITICAL CHECK — CURRENCY: every price rendered in Section 6 TEXT ELEMENTs must use ₹ or "Rs." — never $, USD, or Dollars.\n\nOUTPUT JSON — this single key only:\n{ "${layoutKey}": "SECTION 1: SCENE NARRATIVE\\n...\\nSECTION 9: TECHNICAL SPECS" }`,
+    });
+
+    return {
+      main:    makeS2('nanobanana_prompt_main',     'GRAPHIC_DESIGN_FRAME (Feed 1:1)',       '300–400 words'),
+      portrait: makeS2('nanobanana_prompt_portrait', 'PHOTOREALISTIC_SCENE (Portrait 4:5)',   '200–300 words'),
+      story:   makeS2('nanobanana_prompt_story',    'TYPOGRAPHY_FORWARD (Story 9:16)',        '200–300 words'),
+    };
+  };
+
+  return {
+    stage1: { systemPrompt, userPrompt: stage1UserPrompt },
+    buildStage2,
+  };
+}
+
+// AD CREATIVES MODULE: 3 variants × two-stage parallel generation
+export async function buildTwoStageVariantBriefs(args: {
+  project_id: string;
+  user_brief: string;
+  funnel_stage: CreativeBriefInput['funnel_stage'];
+  languages: string[];
+  ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  quick_references?: QuickReference[];
+  project_assets?: ProjectAsset[];
+}): Promise<TwoStageBrief[]> {
+  const variants: Array<{ label: 'A' | 'B' | 'C'; angle: string }> = [
+    { label: 'A', angle: 'price_led_with_urgency' },
+    { label: 'B', angle: 'lifestyle_aspirational' },
+    { label: 'C', angle: 'trust_legacy_or_amenity' },
+  ];
+
+  return Promise.all(variants.map(v =>
+    buildTwoStageQuickGenerateBrief({
+      user_brief: args.user_brief,
+      project_id: args.project_id,
+      campaign_goal: 'lead_generation',
+      funnel_stage: args.funnel_stage,
+      placement: 'feed_square',
+      languages: args.languages,
+      quick_references: args.quick_references,
+      ad_platform: args.ad_platform,
+      project_assets: args.project_assets,
+      variant_label: v.label,
+      variant_angle: v.angle,
+    })
+  ));
 }
 
 // SMM CREATIVE (per-post)

@@ -3,7 +3,7 @@
 // brand_colors field kept for now to avoid breaking existing prompt-builders that read it.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, invokeEdgeFn } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 
 import { Card } from '../components/ui/Card';
@@ -132,7 +132,7 @@ export function SettingsPage() {
     setMetaSyncing(true);
     setMetaSyncMsg(null);
     try {
-      const { data, error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
+      const { data, error } = await invokeEdgeFn('meta-insights-sync', {});
       if (error) {
         setMetaSyncMsg('Sync failed: ' + error.message);
       } else {

@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
+// PARKED WIP — NOTE FOR REVIEW: invokeEdgeFn (stashed) and
+// extractFunctionErrorMessage (upstream, PR#12) both exist to surface a
+// real error from a functions.invoke() failure — kept both, see the same
+// note in supabase.ts. TextLayer* imports are the independent, unrelated
+// text-overlay layer system (stashed) — merged in alongside the Canva
+// Return Navigation additions (upstream), not a conflict with them.
+import { supabase, extractFunctionErrorMessage, invokeEdgeFn } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
 import { openCanvaOAuthPopup, listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
-import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2 } from 'lucide-react';
+import { TextLayerOverlay } from './TextLayerOverlay';
+import { TextLayerEditor } from './TextLayerEditor';
+import { renderTextLayers, type TextLayer } from '../lib/text-layers';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, Type } from 'lucide-react';
 
 // Mirrors _shared/vision-analysis.ts's EditSummary shape (server-only file,
 // not imported client-side) — just the 4 boolean flags this UI displays.
@@ -28,6 +37,14 @@ export interface GalleryImage {
   // page's Canva-return resume) — mirrors creative_assets.status === 'approved'
   // so callers can infer whether a resumed set was already saved.
   approved?: boolean;
+  textLayers?: TextLayer[];
+}
+
+/** Parses "Feed (1080×1080)"-style labels into export dimensions; falls back to a square. */
+function parseLayoutDims(label?: string): { w: number; h: number } {
+  const match = label?.match(/(\d+)\s*[×x]\s*(\d+)/);
+  if (match) return { w: Number(match[1]), h: Number(match[2]) };
+  return { w: 1080, h: 1080 };
 }
 
 interface ImageGalleryViewerProps {
@@ -62,6 +79,15 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [canvaLoading, setCanvaLoading] = useState<string | null>(null);
   const [adobeImage, setAdobeImage] = useState<GalleryImage | null>(null);
+  const [textEditImage, setTextEditImage] = useState<GalleryImage | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // PARKED WIP — NOTE FOR REVIEW: canvaDesignIds (the stashed manual-"Sync
+  // from Canva" button's state) is dropped here. Upstream's comment below
+  // ("auto-triggered by Return Navigation, no manual sync trigger exists")
+  // confirms this was an intentional removal in PR#12, not an omission —
+  // the whole manual-sync mechanism this state supported was superseded by
+  // Return Navigation's auto-sync. See the later conflict in this file for
+  // the JSX button that read this state; dropped for the same reason.
   // Tracks which image id is currently being synced from Canva (null = none)
   // — auto-triggered by Return Navigation, no manual sync trigger exists.
   const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
@@ -114,6 +140,12 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
     setCanvaLoading(img.url);
     try {
       if (img.id) {
+        // PARKED WIP — NOTE FOR REVIEW: the stashed side of this conflict
+        // passed userId in the request body — a real IDOR (a spoofed value
+        // could act on another org's data via the service-role client on
+        // the other end). Upstream's version below fixes this by deriving
+        // identity server-side from the JWT. Do not restore the stashed
+        // version.
         // supabase.functions.invoke attaches the caller's own session JWT
         // automatically — canva-open-editor derives identity from that, it
         // never trusts a userId passed in the body (service-role client,
@@ -186,6 +218,15 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
     if (!img.id) return;
     setCanvaSyncing(img.id);
     try {
+      // PARKED WIP — NOTE FOR REVIEW: on-disk state before this resolution
+      // was a broken hybrid (stash's invokeEdgeFn call feeding into a
+      // reference to an undefined `res`). Replaced with upstream's actual
+      // current implementation verified via `git show origin/main` rather
+      // than guessed — still a raw fetch + anon key + userId-in-body, same
+      // pattern canva-open-editor's IDOR fix moved away from. Not fixed
+      // here since this is upstream's already-shipped code, not stash
+      // content — flagging for separate review, not silently rewriting
+      // already-merged main code while parking WIP.
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
       const res = await fetch(`${supabaseUrl}/functions/v1/canva-sync-design`, {
@@ -242,6 +283,37 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
     setAdobeImage(null);
   }
 
+  function handleTextSave(layers: TextLayer[]) {
+    if (textEditImage) {
+      setLocalImages((prev) =>
+        prev.map((img) => (textEditImage.id ? img.id === textEditImage.id : img.url === textEditImage.url)
+          ? { ...img, textLayers: layers }
+          : img
+        )
+      );
+      showToast('Text layers saved!', 'success');
+    }
+    setTextEditImage(null);
+  }
+
+  async function handleDownload(img: GalleryImage, index: number) {
+    if (!img.textLayers?.length) {
+      downloadImage(img.url, `generated-${img.label ?? index + 1}.jpg`);
+      return;
+    }
+    setDownloadingId(img.id ?? img.url);
+    try {
+      const { w, h } = parseLayoutDims(img.label);
+      const composited = await renderTextLayers(img.url, img.textLayers, w, h);
+      downloadImage(composited, `generated-${img.label ?? index + 1}.jpg`);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Could not bake text into image — downloading original.', 'error');
+      downloadImage(img.url, `generated-${img.label ?? index + 1}.jpg`);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
   const current = lightbox !== null ? localImages[lightbox.index] : null;
 
   return (
@@ -284,6 +356,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   loading="lazy"
                 />
+                <TextLayerOverlay layers={img.textLayers ?? []} />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-all flex items-center justify-center">
                   <Maximize2 size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
@@ -314,6 +387,15 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 >
                   <Layers size={12} />
                   Adobe Express
+                </button>
+                <button
+                  onClick={() => setTextEditImage(img)}
+                  disabled={!img.id}
+                  title={img.id ? undefined : 'Save the creative before editing text'}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-medium hover:bg-amber-500/20 active:scale-95 transition-all disabled:opacity-50 col-span-2"
+                >
+                  <Type size={12} />
+                  Edit Text
                 </button>
               </div>
 
@@ -348,11 +430,13 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
               )}
 
               <button
-                onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
-                disabled={isBusy}
+                onClick={() => handleDownload(img, i)}
+                disabled={downloadingId === (img.id ?? img.url)}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all disabled:opacity-50"
               >
-                <Download size={11} />
+                {downloadingId === (img.id ?? img.url)
+                  ? <span className="w-2.5 h-2.5 border-2 border-text-tertiary border-t-transparent rounded-full animate-spin" />
+                  : <Download size={11} />}
                 Download
               </button>
             </div>
@@ -383,7 +467,10 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
 
             {/* Image */}
             <div className="relative flex items-center justify-center bg-surface-sunken flex-1 min-h-0">
-              <img src={current.url} alt={current.label} className="max-h-[55vh] max-w-full object-contain" />
+              <div className="relative inline-block">
+                <img src={current.url} alt={current.label} className="max-h-[55vh] max-w-full object-contain block" />
+                <TextLayerOverlay layers={current.textLayers ?? []} />
+              </div>
               {lightbox.index > 0 && (
                 <button
                   onClick={() => setLightbox((l) => l ? { ...l, index: l.index - 1 } : null)}
@@ -420,7 +507,9 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 Adobe Express
               </button>
               {/* No manual "Sync from Canva" trigger — see the grid view's
-                  equivalent comment above. Status indicator only. */}
+                  equivalent comment above. Status indicator only. The
+                  stashed manual-sync button (canvaDesignIds-gated) was
+                  dropped here for the same reason as the grid view. */}
               {current.id && canvaSyncing === current.id && (
                 <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-medium flex-1 justify-center">
                   <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
@@ -439,10 +528,22 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 </div>
               )}
               <button
-                onClick={() => downloadImage(current.url, `generated-${current.label ?? lightbox.index + 1}.jpg`)}
-                className="p-2 rounded-xl border border-border text-text-tertiary hover:text-text-primary transition-all"
+                onClick={() => setTextEditImage(current)}
+                disabled={!current.id}
+                title={current.id ? undefined : 'Save the creative before editing text'}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-medium hover:bg-amber-500/20 transition-all disabled:opacity-50 flex-1 justify-center"
               >
-                <Download size={14} />
+                <Type size={13} />
+                Edit Text
+              </button>
+              <button
+                onClick={() => handleDownload(current, lightbox.index)}
+                disabled={downloadingId === (current.id ?? current.url)}
+                className="p-2 rounded-xl border border-border text-text-tertiary hover:text-text-primary transition-all disabled:opacity-50"
+              >
+                {downloadingId === (current.id ?? current.url)
+                  ? <span className="w-3.5 h-3.5 border-2 border-text-tertiary border-t-transparent rounded-full animate-spin block" />
+                  : <Download size={14} />}
               </button>
             </div>
           </div>
@@ -459,6 +560,17 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           storageBucket="brand-assets"
           onSave={handleAdobeSave}
           onClose={() => setAdobeImage(null)}
+        />
+      )}
+
+      {/* Text Layer Editor */}
+      {textEditImage && textEditImage.id && (
+        <TextLayerEditor
+          assetId={textEditImage.id}
+          imageUrl={textEditImage.url}
+          layers={textEditImage.textLayers ?? []}
+          onSave={handleTextSave}
+          onClose={() => setTextEditImage(null)}
         />
       )}
     </>
