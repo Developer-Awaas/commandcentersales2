@@ -58,6 +58,12 @@ interface AgentRequest {
   // For action='approve':
   turn_id?: string
   selected_creative_ids?: string[]
+  // TESTING ONLY — not sent by any real client UI. When exactly 1, reduces
+  // Aanya's default-path image generation to a single angle ('value') so
+  // manual/live testing doesn't pay for 3 full self-critique loops every
+  // turn. Any other value (including omitted) leaves the default of 3
+  // untouched. Never wired into contracts.ts / the client on purpose.
+  variant_count?: number
 }
 
 type DelegationState = 'pending' | 'working' | 'done' | 'failed'
@@ -354,9 +360,13 @@ Deno.serve(async (req: Request) => {
     let turnCapHit = false
 
     try {
+      // TESTING ONLY — see AgentRequest.variant_count. Real turns never set
+      // this, so onlyAngle stays undefined and all 3 angles generate as usual.
+      const testingOnlyAngle: CreativeAngle | undefined = body.variant_count === 1 ? 'value' : undefined
       const aanyaResult = await runAanya({
         orgId, projectId: body.project_id, strategy: result.strategy, traceId,
         costCeilingUsd: tierCfg.aanyaCostCeilingUsd,
+        onlyAngle: testingOnlyAngle,
       })
       delegations[1].status = 'done'
       await updateTurnDelegations(ctx) // Realtime push: Aanya done
