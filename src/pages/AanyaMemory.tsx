@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Brain, Upload, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, Image as ImageIcon, TrendingUp, Eye, Copy, Check, Bot, Zap, Download, X, Layers } from 'lucide-react';
-import { supabase, invokeEdgeFn } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
-import { aiCall, logToLangfuse } from '../lib/ai-service';
+import { aiCall, logToLangfuse, callClaudeProxyStream } from '../lib/ai-service';
 import { generateImageWithGemini } from '../lib/gemini-service';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { Select } from '../components/ui/Select';
@@ -103,7 +103,7 @@ const PLATFORM_LABELS: Record<Platform, string> = {
 
 async function analyzeCreativeWithVision(imageUrl: string): Promise<VisionAnalysis | null> {
   try {
-    const { data, error } = await invokeEdgeFn('claude-proxy', {
+    const outcome = await callClaudeProxyStream({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 800,
       messages: [{
@@ -136,18 +136,17 @@ Return ONLY the JSON object, no markdown, no preamble.`,
       }],
     });
 
-    if (error) {
-      logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: error.message });
+    if (!outcome.ok) {
+      logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: outcome.error });
       return null;
     }
-    const text = ((data?.content ?? []) as { type: string; text: string }[])
-      .filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    const text = outcome.result.text.trim();
     const parsed = JSON.parse(text.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim());
     logToLangfuse('aanya-memory-vision-analysis', {
       output: parsed,
       model: 'claude-haiku-4-5-20251001',
-      inputTokens: data?.usage?.input_tokens,
-      outputTokens: data?.usage?.output_tokens,
+      inputTokens: outcome.result.inputTokens,
+      outputTokens: outcome.result.outputTokens,
     });
     return parsed as VisionAnalysis;
   } catch (err) {
@@ -800,20 +799,20 @@ function DNAPanel({ projectId, projectName, creatives, onSynthesized }: DNAPanel
     setLoading(true);
     startGeneration('Synthesizing Design DNA…');
     try {
-      const { success, summary, cleared } = await synthesizeDNA(creatives, projectId, projectName);
-      if (success) {
-        setResult({ ok: true, msg: `DNA synthesized from ${cleared} creative${cleared !== 1 ? 's' : ''} — training data cleared. Aanya will use this for all future generations.` });
-        const { data } = await supabase.from('project_design_systems').select('dna_summary,confidence_level,last_recomputed_at,best_performing_angles,best_performing_compositions,best_performing_color_treatments').eq('project_id', projectId).maybeSingle();
-        setDna(data);
-        onSynthesized();
-      } else {
-        setResult({ ok: false, msg: summary });
-      }
+    const { success, summary, cleared } = await synthesizeDNA(creatives, projectId, projectName);
+    if (success) {
+      setResult({ ok: true, msg: `DNA synthesized from ${cleared} creative${cleared !== 1 ? 's' : ''} — training data cleared. Aanya will use this for all future generations.` });
+      const { data } = await supabase.from('project_design_systems').select('dna_summary,confidence_level,last_recomputed_at,best_performing_angles,best_performing_compositions,best_performing_color_treatments').eq('project_id', projectId).maybeSingle();
+      setDna(data);
+      onSynthesized();
+    } else {
+      setResult({ ok: false, msg: summary });
+    }
     } finally {
-      setSynthesizing(false);
-      setLoading(false);
       stopGeneration();
     }
+    setSynthesizing(false);
+    setLoading(false);
   }
 
   const topAngles = (dna?.best_performing_angles as Array<{ angle?: string }> | null)?.map(a => a?.angle).filter(Boolean) ?? [];

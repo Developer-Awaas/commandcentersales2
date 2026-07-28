@@ -1,0 +1,23 @@
+project_id = "commandcentersales2"
+
+# Functions called without a Supabase session (webhook/redirect callers, no
+# Authorization header at all) must have verify_jwt = false declared here —
+# otherwise the platform 401s before the function code ever runs. Declaring
+# it here makes the setting reproducible on every deploy instead of relying
+# on remembering a --no-verify-jwt CLI flag each time.
+
+[functions.canva-oauth-callback]
+verify_jwt = false
+
+# Called by pg_cron, not a user session — same reasoning as above.
+[functions.meta-insights-sync]
+verify_jwt = false
+
+[functions.dhruv-anomaly-check]
+verify_jwt = false
+
+# Landing tab from Canva's "Return Navigation" feature calls this to verify
+# correlation_jwt before the app's own auth/session state is necessarily
+# settled — same reasoning as canva-oauth-callback above.
+[functions.canva-verify-return-nav]
+verify_jwt = false

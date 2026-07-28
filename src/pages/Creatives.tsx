@@ -3,13 +3,12 @@ import { AlertCircle, BookOpen, ChevronDown, ChevronUp, Palette, RefreshCw, Save
 import { CreativeViewer } from '../components/CreativeViewer';
 import { ImageGalleryViewer, type GalleryImage } from '../components/ImageGalleryViewer';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
-import { buildDefaultLayers } from '../lib/text-layers';
 import { InlineCreativeReview, type InlineReviewProject } from '../components/InlineCreativeReview';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
-import { aiCall, aiVision, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
-import { buildTwoStageVariantBriefs } from '../lib/senior-designer-prompts';
+import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
+import { buildVariantBriefs } from '../lib/senior-designer-prompts';
 import type { SeniorDesignerResult } from './strategy/types';
 import { AanyaDesignerNotes } from './strategy/StrategyResult';
 import { logAiSession, logActivity } from '../lib/session-logger';
@@ -20,6 +19,7 @@ import { Select } from '../components/ui/Select';
 import { CopyButton } from '../components/ui/CopyButton';
 import { Spinner } from '../components/ui/Spinner';
 import { useNavigation } from '../contexts/NavigationContext';
+import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 
 interface Project {
@@ -373,6 +373,27 @@ export function Creatives() {
     loadLibrary();
   }, [loadLibrary]);
 
+  // If a Canva cold-start OAuth connect was triggered from a specific
+  // creative here, CanvaReturn.tsx lands the user back on this page and
+  // stashes the creative's id — this page's own galleryImages state is
+  // ephemeral (lost on the OAuth round-trip's full-page navigation), so
+  // fetch that one creative back in so ImageGalleryViewer has something
+  // to auto-resume the Canva editor for.
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem('canva_resume_creative_id');
+    if (!resumeId) return;
+    (async () => {
+      const { data } = await supabase
+        .from('creative_assets')
+        .select('id, image_url, storage_path, prompt_used')
+        .eq('id', resumeId)
+        .maybeSingle();
+      if (data?.image_url) {
+        setGalleryImages([{ id: data.id, url: data.image_url, storagePath: data.storage_path ?? undefined, promptUsed: data.prompt_used ?? undefined }]);
+      }
+    })();
+  }, []);
+
   // Manage blob URL lifecycle — create once per file, revoke on change or unmount
   useEffect(() => {
     if (!image) { setImagePreviewUrl(null); return; }
@@ -462,40 +483,12 @@ export function Creatives() {
           image ? 'A reference image has been uploaded — incorporate its visual style.' : '',
         ].filter(Boolean).join(' ');
 
-        // Fetch + enrich project assets with Claude Vision descriptions so
-        // GPT-Image-1 has rich visual context (building appearance, lighting, palette)
-        // instead of just a bare URL hint it can't actually see.
-        let enrichedProjectAssets: import('../lib/senior-designer-prompts').ProjectAsset[] | undefined;
-        if (projectId) {
-          const { data: rawAssets } = await supabase
-            .from('project_assets')
-            .select('*')
-            .eq('project_id', projectId)
-            .eq('org_id', getOrgId())
-            .order('display_order');
-          if (rawAssets && rawAssets.length > 0) {
-            enrichedProjectAssets = await Promise.all(
-              rawAssets.map(async (asset: Record<string, unknown>) => {
-                const url = asset.asset_url as string | undefined;
-                const typ = asset.asset_type as string | undefined;
-                if (url && (typ === 'hero_exterior' || typ?.startsWith('interior_') || typ?.startsWith('amenity_'))) {
-                  const desc = await describeImageForFlux(url);
-                  return desc ? { ...asset, visual_description: desc } : asset;
-                }
-                return asset;
-              })
-            ) as unknown as import('../lib/senior-designer-prompts').ProjectAsset[];
-          }
-        }
-
-        // Build two-stage briefs for 3 angle variants in parallel
-        const variantTwoStage = await buildTwoStageVariantBriefs({
+        const briefs = await buildVariantBriefs({
           project_id: projectId,
           user_brief: userBrief,
           funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
           languages: ['English', 'Odia'],
           ad_platform: adPlatform,
-          project_assets: enrichedProjectAssets,
         });
 
         const imagePayload = image ? await fileToBase64(image) : null;
@@ -506,53 +499,65 @@ export function Creatives() {
           'Trust & Legacy / Amenities',
         ] as const;
 
+        console.log('🎨 [AANYA-VARIANTS] Generating 3 variants sequentially (avoids Anthropic API rate limits)...');
         let variantInputTokens = 0;
         let variantOutputTokens = 0;
+        const settled: PromiseSettledResult<SeniorDesignerResult>[] = [];
+        for (let i = 0; i < briefs.length; i++) {
+          if (i > 0) {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          const brief = briefs[i];
+          const tag = `[AANYA-VARIANT-${String.fromCharCode(65 + i)}]`;
+          try {
+            console.log(`🎨 ${tag} system prompt length:`, brief.systemPrompt.length);
+            console.log(`🎨 ${tag} user prompt brand check:`, {
+              has_INVIOLABLE: brief.userPrompt.includes('INVIOLABLE') || brief.systemPrompt.includes('INVIOLABLE'),
+            });
 
-        // Stage 1: 3 concept+copy calls in parallel (~20s wall-clock)
-        // If user uploaded a reference image, include it in stage 1 for visual context.
-        const stage1Results = await Promise.all(
-          variantTwoStage.map(({ stage1 }) => {
+            let aanyaRes: Record<string, unknown>;
             if (imagePayload) {
-              return aiVision(
-                [{ role: 'user', content: [
-                  { type: 'image', source: { type: 'base64', media_type: imagePayload.mimeType, data: imagePayload.data } },
-                  { type: 'text', text: stage1.userPrompt },
-                ]}],
-                stage1.systemPrompt,
-                { traceName: 'creatives-variant-stage1' }
-              );
+              const messages = [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'image', source: { type: 'base64', media_type: imagePayload.mimeType, data: imagePayload.data } },
+                    { type: 'text', text: brief.userPrompt },
+                  ],
+                },
+              ];
+              aanyaRes = await aiVision(messages, brief.systemPrompt, { traceName: 'creatives-variant-generate' });
+            } else {
+              aanyaRes = await aiCall(brief.userPrompt, brief.systemPrompt, 16000, { traceName: 'creatives-variant-generate' });
             }
-            return aiCall(stage1.userPrompt, stage1.systemPrompt, 1500, { traceName: 'creatives-variant-stage1' });
-          })
-        );
 
-        // Stage 2: 9 image-prompt calls in parallel (3 variants × 3 layouts, ~17s wall-clock)
-        const stage2AllResults = await Promise.all(
-          variantTwoStage.map(({ buildStage2 }, i) => {
-            const s2 = buildStage2(stage1Results[i]);
-            return Promise.all([
-              aiCall(s2.main.userPrompt,      s2.main.systemPrompt,      800, { traceName: 'creatives-variant-stage2-main' }),
-              aiCall(s2.portrait.userPrompt,  s2.portrait.systemPrompt,  700, { traceName: 'creatives-variant-stage2-portrait' }),
-              aiCall(s2.story.userPrompt,     s2.story.systemPrompt,     700, { traceName: 'creatives-variant-stage2-story' }),
-            ]);
-          })
-        );
+            variantInputTokens += (aanyaRes._inputTokens as number) ?? 0;
+            variantOutputTokens += (aanyaRes._outputTokens as number) ?? 0;
+            console.log(`🎨 ${tag} response keys:`, Object.keys(aanyaRes));
+            if (aanyaRes.error) throw new Error(String(aanyaRes.error));
 
-        // Merge stage 1 + stage 2 per variant into a single SeniorDesignerResult
-        const settled: PromiseSettledResult<SeniorDesignerResult>[] = stage1Results.map((s1, i) => {
-          if (s1.error) return { status: 'rejected' as const, reason: new Error(String(s1.error)) };
-          const [mainR, portraitR, storyR] = stage2AllResults[i];
-          const merged: SeniorDesignerResult = {
-            ...s1,
-            ...(mainR.error    ? {} : mainR),
-            ...(portraitR.error ? {} : portraitR),
-            ...(storyR.error   ? {} : storyR),
-          } as SeniorDesignerResult;
-          variantInputTokens  += ((s1._inputTokens       as number) ?? 0) + ((mainR._inputTokens    as number) ?? 0) + ((portraitR._inputTokens  as number) ?? 0) + ((storyR._inputTokens   as number) ?? 0);
-          variantOutputTokens += ((s1._outputTokens      as number) ?? 0) + ((mainR._outputTokens   as number) ?? 0) + ((portraitR._outputTokens as number) ?? 0) + ((storyR._outputTokens  as number) ?? 0);
-          return { status: 'fulfilled' as const, value: merged };
-        });
+            let parsed: SeniorDesignerResult;
+            if (aanyaRes.raw) {
+              const s = String(aanyaRes.raw);
+              try { parsed = JSON.parse(s); }
+              catch {
+                try { parsed = JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
+                catch {
+                  const st = s.indexOf('{'); const en = s.lastIndexOf('}');
+                  if (st !== -1 && en !== -1) { parsed = JSON.parse(s.substring(st, en + 1)); }
+                  else { throw new Error(`Could not parse ${tag} response`); }
+                }
+              }
+            } else {
+              parsed = aanyaRes as SeniorDesignerResult;
+            }
+
+            console.log(`✅ ${tag} parsed successfully`);
+            settled.push({ status: 'fulfilled', value: parsed });
+          } catch (err) {
+            settled.push({ status: 'rejected', reason: err });
+          }
+        }
 
         const aiVariants: AiVariant[] = settled.map((s, i) => {
           const label = String.fromCharCode(65 + i);
@@ -604,10 +609,14 @@ export function Creatives() {
             },
           });
 
-          // Auto-generate actual images from nanoPrompts in background
-          const promptsToRender = aiVariants
+          // Auto-generate actual images from nanoPrompts in background.
+          // SINGLE_IMAGE_TESTING_MODE: only generate 1 of the 3 variants'
+          // images — real GPT-Image-1 generation cost, not feasible to
+          // spend 3x per test. All 3 variants' copy/prompts still show.
+          const allPromptsToRender = aiVariants
             .filter((v) => v.nanoPrompt)
-            .map((v) => ({ label: v.angle, prompt: v.nanoPrompt, headline: v.headline, primaryText: v.primaryText, cta: v.cta }));
+            .map((v) => ({ label: v.angle, prompt: v.nanoPrompt, headline: v.headline, cta: v.cta }));
+          const promptsToRender = SINGLE_IMAGE_TESTING_MODE ? allPromptsToRender.slice(0, 1) : allPromptsToRender;
           if (promptsToRender.length > 0) {
             imagesInFlight = true;
             setGalleryImages([]);
@@ -616,7 +625,7 @@ export function Creatives() {
             const sessionId = crypto.randomUUID();
             currentSessionIdRef.current = sessionId;
             Promise.allSettled(
-              promptsToRender.map(async ({ label, prompt, headline, primaryText, cta }) => {
+              promptsToRender.map(async ({ label, prompt, headline, cta }) => {
                 const [img] = await generateImageWithGemini(prompt, '1:1');
                 const { url, id, storagePath } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
                   sessionId,
@@ -624,14 +633,7 @@ export function Creatives() {
                   funnelStage,
                   projectId,
                 });
-                // Seed default editable text layers from the same ad copy baked into
-                // the image, so the creative starts immediately editable.
-                const textLayers = buildDefaultLayers('feed', { headline, primaryText, cta });
-                if (id) {
-                  supabase.from('creative_assets').update({ text_layers: textLayers }).eq('id', id)
-                    .then(({ error }) => { if (error) console.warn('[text-layers] seed failed:', error.message); });
-                }
-                return { url, id, label, storagePath, adCopy: { headline, cta }, textLayers } as GalleryImage;
+                return { url, id, label, storagePath, adCopy: { headline, cta } } as GalleryImage;
               })
             ).then((results) => {
               const imgs = results
@@ -844,7 +846,7 @@ Return ONLY a JSON object:
             <div className="flex items-center gap-2">
               <ImageIcon size={14} className="text-brand" />
               <span className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">
-                AI Images
+                Saved Creative History
               </span>
             </div>
             <div className="h-px flex-1 bg-border" />

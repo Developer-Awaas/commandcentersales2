@@ -34,6 +34,8 @@ import { CampaignWizard } from './pages/CampaignWizard';
 import BrandKit from './pages/BrandKit';
 import AanyaMemory from './pages/AanyaMemory';
 import LeadGenV2 from './pages/leadgen-v2';
+import { CanvaReturn } from './pages/CanvaReturn';
+import { CanvaEditorReturn } from './pages/CanvaEditorReturn';
 import type { Profile } from './lib/supabase';
 import { hasModuleAccess } from './lib/access';
 import { LEADGEN_V2_ENABLED } from './lib/feature-flags';
@@ -51,6 +53,10 @@ function AccessDenied() {
 }
 
 function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }: { page: string; profile: Profile | null; wizardActive: boolean; onWizardEnd: () => void; onWizardStart: () => void }) {
+  // Transient system redirect landing pages — not real nav destinations, no
+  // module_access entry, always allowed regardless of role.
+  if (page === 'canva-return') return <CanvaReturn />;
+  if (page === 'canva-editor-return') return <CanvaEditorReturn />;
   if (!hasModuleAccess(profile, page)) return <AccessDenied />;
 
   switch (page) {
@@ -129,10 +135,16 @@ function getSectionFromPage(page: string): AppSection {
 
 const SECTION_DEFAULT_PAGE: Record<AppSection, string> = {
   dashboard: 'dashboard',
-  // When LEADGEN_V2_ENABLED, clicking the Lead Gen section tab lands on the
-  // Aarav Agent page. Old pages (Strategy, CampaignWizard, etc.) remain
-  // accessible via the sidebar — they are NOT deleted for this release.
-  lead_gen: LEADGEN_V2_ENABLED ? 'leadgen-v2' : 'strategy',
+  // Always 'strategy', not flag-conditional. Sidebar.tsx deliberately hides
+  // the Aarav Agent (LeadGen V2) nav item in review-build ("not yet
+  // functional enough for reviewer testing, regardless of the feature
+  // flag") — but this line still honored LEADGEN_V2_ENABLED independently,
+  // so clicking the Lead Gen section tab landed on Aarav's full workspace
+  // ("Aarav welcomes you" / "loading aarav") with no visible nav item for
+  // it anywhere, looking like an unexplained auto-opening chat. Matches
+  // the Sidebar comment's actual intent now: hidden means hidden, the
+  // section tab shouldn't have its own separate route to it either.
+  lead_gen: 'strategy',
   smm: 'smm-planner',
 };
 
@@ -144,6 +156,17 @@ export default function App() {
   const [hasUnsavedCreatives, setHasUnsavedCreatives] = useState(false);
 
   const [activePage, setActivePage] = useState<string>(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('canva_return') === '1') {
+      return 'canva-return';
+    }
+    // Canva's separate "Return Navigation" feature — a single fixed return
+    // URL configured in the Canva Developer Portal, distinct from the OAuth
+    // callback above. Presence of correlation_jwt is itself the only
+    // signal needed (see CanvaEditorReturn.tsx).
+    if (searchParams.get('correlation_jwt')) {
+      return 'canva-editor-return';
+    }
     return localStorage.getItem('active_page') ?? 'dashboard';
   });
 

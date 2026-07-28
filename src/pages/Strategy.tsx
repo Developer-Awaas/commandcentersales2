@@ -9,7 +9,7 @@ import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
-import { buildTwoStageQuickGenerateBrief } from '../lib/senior-designer-prompts';
+import { buildQuickGenerateBrief } from '../lib/senior-designer-prompts';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
 import { StrategyResultPanel } from './strategy/StrategyResult';
@@ -59,11 +59,6 @@ interface FullProject {
   configurations: ProjectConfiguration[] | null;
   price_history: PriceHistoryEntry[] | null;
 }
-
-// TEMP A/B TEST (bug #36 follow-up): lets Stage 1/2 prompt-writing calls be switched
-// to Haiku via .env without a code change, to compare image-prompt quality against the
-// current Sonnet default. Remove this override once the model decision is finalized.
-const PROMPT_MODEL_OVERRIDE = import.meta.env.VITE_PROMPT_MODEL_OVERRIDE as string | undefined;
 
 const DEFAULT_QUICK: QuickGenerateInputs = {
   prompt: '',
@@ -170,12 +165,91 @@ export function Strategy() {
         .order('name');
       const rows = (data ?? []) as StrategyProject[];
       setProjects(rows);
-      if (rows.length > 0) {
+      // Skip the default-select when a Canva-return resume is pending below —
+      // that effect sets the real originating project; this would otherwise
+      // race it and could win with the wrong (first-in-list) project.
+      if (rows.length > 0 && !sessionStorage.getItem('canva_resume_creative_id')) {
         setQuickInputs((prev) => ({ ...prev, projectId: rows[0].id }));
       }
       setProjectsLoading(false);
     }
     loadProjects();
+  }, []);
+
+  // A cold-start OAuth connect is a full top-level browser navigation to
+  // Canva.com and back, wiping all of this component's React state, but the
+  // underlying data isn't actually lost (handleQuickSubmit already persists
+  // the full AI result + images before the user ever reaches the edit
+  // step) — this reloads both instead of leaving an empty "create a
+  // strategy" form. (The Return Navigation flow doesn't need this at all:
+  // it never navigates this tab away in the first place.)
+  async function restoreCreativeFromAssetId(resumeId: string): Promise<boolean> {
+    const { data: asset } = await supabase
+      .from('creative_assets')
+      .select('id, creative_id, session_id')
+      .eq('id', resumeId)
+      .maybeSingle();
+    if (!asset?.creative_id) return false;
+
+    const { data: creative } = await supabase
+      .from('creatives')
+      .select('id, project_id, languages, senior_designer_brief')
+      .eq('id', asset.creative_id)
+      .maybeSingle();
+    const aiData = creative?.senior_designer_brief as SeniorDesignerResult | undefined;
+    if (!creative || !aiData) return false;
+
+    const { data: siblingRows } = await supabase
+      .from('creative_assets')
+      .select('id, image_url, storage_path, status')
+      .eq('creative_id', asset.creative_id)
+      .eq('session_id', asset.session_id ?? '')
+      .order('created_at', { ascending: true });
+
+    const resumedGalleryImages = (siblingRows ?? [])
+      .filter((row) => !!row.image_url)
+      .map((row) => {
+        const suffix = (row.storage_path as string | null)?.match(/-(feed|portrait|story)\.[a-z0-9]+$/i)?.[1]?.toLowerCase();
+        const label = suffix === 'portrait' ? 'Portrait Feed (1080×1350)' : suffix === 'story' ? 'Story (1080×1920)' : 'Feed (1080×1080)';
+        const promptUsed = suffix === 'portrait' ? aiData.nanobanana_prompt_portrait : suffix === 'story' ? aiData.nanobanana_prompt_story : aiData.nanobanana_prompt_main;
+        return {
+          id: row.id as string,
+          url: row.image_url as string,
+          label,
+          storagePath: (row.storage_path as string | null) ?? undefined,
+          promptUsed: promptUsed ?? undefined,
+          adCopy: { headline: aiData.ad_copy?.headline_english, cta: aiData.ad_copy?.cta },
+          approved: row.status === 'approved',
+        };
+      });
+    if (resumedGalleryImages.length === 0) return false;
+
+    const restoredProjectId = (creative.project_id as string | null) ?? 'custom';
+    const restoredLanguages = (creative.languages as string[] | null) ?? DEFAULT_QUICK.languages;
+    setQuickInputs((prev) => ({ ...prev, projectId: restoredProjectId, languages: restoredLanguages }));
+
+    let projectName = 'Restored Project';
+    if (restoredProjectId !== 'custom') {
+      const { data: proj } = await supabase.from('projects').select('name').eq('id', restoredProjectId).maybeSingle();
+      projectName = proj?.name ?? projectName;
+    }
+
+    setResult({
+      type: 'quick_senior',
+      inputs: { ...DEFAULT_QUICK, projectId: restoredProjectId, languages: restoredLanguages },
+      projectName,
+      aiData,
+      savedId: creative.id as string,
+      resumedGalleryImages,
+    });
+    return true;
+  }
+
+  useEffect(() => {
+    const resumeId = sessionStorage.getItem('canva_resume_creative_id');
+    if (!resumeId) return;
+    restoreCreativeFromAssetId(resumeId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load full project data when projectId changes
@@ -315,36 +389,9 @@ export function Strategy() {
             )
           : quickInputs.quickRefs;
 
-        // Fetch + enrich this project's real media (hero/interior/amenity photos) with
-        // Claude Vision descriptions — GPT-Image-1 can't see a bare URL in a text prompt,
-        // so without this step project_assets are fetched but silently unusable.
-        let enrichedProjectAssets: import('../lib/senior-designer-prompts').ProjectAsset[] | undefined;
-        const activeProjectId = quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined;
-        if (activeProjectId) {
-          const { data: rawAssets } = await supabase
-            .from('project_assets')
-            .select('*')
-            .eq('project_id', activeProjectId)
-            .eq('org_id', getOrgId())
-            .order('display_order');
-          if (rawAssets && rawAssets.length > 0) {
-            enrichedProjectAssets = await Promise.all(
-              rawAssets.map(async (asset: Record<string, unknown>) => {
-                const url = asset.asset_url as string | undefined;
-                const typ = asset.asset_type as string | undefined;
-                if (url && (typ === 'hero_exterior' || typ?.startsWith('interior_') || typ?.startsWith('amenity_'))) {
-                  const desc = await describeImageForFlux(url);
-                  return desc ? { ...asset, visual_description: desc } : asset;
-                }
-                return asset;
-              })
-            ) as unknown as import('../lib/senior-designer-prompts').ProjectAsset[];
-          }
-        }
-
-        const { stage1, buildStage2 } = await buildTwoStageQuickGenerateBrief({
+        const { systemPrompt, userPrompt } = await buildQuickGenerateBrief({
           user_brief: quickInputs.prompt,
-          project_id: activeProjectId,
+          project_id: quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined,
           project_data:
             quickInputs.projectId === 'custom'
               ? {
@@ -357,48 +404,70 @@ export function Strategy() {
                   unit_types: quickInputs.customProject.type,
                 } as unknown as import('../lib/senior-designer-prompts').ProjectData
               : undefined,
-          campaign_goal: quickInputs.campaignGoal as import('../lib/senior-designer-prompts').CreativeBriefInput['campaign_goal'],
+          campaign_goal: quickInputs.campaignGoal as Parameters<typeof buildQuickGenerateBrief>[0]['campaign_goal'],
           funnel_stage: funnel,
           placement: 'feed_square',
           languages: quickInputs.languages,
           quick_references: enrichedRefs,
-          project_assets: enrichedProjectAssets,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
         });
 
-        // Stage 1: concept + ad copy (~600 tokens output, ~20s on Sonnet)
-        const stage1Raw = await aiCall(stage1.userPrompt, stage1.systemPrompt, 1500, { traceName: 'strategy-quick-stage1' }, PROMPT_MODEL_OVERRIDE);
-        if (stage1Raw.error) {
-          showToast(String(stage1Raw.error), 'error');
-          setResult({ type: 'quick_senior', inputs: quickInputs, projectName, error: String(stage1Raw.error) });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🎨 AANYA DIAGNOSTIC — STARTING GENERATION');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🎨 SYSTEM PROMPT (full):');
+        console.log(systemPrompt);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🎨 USER PROMPT (full):');
+        console.log(userPrompt);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🎨 BRAND KIT CHECK:');
+        console.log('  - User prompt contains #1A3A5C (navy):', userPrompt.includes('#1A3A5C'));
+        console.log('  - User prompt contains #C9A961 (gold):', userPrompt.includes('#C9A961'));
+        console.log('  - User prompt contains #D4A574 (bronze):', userPrompt.includes('#D4A574'));
+        console.log('  - User prompt contains "INVIOLABLE":', userPrompt.includes('INVIOLABLE') || systemPrompt.includes('INVIOLABLE'));
+        console.log('  - User prompt contains "SECTION 1: SCENE NARRATIVE":', userPrompt.includes('SECTION 1: SCENE NARRATIVE'));
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+        const rawResponse = await aiCall(userPrompt, systemPrompt, 16000, { traceName: 'strategy-quick-generate' });
+
+        console.log('🎨 [DIAGNOSTIC] AI raw response type:', typeof rawResponse);
+        console.log('🎨 [DIAGNOSTIC] AI response keys:', Object.keys(rawResponse));
+        if (rawResponse.raw) {
+          const rawStr = String(rawResponse.raw);
+          console.log('🎨 [DIAGNOSTIC] AI raw string length:', rawStr.length);
+          console.log('🎨 [DIAGNOSTIC] AI response first 500 chars:', rawStr.substring(0, 500));
+        }
+
+        if (rawResponse.error) {
+          showToast(String(rawResponse.error), 'error');
+          setResult({ type: 'quick_senior', inputs: quickInputs, projectName, error: String(rawResponse.error) });
           setSubmitting(false);
           return;
         }
 
-        // Stage 2: 3 parallel image-prompt calls (~500 tokens each, ~17s wall-clock on Sonnet)
-        const s2 = buildStage2(stage1Raw);
-        const [mainRaw, portraitRaw, storyRaw] = await Promise.all([
-          aiCall(s2.main.userPrompt,    s2.main.systemPrompt,    800, { traceName: 'strategy-quick-stage2-main' }, PROMPT_MODEL_OVERRIDE),
-          aiCall(s2.portrait.userPrompt, s2.portrait.systemPrompt, 700, { traceName: 'strategy-quick-stage2-portrait' }, PROMPT_MODEL_OVERRIDE),
-          aiCall(s2.story.userPrompt,   s2.story.systemPrompt,   700, { traceName: 'strategy-quick-stage2-story' }, PROMPT_MODEL_OVERRIDE),
-        ]);
-
-        // Merge all stage results — stage 1 owns concept/copy, stage 2 owns image prompts
-        const parsed: SeniorDesignerResult = {
-          ...stage1Raw,
-          ...(mainRaw.error    ? {} : mainRaw),
-          ...(portraitRaw.error ? {} : portraitRaw),
-          ...(storyRaw.error   ? {} : storyRaw),
-        } as SeniorDesignerResult;
-
-        const totalInputTokens  = ((stage1Raw._inputTokens   as number) ?? 0)
-          + ((mainRaw._inputTokens    as number) ?? 0)
-          + ((portraitRaw._inputTokens as number) ?? 0)
-          + ((storyRaw._inputTokens   as number) ?? 0);
-        const totalOutputTokens = ((stage1Raw._outputTokens  as number) ?? 0)
-          + ((mainRaw._outputTokens   as number) ?? 0)
-          + ((portraitRaw._outputTokens as number) ?? 0)
-          + ((storyRaw._outputTokens  as number) ?? 0);
+        // Parse JSON robustly — aiCall returns pre-parsed object or { raw: string }
+        let parsed: SeniorDesignerResult;
+        if (rawResponse.raw) {
+          const rawStr = String(rawResponse.raw);
+          try {
+            parsed = JSON.parse(rawStr);
+          } catch {
+            try {
+              parsed = JSON.parse(rawStr.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim());
+            } catch {
+              const s = rawStr.indexOf('{');
+              const e = rawStr.lastIndexOf('}');
+              if (s !== -1 && e !== -1) {
+                parsed = JSON.parse(rawStr.substring(s, e + 1));
+              } else {
+                throw new Error('Could not parse AI response as JSON');
+              }
+            }
+          }
+        } else {
+          parsed = rawResponse as SeniorDesignerResult;
+        }
 
         // Save to creatives table
         const primaryLang = (quickInputs.languages[0] ?? 'English').toLowerCase();
@@ -417,8 +486,20 @@ export function Strategy() {
           platform_used: DEFAULT_CREATIVE_PLATFORM,
           status: 'draft',
         };
+        console.log('🎨 [DIAGNOSTIC] About to save creative with payload keys:', Object.keys(savePayload));
+        console.log('🎨 [DIAGNOSTIC] org_id:', savePayload.org_id, '| project_id:', savePayload.project_id, '| has_headline:', !!savePayload.headline, '| has_nano_prompt:', !!savePayload.nano_prompt);
         const { data: saved, error: saveError } = await supabase.from('creatives').insert(savePayload).select('id').maybeSingle();
-        if (saveError) showToast(`Save failed: ${saveError.message}`, 'error');
+        if (saveError) {
+          console.error('❌ [SAVE FAILED]', {
+            message: saveError.message,
+            details: saveError.details,
+            hint: saveError.hint,
+            code: saveError.code,
+          });
+          showToast(`Save failed: ${saveError.message}`, 'error');
+        } else {
+          console.log('✅ [SAVE SUCCESS] Creative ID:', saved?.id ?? '(null — RLS may have filtered return)');
+        }
 
         logAiSession(supabase, {
           sessionType: 'quick_generate_senior',
@@ -426,8 +507,8 @@ export function Strategy() {
           inputSummary: quickInputs.prompt || `Senior designer brief for ${projectName}`,
           inputData: { brief: quickInputs.prompt, goal: quickInputs.campaignGoal, languages: quickInputs.languages },
           outputData: parsed as Record<string, unknown>,
-          claudeInputTokens: totalInputTokens,
-          claudeOutputTokens: totalOutputTokens,
+          claudeInputTokens: (rawResponse._inputTokens as number) ?? 0,
+          claudeOutputTokens: (rawResponse._outputTokens as number) ?? 0,
         });
         logActivity(supabase, {
           action: 'generated_strategy',
@@ -547,64 +628,51 @@ export function Strategy() {
               : '',
           ].filter(Boolean).join(' ');
 
-          // Same vision-enrichment as Quick Generate — see comment there for why this
-          // step is required (a bare asset_url is invisible to a text-to-image model).
-          let aanyaProjectAssets: import('../lib/senior-designer-prompts').ProjectAsset[] | undefined;
-          if (primaryProjectId) {
-            const { data: rawAssets } = await supabase
-              .from('project_assets')
-              .select('*')
-              .eq('project_id', primaryProjectId)
-              .eq('org_id', getOrgId())
-              .order('display_order');
-            if (rawAssets && rawAssets.length > 0) {
-              aanyaProjectAssets = await Promise.all(
-                rawAssets.map(async (asset: Record<string, unknown>) => {
-                  const url = asset.asset_url as string | undefined;
-                  const typ = asset.asset_type as string | undefined;
-                  if (url && (typ === 'hero_exterior' || typ?.startsWith('interior_') || typ?.startsWith('amenity_'))) {
-                    const desc = await describeImageForFlux(url);
-                    return desc ? { ...asset, visual_description: desc } : asset;
-                  }
-                  return asset;
-                })
-              ) as unknown as import('../lib/senior-designer-prompts').ProjectAsset[];
-            }
-          }
-
-          const { stage1: aanyaS1, buildStage2: aanyaBuildS2 } = await buildTwoStageQuickGenerateBrief({
+          const { systemPrompt: aanyaSystem, userPrompt: aanyaUser } = await buildQuickGenerateBrief({
             user_brief: briefSummary,
             project_id: primaryProjectId,
             campaign_goal: 'lead_generation',
             funnel_stage: 'BOFU',
             placement: 'feed_square',
             languages,
-            project_assets: aanyaProjectAssets,
             ad_platform: 'Meta Ads Manager',
           });
 
-          const aanyaStage1Res = await aiCall(aanyaS1.userPrompt, aanyaS1.systemPrompt, 1500, { traceName: 'strategy-full-aanya-stage1' });
-          if (aanyaStage1Res.error) throw new Error(String(aanyaStage1Res.error));
+          console.log('🎨 [AANYA-FULL] System prompt length:', aanyaSystem.length);
+          console.log('🎨 [AANYA-FULL] Languages:', languages, '| Primary project:', primaryProjectId);
 
-          const aanyaS2 = aanyaBuildS2(aanyaStage1Res);
-          const [aanyaMainRaw, , aanyaStoryRaw] = await Promise.all([
-            aiCall(aanyaS2.main.userPrompt,  aanyaS2.main.systemPrompt,  800, { traceName: 'strategy-full-aanya-stage2-main' }),
-            aiCall(aanyaS2.portrait.userPrompt, aanyaS2.portrait.systemPrompt, 700, { traceName: 'strategy-full-aanya-stage2-portrait' }),
-            aiCall(aanyaS2.story.userPrompt, aanyaS2.story.systemPrompt, 700, { traceName: 'strategy-full-aanya-stage2-story' }),
-          ]);
+          const aanyaRes = await aiCall(aanyaUser, aanyaSystem, 16000, { traceName: 'strategy-full-aanya-creative' });
+          aanyaInputTokens = (aanyaRes._inputTokens as number) ?? 0;
+          aanyaOutputTokens = (aanyaRes._outputTokens as number) ?? 0;
+          console.log('🎨 [AANYA-FULL] Response keys:', Object.keys(aanyaRes));
 
-          aanyaInputTokens  = ((aanyaStage1Res._inputTokens as number) ?? 0) + ((aanyaMainRaw._inputTokens as number) ?? 0) + ((aanyaStoryRaw._inputTokens as number) ?? 0);
-          aanyaOutputTokens = ((aanyaStage1Res._outputTokens as number) ?? 0) + ((aanyaMainRaw._outputTokens as number) ?? 0) + ((aanyaStoryRaw._outputTokens as number) ?? 0);
+          let aanyaParsed: SeniorDesignerResult;
+          if (aanyaRes.raw) {
+            const s = String(aanyaRes.raw);
+            try { aanyaParsed = JSON.parse(s); }
+            catch {
+              try { aanyaParsed = JSON.parse(s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()); }
+              catch {
+                const st = s.indexOf('{'); const en = s.lastIndexOf('}');
+                if (st !== -1 && en !== -1) { aanyaParsed = JSON.parse(s.substring(st, en + 1)); }
+                else { throw new Error('Could not parse Aanya response'); }
+              }
+            }
+          } else if (aanyaRes.error) {
+            throw new Error(String(aanyaRes.error));
+          } else {
+            aanyaParsed = aanyaRes as SeniorDesignerResult;
+          }
 
-          const aanyaParsed: SeniorDesignerResult = {
-            ...aanyaStage1Res,
-            ...(aanyaMainRaw.error  ? {} : aanyaMainRaw),
-            ...(aanyaStoryRaw.error ? {} : aanyaStoryRaw),
-          } as SeniorDesignerResult;
-
-          if (aanyaParsed.nanobanana_prompt_main)  fullParsed.creativePrompt      = aanyaParsed.nanobanana_prompt_main;
-          if (aanyaParsed.nanobanana_prompt_story) fullParsed.creativePromptStory = aanyaParsed.nanobanana_prompt_story;
+          if (aanyaParsed.nanobanana_prompt_main) {
+            fullParsed.creativePrompt = aanyaParsed.nanobanana_prompt_main;
+          }
+          if (aanyaParsed.nanobanana_prompt_story) {
+            fullParsed.creativePromptStory = aanyaParsed.nanobanana_prompt_story;
+          }
           fullParsed._aanyaBrief = aanyaParsed;
+
+          console.log('✅ [AANYA-FULL] Creative prompts upgraded by Aanya');
         } catch (aanyaErr) {
           console.warn('⚠️ [AANYA-FULL] Aanya call failed, keeping Full Strategy output as-is:', aanyaErr);
         }

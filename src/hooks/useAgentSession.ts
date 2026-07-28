@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabase, invokeEdgeFn } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { useGenerationLock } from './useGenerationLock';
 import type {
   AaravResponse,
@@ -178,9 +178,9 @@ export function useAgentSession(initialMessage: string = DEFAULT_GREETING): UseA
   // ── Core invoke helper ────────────────────────────────────────────────────
 
   async function invoke(payload: AgentRequest): Promise<AaravResponse> {
-    const { data, error: fnError } = await invokeEdgeFn<AaravResponse>(
+    const { data, error: fnError } = await supabase.functions.invoke<AaravResponse>(
       'aarav-orchestrate',
-      { ...payload, session_id: sessionIdRef.current }
+      { body: { ...payload, session_id: sessionIdRef.current } }
     );
     if (fnError) throw fnError;
     if (!data)   throw new Error('aarav-orchestrate returned no data');
@@ -300,14 +300,16 @@ export function useAgentSession(initialMessage: string = DEFAULT_GREETING): UseA
     setApproveLoading(true);
     setApproveError(null);
     try {
-      const { data, error: fnError } = await invokeEdgeFn<ApproveResponse>(
+      const { data, error: fnError } = await supabase.functions.invoke<ApproveResponse>(
         'aarav-orchestrate',
         {
-          action:               'approve',
-          turn_id:              currentTurnIdRef.current,
-          selected_creative_ids: selectedCreativeIds,
-          session_id:           sessionIdRef.current,
-        } satisfies AgentRequest
+          body: {
+            action:               'approve',
+            turn_id:              currentTurnIdRef.current,
+            selected_creative_ids: selectedCreativeIds,
+            session_id:           sessionIdRef.current,
+          } satisfies AgentRequest,
+        }
       );
       if (fnError) throw fnError;
       if (!data)   throw new Error('aarav-orchestrate returned no data');
