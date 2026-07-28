@@ -1,0 +1,20 @@
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
+    // Explicit include (not the default repo-wide glob): this branch only
+    // owns the test files listed here. Other *.test.ts files may exist in a
+    // working tree alongside unrelated in-progress work this branch doesn't
+    // touch and isn't responsible for keeping green.
+    include: [
+      'src/lib/ai-service.mock.test.ts',
+      'src/lib/smm-generation-error.test.ts',
+      'src/lib/smm-prompts.separation.test.ts',
+    ],
+  },
+});

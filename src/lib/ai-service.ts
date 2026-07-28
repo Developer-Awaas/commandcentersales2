@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { ADMIN_EMAIL } from './constants';
+import { MOCK_AI_ENABLED } from './feature-flags';
+import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_SYSTEM =
@@ -364,6 +366,15 @@ export async function aiCall(
 ): Promise<Record<string, unknown>> {
   const traceName = trace.traceName ?? 'claude-call';
 
+  // MOCK_AI_ENABLED short-circuits the network call only — every caller's
+  // downstream persistence (Storage upload, DB insert, session logging)
+  // still runs for real against whatever this returns. One superset fixture
+  // covers every known consumer's field names (Strategy, Campaign Wizard,
+  // SMM Creatives) — see src/mocks/ai-fixtures.ts for the reasoning.
+  if (MOCK_AI_ENABLED) {
+    return { ...MOCK_STRATEGY_JSON, _inputTokens: 0, _outputTokens: 0 };
+  }
+
   const quotaErr = await checkQuota();
   if (quotaErr) return { error: quotaErr };
 
@@ -403,6 +414,10 @@ export async function aiCall(
 export async function describeImageForFlux(
   image: string | { base64: string; mimeType: string }
 ): Promise<string | null> {
+  if (MOCK_AI_ENABLED) {
+    return '[MOCK] A modern mid-rise apartment building, cream stucco facade with navy accents, golden hour lighting, professional real estate photography style.';
+  }
+
   const imageSource = typeof image === 'string'
     ? { type: 'url' as const, url: image }
     : { type: 'base64' as const, media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: image.base64 };
@@ -447,6 +462,16 @@ export async function aiVision(
   trace: TraceOptions = {}
 ): Promise<Record<string, unknown>> {
   const traceName = trace.traceName ?? 'claude-vision';
+
+  // Same superset fixture as aiCall — covers the Strategy/Campaign Wizard
+  // reference-image path (stage1-with-image reuses the same expected shape
+  // as stage1-without-image). Other aiVision consumers with genuinely
+  // different shapes (SMM screenshot-metric extraction, ad-review scoring)
+  // are NOT in this mock facility's scope — they'll get mismatched fields
+  // if exercised under VITE_MOCK_AI, same as any untested edge case.
+  if (MOCK_AI_ENABLED) {
+    return { ...MOCK_STRATEGY_JSON, _inputTokens: 0, _outputTokens: 0 };
+  }
 
   const quotaErr = await checkQuota();
   if (quotaErr) return { error: quotaErr };
