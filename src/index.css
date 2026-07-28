@@ -193,4 +193,14 @@
   .hover-lift:hover {
     transform: translateY(-1px);
   }
+
+  .animate-generation-bar {
+    animation: generationBar 1.2s ease-in-out infinite;
+  }
+
+  @keyframes generationBar {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(150%); }
+    100% { transform: translateX(150%); }
+  }
 }

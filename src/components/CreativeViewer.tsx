@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, invokeEdgeFn } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { downloadImage } from '../lib/image-utils';
@@ -8,10 +8,14 @@ import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
 import {
   Check, X, RefreshCw, Download, ChevronLeft, ChevronRight,
-  ExternalLink, Maximize2, ImageIcon, Layers,
+  ExternalLink, Maximize2, ImageIcon, Layers, Type,
 } from 'lucide-react';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { CanvaConnectButton } from './CanvaConnectButton';
+import { TextLayerOverlay } from './TextLayerOverlay';
+import { TextLayerEditor } from './TextLayerEditor';
+import { renderTextLayers, type TextLayer } from '../lib/text-layers';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 export interface CreativeAsset {
   id: string;
@@ -26,7 +30,21 @@ export interface CreativeAsset {
   status: string;
   canva_edit_url: string | null;
   editor_used: string | null;
+  text_layers: TextLayer[] | null;
   created_at: string;
+}
+
+async function downloadWithTextLayers(url: string, layers: TextLayer[] | null, filename: string) {
+  if (!layers?.length) {
+    downloadImage(url, filename);
+    return;
+  }
+  try {
+    const composited = await renderTextLayers(url, layers, 1080, 1080);
+    downloadImage(composited, filename);
+  } catch {
+    downloadImage(url, filename);
+  }
 }
 
 interface CreativeViewerProps {
@@ -119,6 +137,7 @@ function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction }: Creati
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
         />
+        <TextLayerOverlay layers={asset.text_layers ?? []} />
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200 flex items-center justify-center">
           <Maximize2 size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
         </div>
@@ -182,11 +201,20 @@ function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction }: Creati
           </button>
 
           <button
-            onClick={() => downloadImage(displayUrl, `creative-${asset.angle}-${asset.funnel_stage}.jpg`)}
+            onClick={() => downloadWithTextLayers(displayUrl, asset.text_layers, `creative-${asset.angle}-${asset.funnel_stage}.jpg`)}
             className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-border text-text-tertiary text-[10px] font-medium hover:text-text-primary hover:border-border-strong transition-all"
           >
             <Download size={11} />
             Download
+          </button>
+
+          <button
+            onClick={() => onAction(asset.id, 'text')}
+            disabled={!!loadingAction}
+            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-medium hover:bg-amber-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed col-span-3"
+          >
+            <Type size={11} />
+            Edit Text
           </button>
         </div>
       </div>
@@ -244,7 +272,10 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
 
         {/* Image */}
         <div className="relative flex-1 flex items-center justify-center bg-surface-sunken min-h-0 overflow-hidden">
-          <img src={displayUrl} alt={asset.angle} className="max-h-[50vh] max-w-full object-contain" />
+          <div className="relative inline-block">
+            <img src={displayUrl} alt={asset.angle} className="max-h-[50vh] max-w-full object-contain block" />
+            <TextLayerOverlay layers={asset.text_layers ?? []} />
+          </div>
 
           {idx > 0 && (
             <button
@@ -311,7 +342,13 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
             <Layers size={12} /> Edit in Adobe Express
           </button>
           <button
-            onClick={() => downloadImage(displayUrl ?? '', `creative-${asset.angle}.jpg`)}
+            onClick={() => onAction(asset.id, 'text')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-medium hover:bg-amber-500/20 transition-all"
+          >
+            <Type size={12} /> Edit Text
+          </button>
+          <button
+            onClick={() => downloadWithTextLayers(displayUrl ?? '', asset.text_layers, `creative-${asset.angle}.jpg`)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-xs font-medium hover:text-text-primary transition-all"
           >
             <Download size={12} /> Download
@@ -325,11 +362,13 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
 export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, projectContext }: CreativeViewerProps) {
   const resolvedOrgId = orgId ?? getOrgId();
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [assets, setAssets] = useState<CreativeAsset[]>([]);
   const [generating, setGenerating] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [lightboxAsset, setLightboxAsset] = useState<{ assets: CreativeAsset[]; index: number } | null>(null);
   const [adobeAsset, setAdobeAsset] = useState<CreativeAsset | null>(null);
+  const [textEditAsset, setTextEditAsset] = useState<CreativeAsset | null>(null);
   const [showCanvaConnect, setShowCanvaConnect] = useState(false);
   const [pendingCanvaAssetId, setPendingCanvaAssetId] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -401,29 +440,18 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
       status: 'generating',
       canva_edit_url: null,
       editor_used: null,
+      text_layers: null,
       created_at: new Date().toISOString(),
     } as CreativeAsset));
     setAssets(placeholders);
+    startGeneration('Generating creatives…');
 
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-      const res = await fetch(`${supabaseUrl}/functions/v1/generate-creatives`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${anonKey}`,
-        },
-        body: JSON.stringify({
-          orgId: resolvedOrgId,
-          campaignId: campaignId ?? null,
-          funnelStage,
-          brandKit,
-          projectContext,
-        }),
+      const { data: json, error: fnError } = await invokeEdgeFn<{ success: boolean; assets: CreativeAsset[]; errors: string[] }>('generate-creatives', {
+        orgId: resolvedOrgId, campaignId: campaignId ?? null, funnelStage, brandKit, projectContext,
       });
-      const json = await res.json() as { success: boolean; assets: CreativeAsset[]; errors: string[] };
-      if (json.errors?.length) {
+      if (fnError) throw new Error(fnError.message);
+      if (json?.errors?.length) {
         showToast(`${json.assets.length}/3 images generated. Some failed.`, 'error');
       } else {
         showToast('3 creatives generated!', 'success');
@@ -433,6 +461,8 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Generation failed', 'error');
       setAssets([]);
+    } finally {
+      stopGeneration();
     }
     setGenerating(false);
   }
@@ -458,32 +488,30 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         showToast('Creative rejected.', 'error');
       } else if (action === 'regenerate') {
         if (!projectContext || !brandKit) { showToast('Project context required', 'error'); return; }
-        // Delete old asset and regenerate this angle
-        await supabase.from('creative_assets').delete().eq('id', assetId);
-        setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'generating', image_url: '' } : a));
+        startGeneration('Regenerating creative…');
+        try {
+          // Delete old asset and regenerate this angle
+          await supabase.from('creative_assets').delete().eq('id', assetId);
+          setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'generating', image_url: '' } : a));
 
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/generate-creatives`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ orgId: resolvedOrgId, campaignId, funnelStage, brandKit, projectContext }),
-        });
-        const json = await res.json() as { assets: CreativeAsset[] };
-        const match = json.assets.find((a) => a.angle === asset.angle);
-        if (match) {
-          setAssets((prev) => prev.map((a) => a.id === assetId ? match : a));
+          const { data: json, error: fnError } = await invokeEdgeFn<{ assets: CreativeAsset[] }>('generate-creatives', {
+            orgId: resolvedOrgId, campaignId, funnelStage, brandKit, projectContext,
+          });
+          if (fnError) throw new Error(fnError.message);
+          const match = json?.assets.find((a) => a.angle === asset.angle);
+          if (match) {
+            setAssets((prev) => prev.map((a) => a.id === assetId ? match : a));
+          }
+          showToast('Regenerated!', 'success');
+        } finally {
+          stopGeneration();
         }
-        showToast('Regenerated!', 'success');
       } else if (action === 'canva') {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/canva-open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ creativeAssetId: assetId, userId: getUserId() }),
+        const { data: json, error: fnError } = await invokeEdgeFn<{ needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string }>('canva-open-editor', {
+          creativeAssetId: assetId, userId: getUserId(),
         });
-        const json = await res.json() as { needsAuth?: boolean; authUrl?: string; editUrl?: string; error?: string };
+        if (fnError) throw new Error(fnError.message);
+        if (!json) throw new Error('No response from canva-open-editor');
         if (json.needsAuth) {
           setPendingCanvaAssetId(assetId);
           setShowCanvaConnect(true);
@@ -495,6 +523,8 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }
       } else if (action === 'adobe') {
         setAdobeAsset(asset);
+      } else if (action === 'text') {
+        setTextEditAsset(asset);
       }
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Action failed', 'error');
@@ -509,6 +539,13 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     ));
     setAdobeAsset(null);
     showToast('Adobe Express edit saved!', 'success');
+  }
+
+  function handleTextSave(layers: TextLayer[]) {
+    if (!textEditAsset) return;
+    setAssets((prev) => prev.map((a) => a.id === textEditAsset.id ? { ...a, text_layers: layers } : a));
+    setTextEditAsset(null);
+    showToast('Text layers saved!', 'success');
   }
 
   const realAssets = assets.filter((a) => a.status !== 'generating' && a.image_url);
@@ -596,6 +633,17 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           orgId={resolvedOrgId}
           onSave={handleAdobeSave}
           onClose={() => setAdobeAsset(null)}
+        />
+      )}
+
+      {/* Text Layer Editor */}
+      {textEditAsset && (
+        <TextLayerEditor
+          assetId={textEditAsset.id}
+          imageUrl={textEditAsset.edited_image_url ?? textEditAsset.image_url}
+          layers={textEditAsset.text_layers ?? []}
+          onSave={handleTextSave}
+          onClose={() => setTextEditAsset(null)}
         />
       )}
     </div>

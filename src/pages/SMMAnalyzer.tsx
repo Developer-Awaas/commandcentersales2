@@ -7,6 +7,8 @@ import { logAiSession } from '../lib/session-logger';
 import { buildSMMAnalyzerPrompt, buildScreenshotExtractionPrompt, SCREENSHOT_GUIDES } from '../lib/smm-prompts';
 import { generateSMMReportPDF } from '../lib/pdf-generator';
 import { useToast } from '../contexts/ToastContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
+import { Select } from '../components/ui/Select';
 
 const C = {
   bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
@@ -18,6 +20,7 @@ const STATUS_COLORS: Record<string, string> = { green: C.green, yellow: C.yellow
 
 export default function SMMAnalyzer() {
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [platform, setPlatform] = useState('instagram');
   const [period, setPeriod] = useState('Last 7 days');
   const [loading, setLoading] = useState(false);
@@ -42,11 +45,13 @@ export default function SMMAnalyzer() {
 
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
-    if (!file || !isAiEnabled()) { showToast('Add Claude API key in Settings', 'info'); return; }
+    if (!file || !isAiEnabled()) { showToast('AI features are currently unavailable', 'info'); return; }
     setSSLoading(true);
+    startGeneration('Reading screenshot…');
     try {
       const reader = new FileReader();
       reader.onload = async (ev) => {
+        try {
         const base64 = (ev.target?.result as string).split(',')[1];
         const prompt = buildScreenshotExtractionPrompt(type);
         const res = await aiVision([
@@ -77,9 +82,12 @@ export default function SMMAnalyzer() {
           showToast('Could not read screenshot', 'error');
         }
         setSSLoading(false);
+        } finally {
+          stopGeneration();
+        }
       };
       reader.readAsDataURL(file);
-    } catch { setSSLoading(false); showToast('Screenshot failed', 'error'); }
+    } catch { setSSLoading(false); stopGeneration(); showToast('Screenshot failed', 'error'); }
   };
 
   const saveMetrics = async () => {
@@ -118,6 +126,7 @@ export default function SMMAnalyzer() {
     await saveMetrics();
     if (!isAiEnabled()) { showToast('Metrics saved. Add API key for AI analysis.', 'info'); return; }
     setLoading(true);
+    startGeneration('Analyzing performance…');
     try {
       const prompt = buildSMMAnalyzerPrompt({
         platform,
@@ -151,7 +160,7 @@ export default function SMMAnalyzer() {
         showToast('Analysis failed', 'error');
         if (res?.raw) setAnalysis({ raw: res.raw });
       }
-    } catch { showToast('Error', 'error'); }
+    } catch { showToast('Error', 'error'); } finally { stopGeneration(); }
     setLoading(false);
   };
 
@@ -193,9 +202,8 @@ export default function SMMAnalyzer() {
         </div>
         <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 16 }}>
           <label style={{ fontSize: 12, color: C.dim, display: 'block', marginBottom: 6 }}>Period</label>
-          <select value={period} onChange={e => setPeriod(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, background: C.bg, color: C.text, border: '1px solid ' + C.border, fontSize: 13 }}>
-            {['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days'].map(p => <option key={p}>{p}</option>)}
-          </select>
+          <Select value={period} onChange={e => setPeriod(e.target.value)}
+            options={['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days'].map(p => ({ value: p, label: p }))} />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {Object.entries(SCREENSHOT_GUIDES).filter(([k]) => k.startsWith(platform)).map(([key, guide]) => (
               <label key={key} style={{ flex: 1, padding: '6px 8px', borderRadius: 6, background: C.bg, border: '1px solid ' + C.border, cursor: 'pointer', fontSize: 10, color: C.dim, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>

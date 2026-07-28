@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Brain, Upload, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, Image as ImageIcon, TrendingUp, Eye, Copy, Check, Bot, Zap, Download, X, Layers } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, invokeEdgeFn } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, logToLangfuse } from '../lib/ai-service';
 import { generateImageWithGemini } from '../lib/gemini-service';
+import { useGenerationLock } from '../hooks/useGenerationLock';
+import { Select } from '../components/ui/Select';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -101,17 +103,16 @@ const PLATFORM_LABELS: Record<Platform, string> = {
 
 async function analyzeCreativeWithVision(imageUrl: string): Promise<VisionAnalysis | null> {
   try {
-    const { data, error } = await supabase.functions.invoke('claude-proxy', {
-      body: {
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'url', url: imageUrl } },
-            {
-              type: 'text',
-              text: `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising. Analyze this ad creative and extract structured design intelligence for image generation.
+    const { data, error } = await invokeEdgeFn('claude-proxy', {
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url: imageUrl } },
+          {
+            type: 'text',
+            text: `You are Aanya Mehta, Senior Creative Director for Indian real estate advertising. Analyze this ad creative and extract structured design intelligence for image generation.
 
 Return a JSON object with exactly these fields:
 {
@@ -130,10 +131,9 @@ Return a JSON object with exactly these fields:
 For section_6_typography_elements use these element type names: MIXED_WEIGHT_HEADLINE | PRICE_BADGE | PHOTO_CAPTION_BAR | FEATURE_CHECKLIST | FOOTER_STRIP | CTA_BUTTON | SUBHEADLINE | TAGLINE.
 For section_5_hex_colors: read or estimate the 3-5 most dominant hex values visible in the image.
 Return ONLY the JSON object, no markdown, no preamble.`,
-            },
-          ],
-        }],
-      },
+          },
+        ],
+      }],
     });
 
     if (error) {
@@ -530,29 +530,23 @@ function UploadCard({ projects, onUploaded }: UploadCardProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Project</label>
-              <select value={projectId} onChange={e => setProjectId(e.target.value)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                <option value="">No project</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <Select value={projectId} onChange={e => setProjectId(e.target.value)} className="bg-surface text-sm"
+                options={[{ value: '', label: 'No project' }, ...projects.map(p => ({ value: p.id, label: p.name }))]} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Source</label>
-              <select value={source} onChange={e => setSource(e.target.value as Source)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <Select value={source} onChange={e => setSource(e.target.value as Source)} className="bg-surface text-sm"
+                options={Object.entries(SOURCE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Platform</label>
-              <select value={platform ?? ''} onChange={e => setPlatform(e.target.value as Platform || null)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                <option value="">Any</option>
-                {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <Select value={platform ?? ''} onChange={e => setPlatform(e.target.value as Platform || null)} className="bg-surface text-sm"
+                options={[{ value: '', label: 'Any' }, ...Object.entries(PLATFORM_LABELS).map(([v, l]) => ({ value: v, label: l }))]} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Performance Tier</label>
-              <select value={tier} onChange={e => setTier(e.target.value as PerformanceTier)} className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                {Object.entries(TIER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <Select value={tier} onChange={e => setTier(e.target.value as PerformanceTier)} className="bg-surface text-sm"
+                options={Object.entries(TIER_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">CPL (₹, optional)</label>
@@ -585,33 +579,27 @@ function UploadCard({ projects, onUploaded }: UploadCardProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Project</label>
-              <select value={batchProjectId} onChange={e => setBatchProjectId(e.target.value)} disabled={batchUploading}
-                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                <option value="">No project</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <Select value={batchProjectId} onChange={e => setBatchProjectId(e.target.value)} disabled={batchUploading}
+                className="bg-surface text-sm"
+                options={[{ value: '', label: 'No project' }, ...projects.map(p => ({ value: p.id, label: p.name }))]} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Source</label>
-              <select value={batchSource} onChange={e => setBatchSource(e.target.value as Source)} disabled={batchUploading}
-                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <Select value={batchSource} onChange={e => setBatchSource(e.target.value as Source)} disabled={batchUploading}
+                className="bg-surface text-sm"
+                options={Object.entries(SOURCE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Performance Tier</label>
-              <select value={batchTier} onChange={e => setBatchTier(e.target.value as PerformanceTier)} disabled={batchUploading}
-                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                {Object.entries(TIER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <Select value={batchTier} onChange={e => setBatchTier(e.target.value as PerformanceTier)} disabled={batchUploading}
+                className="bg-surface text-sm"
+                options={Object.entries(TIER_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">Platform</label>
-              <select value={batchPlatform ?? ''} onChange={e => setBatchPlatform(e.target.value as Platform || null)} disabled={batchUploading}
-                className="w-full text-sm bg-surface border border-border rounded-lg px-3 py-2 text-text-primary">
-                <option value="">Any</option>
-                {Object.entries(PLATFORM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <Select value={batchPlatform ?? ''} onChange={e => setBatchPlatform(e.target.value as Platform || null)} disabled={batchUploading}
+                className="bg-surface text-sm"
+                options={[{ value: '', label: 'Any' }, ...Object.entries(PLATFORM_LABELS).map(([v, l]) => ({ value: v, label: l }))]} />
             </div>
             <div>
               <label className="text-xs text-text-secondary mb-1 block">CPL ₹ (optional)</label>
@@ -804,21 +792,28 @@ function DNAPanel({ projectId, projectName, creatives, onSynthesized }: DNAPanel
       .then(({ data }) => setDna(data));
   }, [projectId]);
 
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
+
   async function handleSynthesize() {
     setSynthesizing(true);
     setResult(null);
     setLoading(true);
-    const { success, summary, cleared } = await synthesizeDNA(creatives, projectId, projectName);
-    if (success) {
-      setResult({ ok: true, msg: `DNA synthesized from ${cleared} creative${cleared !== 1 ? 's' : ''} — training data cleared. Aanya will use this for all future generations.` });
-      const { data } = await supabase.from('project_design_systems').select('dna_summary,confidence_level,last_recomputed_at,best_performing_angles,best_performing_compositions,best_performing_color_treatments').eq('project_id', projectId).maybeSingle();
-      setDna(data);
-      onSynthesized();
-    } else {
-      setResult({ ok: false, msg: summary });
+    startGeneration('Synthesizing Design DNA…');
+    try {
+      const { success, summary, cleared } = await synthesizeDNA(creatives, projectId, projectName);
+      if (success) {
+        setResult({ ok: true, msg: `DNA synthesized from ${cleared} creative${cleared !== 1 ? 's' : ''} — training data cleared. Aanya will use this for all future generations.` });
+        const { data } = await supabase.from('project_design_systems').select('dna_summary,confidence_level,last_recomputed_at,best_performing_angles,best_performing_compositions,best_performing_color_treatments').eq('project_id', projectId).maybeSingle();
+        setDna(data);
+        onSynthesized();
+      } else {
+        setResult({ ok: false, msg: summary });
+      }
+    } finally {
+      setSynthesizing(false);
+      setLoading(false);
+      stopGeneration();
     }
-    setSynthesizing(false);
-    setLoading(false);
   }
 
   const topAngles = (dna?.best_performing_angles as Array<{ angle?: string }> | null)?.map(a => a?.angle).filter(Boolean) ?? [];
@@ -1224,12 +1219,15 @@ function GenerateFromDNAPanel({ projectId, projectName }: GenerateFromDNAPanelPr
     return block;
   }
 
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
+
   async function handleGenerate() {
     if (!brief.trim()) { setError('Enter a brief describing the property or campaign.'); return; }
     setError('');
     setImageUrl(null);
     setImageBase64(null);
     setPhase('writing-prompt');
+    startGeneration('Generating creative…');
 
     const dnaBlock = dna ? buildDNABlock(dna) : 'No DNA yet — apply Indian real estate best practices.';
     const platformGuidance = platform === 'aisensy'
@@ -1281,6 +1279,8 @@ RULES:
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
       setPhase('error');
+    } finally {
+      stopGeneration();
     }
   }
 
@@ -1469,23 +1469,23 @@ export default function AanyaMemory() {
 
       {/* Filters */}
       <div className="flex gap-3 flex-wrap">
-        <select
-          value={selectedProject}
-          onChange={e => setSelectedProject(e.target.value)}
-          className="text-sm bg-surface-card border border-border rounded-lg px-3 py-2 text-text-primary"
-        >
-          <option value="all">All Projects</option>
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <div className="w-52">
+          <Select
+            value={selectedProject}
+            onChange={e => setSelectedProject(e.target.value)}
+            className="bg-surface-card text-sm"
+            options={[{ value: 'all', label: 'All Projects' }, ...projects.map(p => ({ value: p.id, label: p.name }))]}
+          />
+        </div>
 
-        <select
-          value={filterTier}
-          onChange={e => setFilterTier(e.target.value as PerformanceTier | 'all')}
-          className="text-sm bg-surface-card border border-border rounded-lg px-3 py-2 text-text-primary"
-        >
-          <option value="all">All Tiers</option>
-          {Object.entries(TIER_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
+        <div className="w-44">
+          <Select
+            value={filterTier}
+            onChange={e => setFilterTier(e.target.value as PerformanceTier | 'all')}
+            className="bg-surface-card text-sm"
+            options={[{ value: 'all', label: 'All Tiers' }, ...Object.entries(TIER_LABELS).map(([v, l]) => ({ value: v, label: l }))]}
+          />
+        </div>
       </div>
 
       {/* Crawl Parameters */}

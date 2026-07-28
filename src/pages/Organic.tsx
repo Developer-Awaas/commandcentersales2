@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Megaphone, RefreshCw } from 'lucide-react';
 import { getOrgId } from '../lib/constants';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { CopyButton } from '../components/ui/CopyButton';
 import { Spinner } from '../components/ui/Spinner';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 interface AiPillar {
   pillar?: string;
@@ -120,7 +121,7 @@ function DayCard({ day }: { day: AiDayPlan }) {
           {day.nanoPrompt && (
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Nanobanana Prompt</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Image Prompt</p>
                 <CopyButton text={day.nanoPrompt} />
               </div>
               <div className="rounded-lg border p-3 bg-brand-subtle border-brand-border">
@@ -207,17 +208,35 @@ function AiOrganicOutput({ data, onRetry }: { data: AiOrganicResult; onRetry: ()
 }
 
 export function Organic() {
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const resultRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    supabase
+      .from('organic_plans')
+      .select('plan_data')
+      .eq('org_id', getOrgId())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        const planData = data?.plan_data as AiOrganicResult | undefined;
+        if (planData && (planData.pillars?.length || planData.weekly?.length)) {
+          setResult({ status: 'ok', data: planData });
+        }
+      });
+  }, []);
+
   async function handleGenerate() {
     setSubmitting(true);
     setResult({ status: 'idle' });
+    startGeneration('Generating content plan…');
 
     try {
       if (!isAiEnabled()) {
-        setResult({ status: 'error', message: 'Add your Claude API key in Settings to generate an AI content plan.' });
+        setResult({ status: 'error', message: 'AI content plan generation is currently unavailable.' });
         setSubmitting(false);
         return;
       }
@@ -238,12 +257,6 @@ export function Organic() {
 
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-
-      await supabase.from('organic_plans').insert({
-        org_id: getOrgId(),
-        week_start: weekStart.toISOString().split('T')[0],
-        status: 'draft',
-      });
 
       const context = await buildContext();
       const basePrompt = `Generate a weekly organic social media content plan for Instagram and Facebook.
@@ -266,7 +279,15 @@ Include all 7 days. Make content specific to the projects above.`;
       } else if (res.raw) {
         setResult({ status: 'raw', text: String(res.raw) });
       } else {
-        setResult({ status: 'ok', data: res as AiOrganicResult });
+        const planResult = res as AiOrganicResult;
+        setResult({ status: 'ok', data: planResult });
+        await supabase.from('organic_plans').insert({
+          org_id: getOrgId(),
+          week_start: weekStart.toISOString().split('T')[0],
+          plan_data: planResult,
+          pillars: planResult.pillars ?? [],
+          status: 'draft',
+        });
         logAiSession(supabase, {
           sessionType: 'organic',
           inputSummary: `Weekly organic plan for ${orgName}`,
@@ -281,6 +302,8 @@ Include all 7 days. Make content specific to the projects above.`;
       }
     } catch (err: unknown) {
       setResult({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
+    } finally {
+      stopGeneration();
     }
 
     setSubmitting(false);
