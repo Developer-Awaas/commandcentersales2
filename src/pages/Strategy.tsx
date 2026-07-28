@@ -9,6 +9,7 @@ import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
 import { buildQuickGenerateBrief, runTwoStageQuickGenerate } from '../lib/senior-designer-prompts';
+import { projectAssetRoleHint } from '../components/ProjectMediaPicker';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
 import { StrategyResultPanel } from './strategy/StrategyResult';
@@ -80,6 +81,7 @@ const DEFAULT_QUICK: QuickGenerateInputs = {
   campaignGoal: 'lead_generation',
   languages: ['English'],
   quickRefs: [],
+  projectMediaIds: [],
 };
 
 const DEFAULT_FULL: FullStrategyInputs = {
@@ -383,6 +385,42 @@ export function Strategy() {
             )
           : quickInputs.quickRefs;
 
+        // Project media the user ticked in ProjectMediaPicker — same vision-enrichment
+        // treatment as ad-hoc quick refs, so a bare asset_url is never sent to a
+        // text-to-image model with no description of what's actually in the photo.
+        let projectMediaRefs: typeof enrichedRefs = [];
+        if (quickInputs.projectMediaIds.length > 0) {
+          const { data: pickedAssets, error: pickedAssetsErr } = await supabase
+            .from('project_assets')
+            .select('id, asset_type, asset_url, title, description')
+            .eq('org_id', getOrgId())
+            .in('id', quickInputs.projectMediaIds);
+
+          if (pickedAssetsErr) {
+            console.error('Failed to load selected project media — generating without it:', pickedAssetsErr);
+            showToast('Could not load the selected project photos — generating without them.', 'error');
+          }
+
+          if (pickedAssets && pickedAssets.length > 0) {
+            projectMediaRefs = await Promise.all(
+              pickedAssets.map(async (asset) => {
+                const desc = await describeImageForFlux(asset.asset_url as string);
+                return {
+                  preview_url: asset.asset_url as string,
+                  base64: '',
+                  mimeType: '',
+                  user_intent: (asset.description as string) || (asset.title as string) || `Project ${(asset.asset_type as string).replace(/_/g, ' ')} reference`,
+                  role_hint: projectAssetRoleHint(asset.asset_type as string),
+                  filename: (asset.title as string) || undefined,
+                  visual_description: desc ?? undefined,
+                };
+              })
+            );
+          }
+        }
+
+        const allRefs = [...enrichedRefs, ...projectMediaRefs];
+
         console.log('🎨 [AANYA] Starting two-stage generation (concept+copy, then 3 parallel layout prompts)...');
 
         const rawResponse = await runTwoStageQuickGenerate({
@@ -404,7 +442,7 @@ export function Strategy() {
           funnel_stage: funnel,
           placement: 'feed_square',
           languages: quickInputs.languages,
-          quick_references: enrichedRefs,
+          quick_references: allRefs,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
         }, { traceNamePrefix: 'strategy-quick-generate' });
 

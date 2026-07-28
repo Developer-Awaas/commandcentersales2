@@ -34,6 +34,9 @@ export interface QuickGenerateInputs {
   campaignGoal: string;
   languages: string[];
   quickRefs: { preview_url: string; base64: string; mimeType: string; user_intent: string; role_hint?: string; filename?: string; visual_description?: string }[];
+  // IDs of project_assets rows the user ticked to ground this specific generation in —
+  // see ProjectMediaPicker. Resolved to vision-described references at submit time.
+  projectMediaIds: string[];
 }
 
 export interface FullStrategyInputs {

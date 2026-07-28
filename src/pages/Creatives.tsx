@@ -7,8 +7,10 @@ import { InlineCreativeReview, type InlineReviewProject } from '../components/In
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
-import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
-import { buildVariantBriefs, runTwoStageVariantBrief, VARIANT_ANGLES } from '../lib/senior-designer-prompts';
+import { aiCall, aiVision, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
+import { runTwoStageVariantBrief, VARIANT_ANGLES } from '../lib/senior-designer-prompts';
+import { QuickReferenceUploader, type QuickReferenceUpload } from '../components/CreativeInputs';
+import { ProjectMediaPicker, projectAssetRoleHint } from '../components/ProjectMediaPicker';
 import type { SeniorDesignerResult } from './strategy/types';
 import { AanyaDesignerNotes } from './strategy/StrategyResult';
 import { logAiSession, logActivity } from '../lib/session-logger';
@@ -325,6 +327,8 @@ export function Creatives() {
   const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
   const [image, setImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [quickRefs, setQuickRefs] = useState<QuickReferenceUpload[]>([]);
+  const [projectMediaIds, setProjectMediaIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
@@ -470,18 +474,52 @@ export function Creatives() {
         const userBrief = [
           `Generate a high-converting real estate ad creative for the ${funnelStage} funnel stage.`,
           project ? `Project: ${project.name}${project.locality ? ` in ${project.locality}` : ''}${project.city ? `, ${project.city}` : ''}.` : '',
-          image ? 'A reference image has been uploaded — incorporate its visual style.' : '',
         ].filter(Boolean).join(' ');
 
-        const briefs = await buildVariantBriefs({
-          project_id: projectId,
-          user_brief: userBrief,
-          funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
-          languages: ['English', 'Odia'],
-          ad_platform: adPlatform,
-        });
+        // Vision-enrich ad-hoc quick refs (base64) the same way Strategy.tsx's Quick
+        // Generate does, so FLUX gets a real description instead of a bare image.
+        const enrichedQuickRefs = quickRefs.length > 0
+          ? await Promise.all(
+              quickRefs.map(async (ref) => {
+                const desc = await describeImageForFlux({ base64: ref.base64, mimeType: ref.mimeType });
+                return desc ? { ...ref, visual_description: desc } : ref;
+              })
+            )
+          : quickRefs;
 
-        const imagePayload = image ? await fileToBase64(image) : null;
+        // Project media the user ticked in ProjectMediaPicker — same treatment.
+        let projectMediaRefs: typeof enrichedQuickRefs = [];
+        if (projectMediaIds.length > 0) {
+          const { data: pickedAssets, error: pickedAssetsErr } = await supabase
+            .from('project_assets')
+            .select('id, asset_type, asset_url, title, description')
+            .eq('org_id', getOrgId())
+            .in('id', projectMediaIds);
+
+          if (pickedAssetsErr) {
+            console.error('Failed to load selected project media — generating without it:', pickedAssetsErr);
+            showToast('Could not load the selected project photos — generating without them.', 'error');
+          }
+
+          if (pickedAssets && pickedAssets.length > 0) {
+            projectMediaRefs = await Promise.all(
+              pickedAssets.map(async (asset) => {
+                const desc = await describeImageForFlux(asset.asset_url as string);
+                return {
+                  preview_url: asset.asset_url as string,
+                  base64: '',
+                  mimeType: '',
+                  user_intent: (asset.description as string) || (asset.title as string) || `Project ${(asset.asset_type as string).replace(/_/g, ' ')} reference`,
+                  role_hint: projectAssetRoleHint(asset.asset_type as string),
+                  filename: (asset.title as string) || undefined,
+                  visual_description: desc ?? undefined,
+                };
+              })
+            );
+          }
+        }
+
+        const allQuickRefs = [...enrichedQuickRefs, ...projectMediaRefs];
 
         const angleLabels = [
           'Price-led with Urgency',
@@ -493,46 +531,26 @@ export function Creatives() {
         let variantInputTokens = 0;
         let variantOutputTokens = 0;
         const settled: PromiseSettledResult<SeniorDesignerResult>[] = [];
-        for (let i = 0; i < briefs.length; i++) {
+        for (let i = 0; i < VARIANT_ANGLES.length; i++) {
           if (i > 0) {
             await new Promise((r) => setTimeout(r, 500));
           }
-          const brief = briefs[i];
           const tag = `[AANYA-VARIANT-${String.fromCharCode(65 + i)}]`;
           try {
-            console.log(`🎨 ${tag} system prompt length:`, brief.systemPrompt.length);
-            console.log(`🎨 ${tag} user prompt brand check:`, {
-              has_INVIOLABLE: brief.userPrompt.includes('INVIOLABLE') || brief.systemPrompt.includes('INVIOLABLE'),
-            });
-
-            let aanyaRes: Record<string, unknown>;
-            if (imagePayload) {
-              // Reference image needs vision on the same call as the full prompt —
-              // keeps the single-call path here (two-stage vision isn't wired up yet).
-              const messages = [
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'image', source: { type: 'base64', media_type: imagePayload.mimeType, data: imagePayload.data } },
-                    { type: 'text', text: brief.userPrompt },
-                  ],
-                },
-              ];
-              aanyaRes = await aiVision(messages, brief.systemPrompt, { traceName: 'creatives-variant-generate' });
-            } else {
-              // No reference image — two-stage generation avoids the 504s the
-              // single ~16000-token call was producing (CLAUDE.md bug #36).
-              const va = VARIANT_ANGLES[i];
-              aanyaRes = await runTwoStageVariantBrief({
-                project_id: projectId,
-                user_brief: userBrief,
-                funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
-                languages: ['English', 'Odia'],
-                ad_platform: adPlatform,
-                variant_label: va.label,
-                variant_angle: va.angle,
-              }, { traceNamePrefix: 'creatives-variant-generate' });
-            }
+            // Two-stage generation for every variant — vision enrichment now happens
+            // up front via describeImageForFlux + quick_references (see above), so
+            // the single-call-with-raw-image bypass this used to need is gone.
+            const va = VARIANT_ANGLES[i];
+            const aanyaRes = await runTwoStageVariantBrief({
+              project_id: projectId,
+              user_brief: userBrief,
+              funnel_stage: funnelStage as 'TOFU' | 'MOFU' | 'BOFU',
+              languages: ['English', 'Odia'],
+              ad_platform: adPlatform,
+              quick_references: allQuickRefs,
+              variant_label: va.label,
+              variant_angle: va.angle,
+            }, { traceNamePrefix: 'creatives-variant-generate' });
 
             variantInputTokens += (aanyaRes._inputTokens as number) ?? 0;
             variantOutputTokens += (aanyaRes._outputTokens as number) ?? 0;
@@ -669,7 +687,7 @@ export function Creatives() {
           logActivity(supabase, {
             action: 'generated_creatives',
             entityType: 'ai_session',
-            details: { project: project?.name ?? '', funnel: funnelStage, hasReferenceImage: !!image, source: 'aanya_3_variant', successCount },
+            details: { project: project?.name ?? '', funnel: funnelStage, hasReferenceImage: allQuickRefs.length > 0, source: 'aanya_3_variant', successCount },
           });
         }
       } else {
@@ -732,6 +750,7 @@ Return ONLY a JSON object:
   }
 
   const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }));
+  const isNanobananaSelected = creativePlatform.toLowerCase().includes('nanobanana');
 
   return (
     <div className="p-8 min-h-screen bg-surface">
@@ -772,26 +791,46 @@ Return ONLY a JSON object:
             <Select label="Output Ad Platform" options={AD_PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as 'Meta Ads Manager' | 'AiSensy')} />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Reference Image</label>
-            <p className="text-[11px] text-text-tertiary -mt-0.5 mb-1">Upload a sample ad or project photo — AI will match the style</p>
-            {image ? (
-              <div className="flex items-center gap-4 bg-surface border border-border rounded-lg p-3">
-                <img src={imagePreviewUrl ?? ''} alt="Reference" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
-                <div className="flex flex-col gap-1 flex-1 min-w-0">
-                  <span className="text-xs text-text-primary truncate">{image.name}</span>
-                  <button onClick={removeImage} className="inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors w-fit">
-                    <X size={11} /> Remove
-                  </button>
+          <div className="flex flex-col gap-4">
+            {isNanobananaSelected ? (
+              <>
+                {projectId ? (
+                  <ProjectMediaPicker
+                    projectId={projectId}
+                    orgId={getOrgId()}
+                    selectedIds={projectMediaIds}
+                    onChange={setProjectMediaIds}
+                  />
+                ) : (
+                  <p className="text-xs text-text-disabled">Select a project above to pick from its uploaded photos.</p>
+                )}
+                <div className="pt-1 border-t border-border">
+                  <QuickReferenceUploader onChange={setQuickRefs} />
                 </div>
-              </div>
+              </>
             ) : (
-              <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 py-6 rounded-lg border border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all">
-                <Upload size={18} className="text-text-tertiary" />
-                <span className="text-xs text-text-tertiary">Click to upload image</span>
-              </button>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Reference Image</label>
+                <p className="text-[11px] text-text-tertiary -mt-0.5 mb-1">Upload a sample ad or project photo — AI will match the style</p>
+                {image ? (
+                  <div className="flex items-center gap-4 bg-surface border border-border rounded-lg p-3">
+                    <img src={imagePreviewUrl ?? ''} alt="Reference" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
+                    <div className="flex flex-col gap-1 flex-1 min-w-0">
+                      <span className="text-xs text-text-primary truncate">{image.name}</span>
+                      <button onClick={removeImage} className="inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors w-fit">
+                        <X size={11} /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 py-6 rounded-lg border border-dashed border-border hover:border-brand-border hover:bg-brand-subtle transition-all">
+                    <Upload size={18} className="text-text-tertiary" />
+                    <span className="text-xs text-text-tertiary">Click to upload image</span>
+                  </button>
+                )}
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              </div>
             )}
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
           </div>
         </div>
 

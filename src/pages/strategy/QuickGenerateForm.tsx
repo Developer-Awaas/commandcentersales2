@@ -6,7 +6,10 @@ import { Spinner } from '../../components/ui/Spinner';
 import {
   CampaignGoalSelector,
   LanguageSelector,
+  QuickReferenceUploader,
 } from '../../components/CreativeInputs';
+import { ProjectMediaPicker } from '../../components/ProjectMediaPicker';
+import { getOrgId } from '../../lib/constants';
 import { type QuickGenerateInputs, type StrategyProject } from './types';
 
 const OBJECTIVE_OPTIONS = [
@@ -178,6 +181,26 @@ export function QuickGenerateForm({
         onChange={(v) => set('languages', v)}
         defaultLanguages={brandKitDefaultLanguages}
       />
+
+      {/* Reference images — real project photos + ad-hoc uploads for Aanya to ground the creative in */}
+      <Card className="p-5 flex flex-col gap-5">
+        <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary">Reference Images</p>
+        {!isCustom && inputs.projectId ? (
+          <ProjectMediaPicker
+            projectId={inputs.projectId}
+            orgId={getOrgId()}
+            selectedIds={inputs.projectMediaIds}
+            onChange={(ids) => set('projectMediaIds', ids)}
+          />
+        ) : (
+          <p className="text-xs text-text-disabled">Select a saved project above to pick from its uploaded photos.</p>
+        )}
+        <div className="pt-1 border-t border-border">
+          <QuickReferenceUploader
+            onChange={(refs) => set('quickRefs', refs)}
+          />
+        </div>
+      </Card>
 
       {/* Competitor Analysis */}
       <Card className="p-5">

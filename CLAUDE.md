@@ -284,12 +284,13 @@ Closes the loop between real-world ad performance and Aanya's generation. Fully 
 
 `handleQuickSubmit` **always** runs the Aanya senior-designer path — no `isNanobanana` gate or legacy branch.
 
-1. `QuickGenerateForm`: project, goal, brief, ad platform (AiSensy or Meta Ads Manager). Language selector + Quick Reference uploader always visible.
-2. `buildQuickGenerateBrief` builds senior-designer prompts with `ad_platform`. **Meta**: headline ≤40 chars, first 125 chars of primary_text a standalone hook, description ≤30 chars. **AiSensy**: headline = WhatsApp template header ≤60 chars, primary_text = conversational body 300-500 chars, description = quick-reply label ≤20 chars.
-3. Claude returns `SeniorDesignerResult` → `type: 'quick_senior'`.
-4. `SeniorDesignerResultPanel` auto-triggers Gemini/GPT-Image-1 generation on mount.
-5. 3 images → `brand-assets`, `creative_assets` rows inserted.
-6. `ImageGalleryViewer` renders with Canva + Adobe Express CTAs.
+1. `QuickGenerateForm`: project, goal, brief, ad platform (AiSensy or Meta Ads Manager). Language selector, `ProjectMediaPicker`, and `QuickReferenceUploader` all visible in the "Reference Images" card. **Fixed (2026-07-28)**: `QuickReferenceUploader` existed fully wired end-to-end (base64 → Claude Vision → prompt injection) since an earlier session but was never actually rendered anywhere — `quickInputs.quickRefs` was always `[]` in practice. Now rendered.
+2. **`ProjectMediaPicker`** (`src/components/ProjectMediaPicker.tsx`, new): fetches the project's `project_assets` and shows a thumbnail grid with checkboxes — ticking IS the approval, nothing else needed. Also has an inline "Upload a new project photo" control that inserts straight into `project_assets` (`asset_type: 'mood_reference'`, same bucket/path pattern as `ProjectAssetsTab`) and auto-selects the new upload. Only rendered when a real (non-custom) project is selected, since `project_assets` requires a `project_id`. Selected IDs live in `QuickGenerateInputs.projectMediaIds`; at submit time `handleQuickSubmit` (`Strategy.tsx`) fetches those rows, calls `describeImageForFlux(asset_url)` (the **URL** overload — no base64 round-trip needed since Claude Vision can fetch by URL) per selected asset, and merges the results into the *same* `quick_references` array the ad-hoc uploader feeds — deliberately reusing that already-proven pipeline rather than touching `buildReferenceManifest`'s separate, blind auto-selection of one hero/interior/amenity asset per category (section 2 of that function, untouched, still runs independently). `projectAssetRoleHint()` maps `asset_type` → the same role_hint vocabulary `QuickReferenceUploader` uses, so manifest instruction text stays consistent regardless of source. **Scope**: Quick Generate only — Creatives.tsx's variant path has a different, single-raw-image vision-call mechanism (see bug #36/#37 context); wire this there too if the same picker is wanted on that page.
+3. `buildQuickGenerateBrief` builds senior-designer prompts with `ad_platform`. **Meta**: headline ≤40 chars, first 125 chars of primary_text a standalone hook, description ≤30 chars. **AiSensy**: headline = WhatsApp template header ≤60 chars, primary_text = conversational body 300-500 chars, description = quick-reply label ≤20 chars.
+4. Claude returns `SeniorDesignerResult` → `type: 'quick_senior'`.
+5. `SeniorDesignerResultPanel` auto-triggers Gemini/GPT-Image-1 generation on mount.
+6. 3 images → `brand-assets`, `creative_assets` rows inserted.
+7. `ImageGalleryViewer` renders with Canva + Adobe Express CTAs.
 
 ## AI Token & Image Count Tracking
 
@@ -303,8 +304,8 @@ Closes the loop between real-world ad performance and Aanya's generation. Fully 
 
 ## Creatives page image flow (Nanobanana path)
 
-1. Select project + funnel stage + output platform → "Generate 3 Variants".
-2. `buildVariantBriefs` (with `ad_platform`) → 3 platform-specific text variants.
+1. Select project + funnel stage + output platform → "Generate 3 Variants". Same "Reference Images" card as Quick Generate — `ProjectMediaPicker` (ticked `project_assets`) + `QuickReferenceUploader` (ad-hoc uploads), both gated behind `isNanobananaSelected` (the legacy non-Nanobanana platforms keep the old single-image uploader, untouched).
+2. **Fixed (2026-07-28)**: every variant now always goes through `runTwoStageVariantBrief` with a vision-enriched `quick_references` array (same `describeImageForFlux` treatment as Strategy.tsx, merging ad-hoc + project-media refs). This **replaces** the old single-call `aiVision`-with-raw-image-bytes branch (`buildVariantBriefs` + a ~16000-token single call) that used to run whenever a reference image was uploaded — that branch was quietly exempt from the two-stage 504-timeout fix (bug #36) since it predates `quick_references` support in `runTwoStageVariantBrief`, so removing it also closes a latent timeout risk on any Creatives generation with a reference image attached. `buildVariantBriefs` and the old `imagePayload` bypass are gone; `VARIANT_ANGLES` now drives the loop directly instead of `briefs[i]`.
 3. One `sessionId` UUID for the batch.
 4. `generateImageWithGemini` per prompt → `uploadGeminiImageToSupabase({ sessionId, angleLabel, funnelStage, projectId })` → deterministic path, `creative_assets` row, `{ url, id, storagePath }`.
 5. `GalleryImage` objects always carry `id`.
