@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { getOrgId } from './constants';
+import { MOCK_AI_ENABLED } from './feature-flags';
+import { MOCK_CREATIVE_IMAGE_BASE64, MOCK_CREATIVE_IMAGE_MIME_TYPE } from '../mocks/ai-fixtures';
 
 export interface GeminiGeneratedImage {
   base64: string;
@@ -46,6 +48,14 @@ export async function generateImageWithGemini(
   const { width, height } = dimensionMap[aspectRatio] ?? { width: 1080, height: 1080 };
   // Always high quality — production-grade images required for customer-facing use
   const resolvedQuality = quality ?? 'high';
+
+  // MOCK_AI_ENABLED skips only the generate-image network call (real money,
+  // real API key). The caller's normal upload/DB-insert path still runs
+  // against this real (if tiny) image, so Storage/RLS/display/edit logic is
+  // exercised for real.
+  if (MOCK_AI_ENABLED) {
+    return [{ base64: MOCK_CREATIVE_IMAGE_BASE64, mimeType: MOCK_CREATIVE_IMAGE_MIME_TYPE }];
+  }
 
   const { data, error } = await supabase.functions.invoke('generate-image', {
     body: { prompt, width, height, quality: resolvedQuality },
