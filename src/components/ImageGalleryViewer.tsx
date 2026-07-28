@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
+import { openCanvaOAuthPopup, listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
-import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2 } from 'lucide-react';
 
 // Mirrors _shared/vision-analysis.ts's EditSummary shape (server-only file,
 // not imported client-side) — just the 4 boolean flags this UI displays.
@@ -23,11 +24,28 @@ export interface GalleryImage {
   storagePath?: string;
   promptUsed?: string;
   adCopy?: { headline?: string; cta?: string };
+  // Set only when reconstructing gallery state from a DB read (e.g. Strategy
+  // page's Canva-return resume) — mirrors creative_assets.status === 'approved'
+  // so callers can infer whether a resumed set was already saved.
+  approved?: boolean;
 }
 
 interface ImageGalleryViewerProps {
   images: GalleryImage[];
   onClose?: () => void;
+  // Fires whenever an image's pixels change post-generation (Canva sync,
+  // Adobe Express save), with the id of the specific image that changed —
+  // lets a parent tracking a page-level "saved" flag (e.g. StrategyResult's
+  // Save Creative Changes banner) know that one image needs re-approving,
+  // without treating the rest of an unrelated gallery as stale too.
+  onImagesChanged?: (imageId: string) => void;
+  // Fires immediately before a Canva cold-start OAuth connect does a
+  // full top-level navigation away (window.location.href) — lets a parent
+  // with its own `beforeunload` "unsaved changes" guard (e.g.
+  // StrategyResult, right after a fresh generation) suppress it for this
+  // one known-recoverable navigation instead of surfacing a native "Leave
+  // site?" prompt that silently swallows the redirect if dismissed.
+  onBeforeCanvaNavigate?: () => void;
 }
 
 interface LightboxState {
@@ -35,7 +53,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
@@ -44,26 +62,23 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [canvaLoading, setCanvaLoading] = useState<string | null>(null);
   const [adobeImage, setAdobeImage] = useState<GalleryImage | null>(null);
-  // Tracks images that have an open Canva design so we can show a "Sync" button
-  const [canvaDesignIds, setCanvaDesignIds] = useState<Record<string, string>>({});
   // Tracks which image id is currently being synced from Canva (null = none)
+  // — auto-triggered by Return Navigation, no manual sync trigger exists.
   const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
   // edit_summary is computed sync-side only (canva-sync-design); this just
   // displays whatever comes back in its response, never recomputes it.
   const [editSummaries, setEditSummaries] = useState<Record<string, EditSummary>>({});
 
   // Stable key representing the current generation session: length + first image id/url.
-  // Changing this means a genuinely new set of images was passed (new generation),
-  // so we reset both localImages AND canvaDesignIds. A parent re-render that passes the
-  // same images array reference (or semantically identical images) must NOT wipe
-  // canvaDesignIds — that would hide the "Sync from Canva" button mid-session.
+  // Changing this means a genuinely new set of images was passed (new
+  // generation), so localImages resets — a parent re-render that passes the
+  // same images array reference (or semantically identical images) doesn't
+  // need to reset anything else here anymore.
   const sessionKeyRef = useRef('');
   useEffect(() => {
     const key = `${images.length}:${images[0]?.id ?? images[0]?.url ?? ''}`;
-    const isNewSession = key !== sessionKeyRef.current;
     sessionKeyRef.current = key;
     setLocalImages(images);
-    if (isNewSession) setCanvaDesignIds({});
   }, [images]);
 
   // Auto-resume: if this image is the one that triggered a Canva
@@ -84,6 +99,18 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
   if (!localImages.length) return null;
 
   async function handleCanva(img: GalleryImage) {
+    // Open the tab SYNCHRONOUSLY, before any await — window.open() called
+    // after an async gap (the canva-open-editor round-trip below) can lose
+    // "user activation" in stricter browsers and get silently blocked, even
+    // though it was triggered by a real click. Shared by both outcomes
+    // below: the already-connected editUrl case navigates it straight to
+    // the editor; the cold-start authUrl case hands it to
+    // openCanvaOAuthPopup, which navigates it to Canva's OAuth screen and
+    // waits for a completion signal. Only relevant for a direct click — the
+    // auto-resume effect below calls handleCanva() with no click at all, so
+    // there's no activation to preserve there either way; unchanged from
+    // before.
+    const pendingTab = window.open('', '_blank');
     setCanvaLoading(img.url);
     try {
       if (img.id) {
@@ -93,28 +120,62 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
         // bypasses RLS, so a spoofed value would act on any org's data).
         // returnUrl encodes which app "page" to land back on (this app has
         // no real URL routing) so a cold-start OAuth connect returns here,
-        // not the dashboard.
-        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}`;
+        // not the dashboard. &via=popup is ONLY added when pendingTab
+        // actually opened — if it's null (the blank tab itself got
+        // blocked), the authUrl branch below falls back to a real
+        // same-window redirect, and that tab must still land on the real
+        // app, not get stuck showing "you can close this tab" forever.
+        const returnUrl = `${window.location.origin}/?page=${encodeURIComponent(activePage)}${pendingTab ? '&via=popup' : ''}`;
         const { data: json, error: invokeErr } = await supabase.functions.invoke<{ editUrl?: string; designId?: string; needsAuth?: boolean; authUrl?: string; error?: string }>(
           'canva-open-editor',
           { body: { creativeAssetId: img.id, returnUrl } }
         );
-        if (invokeErr) throw new Error(invokeErr.message);
+        if (invokeErr) throw new Error(await extractFunctionErrorMessage(invokeErr, 'Canva editor request failed'));
         if (!json) throw new Error('canva-open-editor returned no data');
         if (json.editUrl) {
-          // Store designId so the "Sync from Canva" button appears after the user edits
-          if (json.designId && img.id) {
-            setCanvaDesignIds((prev) => ({ ...prev, [img.id!]: json.designId! }));
+          // correlation_state rides along on Canva's own "Return Navigation"
+          // feature (Canva Developer Portal setting, separate from the
+          // OAuth flow) — capped at 50 chars, `${page}:${uuid}` fits
+          // comfortably. Lets CanvaEditorReturn.tsx's signal below fire
+          // specifically for this image once the user clicks "Return"
+          // inside Canva's editor.
+          const editUrlWithCorrelation = img.id
+            ? `${json.editUrl}${json.editUrl.includes('?') ? '&' : '?'}correlation_state=${encodeURIComponent(`${activePage}:${img.id}`)}`
+            : json.editUrl;
+          if (pendingTab) {
+            pendingTab.location.href = editUrlWithCorrelation;
+            // Auto-sync once the user clicks "Return" in Canva's editor —
+            // a much stronger "I'm done editing" signal than just leaving
+            // the tab open, and closes the loop the user actually asked
+            // for: come back to where this was called from automatically.
+            listenForCanvaEditorReturn(pendingTab, (ok) => { if (ok) handleCanvaSync(img); });
+          } else {
+            window.open(editUrlWithCorrelation, '_blank'); // blank open was blocked too — last resort, likely blocked again
           }
-          window.open(json.editUrl, '_blank');
           return;
         }
-        if (json.authUrl) { window.location.href = json.authUrl; return; }
+        if (json.authUrl) {
+          // Popup, not a same-window redirect — Canva's own OAuth screen
+          // sends X-Frame-Options: SAMEORIGIN (can't be iframed at all) and
+          // Cross-Origin-Opener-Policy: same-origin (severs window.opener
+          // the moment the popup navigates there, which is why two earlier
+          // popup attempts using window.opener/postMessage/BroadcastChannel
+          // both failed). openCanvaOAuthPopup signals completion via
+          // localStorage's storage event instead, which has no dependency
+          // on window.opener at all. Still suppress the parent's
+          // beforeunload guard — the internal fallback to a same-window
+          // redirect (if the popup was blocked) is still a real navigation.
+          onBeforeCanvaNavigate?.();
+          openCanvaOAuthPopup(pendingTab, json.authUrl, () => handleCanva(img));
+          return;
+        }
         if (json.error) throw new Error(json.error);
       }
       // Fallback when no DB record yet
-      window.open('https://www.canva.com/create/instagram-posts/', '_blank');
+      if (pendingTab) pendingTab.location.href = 'https://www.canva.com/create/instagram-posts/';
+      else window.open('https://www.canva.com/create/instagram-posts/', '_blank');
     } catch (err: unknown) {
+      pendingTab?.close();
       showToast(err instanceof Error ? err.message : 'Canva error', 'error');
     } finally {
       setCanvaLoading(null);
@@ -138,7 +199,6 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
         setLocalImages((prev) => prev.map((i) =>
           (img.id ? i.id === img.id : i.url === img.url) ? { ...i, url: json.imageUrl! } : i
         ));
-        setCanvaDesignIds((prev) => { const next = { ...prev }; delete next[img.id!]; return next; });
         if (json.editSummary) {
           setEditSummaries((prev) => ({ ...prev, [img.id!]: json.editSummary! }));
         }
@@ -151,6 +211,10 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
           updated_at: new Date().toISOString(),
         }).eq('id', img.id!);
         if (dbErr) console.warn('[canva-sync] DB update failed:', dbErr.message);
+        // The pixels a parent's "saved"/"approved" flag was tracking no
+        // longer match what's on screen for THIS image — let it know which
+        // one, so a re-save doesn't blanket-touch unrelated images too.
+        onImagesChanged?.(img.id!);
       } else {
         throw new Error(json.error ?? 'Sync failed');
       }
@@ -173,6 +237,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
       setLocalImages((prev) =>
         prev.map((img) => img.url === adobeImage.url ? { ...img, url: editedUrl } : img)
       );
+      if (adobeImage.id) onImagesChanged?.(adobeImage.id);
     }
     setAdobeImage(null);
   }
@@ -197,7 +262,16 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
         </div>
 
         <div className={`grid gap-4 ${localImages.length === 1 ? 'grid-cols-1 max-w-sm' : localImages.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {localImages.map((img, i) => (
+          {localImages.map((img, i) => {
+          // While ANY Canva action is in flight for this image, every other
+          // action on it is disabled. Without this, clicking Sync then
+          // immediately clicking Edit in Canva before the sync response
+          // lands opens the editor against the pre-sync (stale) image —
+          // canva-open-editor fetches whatever creative_assets.image_url
+          // currently is at request time, which the in-flight sync hasn't
+          // updated yet.
+          const isBusy = canvaLoading === img.url || (!!img.id && canvaSyncing === img.id);
+          return (
             <div key={img.id ?? img.url} className="flex flex-col gap-2">
               {/* Image card */}
               <div
@@ -225,7 +299,7 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleCanva(img)}
-                  disabled={canvaLoading === img.url}
+                  disabled={isBusy}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-medium hover:bg-teal-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
                   {canvaLoading === img.url
@@ -235,25 +309,24 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 </button>
                 <button
                   onClick={() => handleAdobe(img)}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-medium hover:bg-purple-500/20 active:scale-95 transition-all"
+                  disabled={isBusy}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-medium hover:bg-purple-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
                   <Layers size={12} />
                   Adobe Express
                 </button>
               </div>
 
-              {/* Canva sync button — appears after "Edit in Canva" is opened */}
-              {img.id && canvaDesignIds[img.id] && (
-                <button
-                  onClick={() => handleCanvaSync(img)}
-                  disabled={canvaSyncing === img.id}
-                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[11px] font-medium hover:bg-teal-500/20 transition-all disabled:opacity-50"
-                >
-                  {canvaSyncing === img.id
-                    ? <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
-                    : <RefreshCw size={11} />}
-                  {canvaSyncing === img.id ? 'Syncing…' : 'Sync from Canva'}
-                </button>
+              {/* No manual "Sync from Canva" trigger — clicking Return inside
+                  Canva's editor (Return Navigation, see canva-oauth-popup.ts)
+                  auto-syncs this image, avoiding the stale-image races a
+                  manual button invited. This is just a status indicator
+                  while that auto-sync is in flight. */}
+              {img.id && canvaSyncing === img.id && (
+                <div className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-[11px] font-medium">
+                  <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                  Syncing from Canva…
+                </div>
               )}
 
               {/* Edit summary — computed sync-side by canva-sync-design, shown as-is */}
@@ -276,13 +349,14 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
 
               <button
                 onClick={() => downloadImage(img.url, `generated-${img.label ?? i + 1}.jpg`)}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all"
+                disabled={isBusy}
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all disabled:opacity-50"
               >
                 <Download size={11} />
                 Download
               </button>
             </div>
-          ))}
+          );})}
         </div>
       </div>
 
@@ -345,17 +419,13 @@ export function ImageGalleryViewer({ images, onClose }: ImageGalleryViewerProps)
                 <Layers size={13} />
                 Adobe Express
               </button>
-              {current.id && canvaDesignIds[current.id] && (
-                <button
-                  onClick={() => handleCanvaSync(current)}
-                  disabled={canvaSyncing === current.id}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-medium hover:bg-teal-500/20 transition-all disabled:opacity-50 flex-1 justify-center"
-                >
-                  {canvaSyncing === current.id
-                    ? <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
-                    : <RefreshCw size={13} />}
-                  {canvaSyncing === current.id ? 'Syncing…' : 'Sync from Canva'}
-                </button>
+              {/* No manual "Sync from Canva" trigger — see the grid view's
+                  equivalent comment above. Status indicator only. */}
+              {current.id && canvaSyncing === current.id && (
+                <div className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 text-xs font-medium flex-1 justify-center">
+                  <span className="w-3 h-3 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                  Syncing from Canva…
+                </div>
               )}
               {current.id && editSummaries[current.id] && (
                 <div className="flex flex-wrap gap-1 w-full">

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
+import { listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
+import { enforceCreativeHistoryLimit } from '../lib/creative-history';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
@@ -336,19 +338,30 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
   const [pendingCanvaAssetId, setPendingCanvaAssetId] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
+  // This grid is a history of SAVED creatives only (status === 'approved',
+  // set by StrategyResult's "Save Creative Changes" / this component's own
+  // Approve action) — not every image that's ever been generated. Also NOT
+  // scoped to `funnelStage`: a project's creatives get tagged with whatever
+  // funnel stage was selected at generation time (Strategy's Quick Generate
+  // derives it from campaignGoal, defaulting to BOFU/conversion for most
+  // goals), which rarely matches Creatives.tsx's own funnel-stage selector
+  // default (TOFU/awareness) — filtering the grid by that selector meant a
+  // project with real saved creatives could show an empty grid depending on
+  // which stage happened to be selected. `funnelStage` is still used below
+  // to tag newly-generated assets — only the read/display path ignores it.
   const loadAssets = useCallback(async () => {
     const { data } = await supabase
       .from('creative_assets')
       .select('*')
       .eq('org_id', resolvedOrgId)
-      .eq('funnel_stage', funnelStage)
+      .eq('status', 'approved')
       .order('created_at', { ascending: true });
     if (campaignId) {
       setAssets(((data ?? []) as CreativeAsset[]).filter((a) => a.campaign_id === campaignId));
     } else {
       setAssets((data ?? []) as CreativeAsset[]);
     }
-  }, [resolvedOrgId, campaignId, funnelStage]);
+  }, [resolvedOrgId, campaignId]);
 
   useEffect(() => {
     loadAssets();
@@ -360,9 +373,17 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         { event: '*', schema: 'public', table: 'creative_assets', filter: `org_id=eq.${resolvedOrgId}` },
         (payload) => {
           const updated = payload.new as CreativeAsset;
+          // DELETE events carry an empty `new` (no id) — a full reload is
+          // simplest and cheap rather than tracking `old` separately.
           if (!updated?.id) { loadAssets(); return; }
-          if (updated.funnel_stage !== funnelStage) return;
           if (campaignId && updated.campaign_id !== campaignId) return;
+          if (updated.status !== 'approved') {
+            // No longer part of the saved history (synced/edited back out
+            // of 'approved' pending a re-save) — drop it live instead of
+            // leaving a stale approved-looking row on screen.
+            setAssets((prev) => prev.filter((a) => a.id !== updated.id));
+            return;
+          }
 
           setAssets((prev) => {
             const idx = prev.findIndex((a) => a.id === updated.id);
@@ -454,6 +475,12 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }).eq('id', assetId);
         setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'approved' } : a));
         showToast('Creative approved!', 'success');
+        // Same rolling 10-entry cap as StrategyResult's Save action —
+        // best-effort, a failure here shouldn't undo the approval above.
+        if (campaignId) {
+          try { await enforceCreativeHistoryLimit(resolvedOrgId, campaignId); }
+          catch (err) { console.warn('[handleAction] history limit enforcement failed:', err); }
+        }
       } else if (action === 'reject') {
         await supabase.from('creative_assets').update({ status: 'rejected', updated_at: new Date().toISOString() }).eq('id', assetId);
         setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'rejected' } : a));
@@ -478,6 +505,13 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         }
         showToast('Regenerated!', 'success');
       } else if (action === 'canva') {
+        // Open the tab SYNCHRONOUSLY, before the await below —
+        // window.open() called after an async gap (the canva-open-editor
+        // round-trip) can lose "user activation" in stricter browsers and
+        // get silently blocked, even though this was triggered by a real
+        // click. Navigating this already-open tab once the real URL is
+        // known sidesteps that.
+        const pendingTab = window.open('', '_blank');
         // supabase.functions.invoke attaches the caller's own session JWT —
         // canva-open-editor derives identity from that server-side, never
         // from a userId passed in the body. returnUrl encodes which app
@@ -488,15 +522,30 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           'canva-open-editor',
           { body: { creativeAssetId: assetId, returnUrl } }
         );
-        if (invokeErr) throw new Error(invokeErr.message);
-        if (!json) throw new Error('canva-open-editor returned no data');
+        if (invokeErr) { pendingTab?.close(); throw new Error(await extractFunctionErrorMessage(invokeErr, 'Canva editor request failed')); }
+        if (!json) { pendingTab?.close(); throw new Error('canva-open-editor returned no data'); }
         if (json.needsAuth) {
+          pendingTab?.close(); // this path goes through the inline Connect Canva prompt instead
           setPendingCanvaAssetId(assetId);
           setShowCanvaConnect(true);
         } else if (json.editUrl) {
-          window.open(json.editUrl, '_blank');
+          // correlation_state rides along on Canva's own "Return Navigation"
+          // feature (Developer Portal setting, separate from OAuth) —
+          // capped at 50 chars, `${page}:${uuid}` fits comfortably. This
+          // page has no sync-from-Canva capability, so the return signal
+          // just brings the tab back into focus with a reminder toast.
+          const editUrlWithCorrelation = `${json.editUrl}${json.editUrl.includes('?') ? '&' : '?'}correlation_state=${encodeURIComponent(`${activePage}:${assetId}`)}`;
+          if (pendingTab) {
+            pendingTab.location.href = editUrlWithCorrelation;
+            listenForCanvaEditorReturn(pendingTab, (ok) => {
+              if (ok) showToast('Editing finished in Canva — download or re-open to check your changes.', 'success');
+            });
+          } else {
+            window.open(editUrlWithCorrelation, '_blank'); // blank open was blocked too — last resort, likely blocked again
+          }
           setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'editing' } : a));
         } else if (json.error) {
+          pendingTab?.close();
           showToast(json.error, 'error');
         }
       } else if (action === 'adobe') {

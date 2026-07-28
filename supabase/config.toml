@@ -15,3 +15,9 @@ verify_jwt = false
 
 [functions.dhruv-anomaly-check]
 verify_jwt = false
+
+# Landing tab from Canva's "Return Navigation" feature calls this to verify
+# correlation_jwt before the app's own auth/session state is necessarily
+# settled — same reasoning as canva-oauth-callback above.
+[functions.canva-verify-return-nav]
+verify_jwt = false
