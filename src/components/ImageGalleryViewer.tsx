@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-// PARKED WIP — NOTE FOR REVIEW: invokeEdgeFn (stashed) and
-// extractFunctionErrorMessage (upstream, PR#12) both exist to surface a
-// real error from a functions.invoke() failure — kept both, see the same
-// note in supabase.ts. TextLayer* imports are the independent, unrelated
-// text-overlay layer system (stashed) — merged in alongside the Canva
-// Return Navigation additions (upstream), not a conflict with them.
-import { supabase, extractFunctionErrorMessage, invokeEdgeFn } from '../lib/supabase';
+// PARKED WIP — NOTE FOR REVIEW: this component's own conflicts all resolved
+// in favor of upstream's extractFunctionErrorMessage-based error handling
+// (invokeEdgeFn is unused here, though still defined in supabase.ts for
+// reference — see the note there). TextLayer* imports are the independent,
+// unrelated text-overlay layer system (stashed) — merged in alongside the
+// Canva Return Navigation additions (upstream), not a conflict with them.
+import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
