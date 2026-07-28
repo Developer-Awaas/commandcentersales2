@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { buildSMMCreativePrompt } from '../lib/smm-prompts';
+import { resolveGenerationErrorMessage } from '../lib/smm-generation-error';
 import { useToast } from '../contexts/ToastContext';
 
 const C = {
@@ -56,7 +57,7 @@ export default function SMMCreatives() {
         showToast('Creative generated!', 'success');
       } else {
         setResult(res?.raw ? { raw: res.raw } : null);
-        showToast('Generation failed', 'error');
+        showToast(resolveGenerationErrorMessage(res), 'error');
       }
     } catch { showToast('Error generating creative', 'error'); }
     setLoading(false);
