@@ -21,7 +21,7 @@ interface Props {
 
 export default function AanyaCreativePromptCard({
   brief,
-  sectionLabel = 'Creative Prompts — Nanobanana (Gemini)',
+  sectionLabel = 'Creative Prompts',
   projectId,
 }: Props) {
   const feedPrompt = brief.nanobanana_prompt_main;

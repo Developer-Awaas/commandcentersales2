@@ -402,7 +402,7 @@ export function AdReview() {
 
     try {
       if (!isAiEnabled()) {
-        setResult({ status: 'error', message: 'Add your Claude API key in Settings to analyze ad creatives.' });
+        setResult({ status: 'error', message: 'AI analysis is currently unavailable.' });
         setSubmitting(false);
         return;
       }

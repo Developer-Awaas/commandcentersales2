@@ -15,7 +15,9 @@ import {
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
+import { buildDefaultLayers } from '../../lib/text-layers';
 import { supabase } from '../../lib/supabase';
+import { DEFAULT_CREATIVE_PLATFORM } from '../../lib/constants';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { Card } from '../../components/ui/Card';
 import { CopyButton } from '../../components/ui/CopyButton';
@@ -82,7 +84,7 @@ export function AanyaDesignerNotes({ brief }: { brief?: SeniorDesignerResult }) 
           {refs && refs.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">
-                Reference images to upload to Nanobanana (in order)
+                Reference images to upload (in order)
               </p>
               <ol className="flex flex-col gap-1.5">
                 {refs.map((r, i) => (
@@ -1212,7 +1214,7 @@ function FullAiOutput({ data, inputs, projects, onSave }: { data: FullAiResult; 
       {data._aanyaBrief && (data.creativePrompt || data.creativePromptStory) && (
         <Card>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-            <SectionLabel>Creative Prompts — Nanobanana (Gemini)</SectionLabel>
+            <SectionLabel>Creative Prompts</SectionLabel>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand/10 border border-brand/20">
               <Sparkles size={11} className="text-brand" />
               <span className="text-[10px] font-semibold text-brand tracking-wide">
@@ -1328,6 +1330,8 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   const [savingCreatives, setSavingCreatives] = useState(false);
   // Stable session ID groups the feed+story pair in creative_assets
   const sessionIdRef = useRef(crypto.randomUUID());
+  // Guard against React StrictMode's double-mount firing the auto-generate twice
+  const generatingRef = useRef(false);
   const { setHasUnsavedCreatives } = useNavigation();
 
   // Sync unsaved state into NavigationContext so App.tsx can guard in-app navigation
@@ -1364,6 +1368,8 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
 
   async function handleGenerateWithGemini() {
     if (!data.nanobanana_prompt_main) return;
+    if (generatingRef.current) return;
+    generatingRef.current = true;
     setGeminiGenerating(true);
     onGeminiStateChange?.(true);
     setGeminiError(null);
@@ -1386,6 +1392,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
 
       const collected: GalleryImage[] = [];
       const generationErrors: string[] = [];
+      const primaryLang = (languages[0] ?? 'English').toLowerCase();
 
       for (const [result, _ratio, label, angleLabel, promptUsedForThisSlot] of [
         [feedResult,    '1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
@@ -1415,6 +1422,19 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           } catch {
             // non-fatal — fall back to base64 data URL
           }
+
+          // Seed default editable text layers from the same ad copy baked into the
+          // image, so the creative starts immediately editable with no manual setup.
+          const defaultLayers = buildDefaultLayers(angleLabel as 'feed' | 'portrait' | 'story', {
+            headline: data.ad_copy?.[`headline_${primaryLang}`] ?? data.ad_copy?.headline_english,
+            primaryText: data.ad_copy?.[`primary_text_${primaryLang}`],
+            cta: data.ad_copy?.cta,
+          });
+          if (id) {
+            supabase.from('creative_assets').update({ text_layers: defaultLayers }).eq('id', id)
+              .then(({ error }) => { if (error) console.warn('[text-layers] seed failed:', error.message); });
+          }
+
           collected.push({
             id, url, label, storagePath,
             promptUsed: promptUsedForThisSlot,
@@ -1422,6 +1442,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               headline: data.ad_copy?.headline_english,
               cta: data.ad_copy?.cta,
             },
+            textLayers: defaultLayers,
           });
         }
       }
@@ -1435,6 +1456,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     } catch (err) {
       setGeminiError(err instanceof Error ? err.message : 'Image generation failed.');
     } finally {
+      generatingRef.current = false;
       setGeminiGenerating(false);
       onGeminiStateChange?.(false);
     }
@@ -1589,7 +1611,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       {/* Reference Image Manifest */}
       {Array.isArray(data.reference_image_manifest) && data.reference_image_manifest.length > 0 && (
         <Card className="p-5">
-          <SectionLabel>Upload These Images to Nanobanana (in order)</SectionLabel>
+          <SectionLabel>Upload These Images (in order)</SectionLabel>
           <ol className="space-y-3">
             {data.reference_image_manifest.map((ref, i) => (
               <li key={i} className="flex gap-3 items-start">
@@ -1674,7 +1696,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         <InlineCreativeReview
           project={project ?? null}
           context={{
-            platform: 'Nanobanana (Gemini)',
+            platform: DEFAULT_CREATIVE_PLATFORM,
             headline: data.ad_copy?.headline_english,
             idea: data.creative_concept,
           }}

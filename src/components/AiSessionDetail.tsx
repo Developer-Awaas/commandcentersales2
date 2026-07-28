@@ -485,7 +485,7 @@ import { X, CheckCircle, Sparkles } from 'lucide-react';
         {data.nanobanana_prompt_main && (
           <div className="bg-warning-subtle border border-warning-border rounded-xl p-5">                                                                                                                                                    
             <div className="flex items-start justify-between gap-3 mb-3">                                                                                                                                                                    
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-warning-text">Nanobanana Prompt</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-warning-text">Creative Prompt</p>
               <CopyButton text={data.nanobanana_prompt_main} />                                                                                                                                                                              
             </div>                                          
             <pre className="bg-surface-sunken text-text-primary rounded-lg p-4 text-xs whitespace-pre-wrap font-mono max-h-96 overflow-y-auto leading-relaxed">                                                                              

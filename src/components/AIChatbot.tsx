@@ -148,7 +148,7 @@ export function AIChatbot() {
     setInput('');
 
     if (!isAiEnabled()) {
-      addMessage({ role: 'bot', text: 'AI is not configured. Add your Claude API key in Settings.', timestamp: new Date() });
+      addMessage({ role: 'bot', text: 'AI is not configured right now.', timestamp: new Date() });
       return;
     }
 
