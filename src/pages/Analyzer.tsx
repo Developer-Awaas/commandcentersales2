@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Spinner } from '../components/ui/Spinner';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 interface Project {
   id: string;
@@ -362,6 +363,7 @@ function MetricsHistory({ rows }: { rows: MetricRow[] }) {
 }
 
 export function Analyzer() {
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectId, setProjectId] = useState('all');
@@ -514,12 +516,13 @@ export function Analyzer() {
     });
 
     if (!isAiEnabled()) {
-      setAiResult({ status: 'error', message: 'Metrics saved. Add your Claude API key in Settings to enable AI analysis.' });
+      setAiResult({ status: 'error', message: 'Metrics saved. AI analysis is currently unavailable.' });
       setSubmitting(false);
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
       return;
     }
 
+    startGeneration('Analyzing performance…');
     try {
       const context = await buildContext({ projectId: projectId !== 'all' ? projectId : undefined });
       const selectedProject = projects.find((p) => p.id === projectId);
@@ -563,6 +566,8 @@ Return ONLY a JSON object:
       }
     } catch (err: unknown) {
       setAiResult({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
+    } finally {
+      stopGeneration();
     }
 
     setSubmitting(false);
@@ -572,6 +577,7 @@ Return ONLY a JSON object:
   async function handleResearchMetaUpdates() {
     setResearchSubmitting(true);
     setResearch({ status: 'loading' });
+    startGeneration('Researching Meta Ads updates…');
 
     try {
       const outcome = await callClaudeProxyStream({
@@ -592,6 +598,8 @@ Return ONLY a JSON object:
       setResearch({ status: 'ok', text: outcome.result.text.trim() || 'No text response returned.' });
     } catch (err: unknown) {
       setResearch({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
+    } finally {
+      stopGeneration();
     }
 
     setResearchSubmitting(false);

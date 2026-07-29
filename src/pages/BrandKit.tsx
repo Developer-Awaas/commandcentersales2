@@ -195,7 +195,7 @@ export default function BrandKit() {
           <FontInput label="Secondary Font (headlines)" value={kit.secondary_font} onChange={v => setKit({...kit, secondary_font: v})} hint="e.g., Playfair Display" />
           <FontInput label="Display Font (CTAs)" value={kit.display_font} onChange={v => setKit({...kit, display_font: v})} hint="e.g., Bebas Neue" />
         </div>
-        <p className="text-xs text-text-tertiary mt-2">Use Google Fonts names. Nanobanana renders text styles inspired by these — exact font isn't guaranteed but the style direction will be preserved.</p>
+        <p className="text-xs text-text-tertiary mt-2">Use Google Fonts names. The AI image generator renders text styles inspired by these — exact font isn't guaranteed but the style direction will be preserved.</p>
       </section>
 
       {/* SECTION 4: BRAND VOICE */}

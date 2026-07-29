@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { CanvaConnectButton } from './CanvaConnectButton';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 export interface CreativeAsset {
   id: string;
@@ -329,6 +330,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
   const resolvedOrgId = orgId ?? getOrgId();
   const { showToast } = useToast();
   const { activePage } = useNavigation();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [assets, setAssets] = useState<CreativeAsset[]>([]);
   const [generating, setGenerating] = useState(false);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -409,6 +411,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
       return;
     }
     setGenerating(true);
+    startGeneration('Generating creatives…');
 
     // Insert placeholder rows to show skeletons
     const placeholders = ANGLES.map((angle) => ({
@@ -456,6 +459,8 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Generation failed', 'error');
       setAssets([]);
+    } finally {
+      stopGeneration();
     }
     setGenerating(false);
   }
@@ -487,23 +492,28 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         showToast('Creative rejected.', 'error');
       } else if (action === 'regenerate') {
         if (!projectContext || !brandKit) { showToast('Project context required', 'error'); return; }
-        // Delete old asset and regenerate this angle
-        await supabase.from('creative_assets').delete().eq('id', assetId);
-        setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'generating', image_url: '' } : a));
+        startGeneration('Regenerating creative…');
+        try {
+          // Delete old asset and regenerate this angle
+          await supabase.from('creative_assets').delete().eq('id', assetId);
+          setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'generating', image_url: '' } : a));
 
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        const res = await fetch(`${supabaseUrl}/functions/v1/generate-creatives`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-          body: JSON.stringify({ orgId: resolvedOrgId, campaignId, funnelStage, brandKit, projectContext }),
-        });
-        const json = await res.json() as { assets: CreativeAsset[] };
-        const match = json.assets.find((a) => a.angle === asset.angle);
-        if (match) {
-          setAssets((prev) => prev.map((a) => a.id === assetId ? match : a));
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+          const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+          const res = await fetch(`${supabaseUrl}/functions/v1/generate-creatives`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
+            body: JSON.stringify({ orgId: resolvedOrgId, campaignId, funnelStage, brandKit, projectContext }),
+          });
+          const json = await res.json() as { assets: CreativeAsset[] };
+          const match = json.assets.find((a) => a.angle === asset.angle);
+          if (match) {
+            setAssets((prev) => prev.map((a) => a.id === assetId ? match : a));
+          }
+          showToast('Regenerated!', 'success');
+        } finally {
+          stopGeneration();
         }
-        showToast('Regenerated!', 'success');
       } else if (action === 'canva') {
         // Open the tab SYNCHRONOUSLY, before the await below —
         // window.open() called after an async gap (the canva-open-editor

@@ -12,6 +12,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { Spinner } from '../components/ui/Spinner';
 import { TargetingVerifier } from '../components/TargetingVerifier';
 import { useNavigation } from '../contexts/NavigationContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 interface Project {
   id: string;
@@ -307,6 +308,7 @@ function AiConfigOutput({ data, onRetry, platform }: { data: AiConfigResult; onR
 
 export function AdConfig() {
   const { navigate } = useNavigation();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectId, setProjectId] = useState('');
@@ -336,10 +338,11 @@ export function AdConfig() {
   async function handleGenerate() {
     setSubmitting(true);
     setResult({ status: 'idle' });
+    startGeneration('Generating ad configuration…');
 
     try {
       if (!isAiEnabled()) {
-        setResult({ status: 'error', message: 'Add your Claude API key in Settings to generate an AI configuration.' });
+        setResult({ status: 'error', message: 'AI configuration generation is currently unavailable.' });
         setSubmitting(false);
         return;
       }
@@ -392,6 +395,7 @@ Return ONLY a JSON object:
     }
 
     setSubmitting(false);
+    stopGeneration();
     setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   }
 

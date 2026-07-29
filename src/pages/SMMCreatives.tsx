@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { buildSMMCreativePrompt } from '../lib/smm-prompts';
 import { useToast } from '../contexts/ToastContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 const C = {
   bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
@@ -23,14 +24,18 @@ const CREATIVE_TYPES = [
   { value: 'testimonial', label: 'Testimonial', desc: 'Happy customer stories', icon: '⭐' },
 ];
 
-const PLATFORMS = ['Nanobanana (Gemini)', 'ChatGPT / DALL-E', 'Canva', 'Adobe Express', 'Midjourney', 'Manual'];
+// Kept for TODO(multi-platform) re-exposure — the picker UI using this was
+// removed (see DEFAULT_CREATIVE_PLATFORM in lib/constants.ts). Exported so
+// the unused-in-this-file array doesn't trip noUnusedLocals.
+export const PLATFORMS = ['Nanobanana (Gemini)', 'ChatGPT / DALL-E', 'Canva', 'Adobe Express', 'Midjourney', 'Manual'];
 
 export default function SMMCreatives() {
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [type, setType] = useState('company_branding');
   const [description, setDescription] = useState('');
   const [project, setProject] = useState('');
-  const [platform, setPlatform] = useState('Nanobanana (Gemini)');
+  const [platform] = useState(DEFAULT_CREATIVE_PLATFORM);
   const [holiday, setHoliday] = useState('');
   const [event] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,9 +49,10 @@ export default function SMMCreatives() {
   }, []);
 
   const generate = async () => {
-    if (!isAiEnabled()) { showToast('Add Claude API key in Settings', 'info'); return; }
+    if (!isAiEnabled()) { showToast('AI features are currently unavailable', 'info'); return; }
     if (!description) { showToast('Describe what you want to create', 'info'); return; }
     setLoading(true);
+    startGeneration('Generating creative…');
     try {
       const proj = projects.find(p => (p.name || p['Project Name']) === project);
       const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform });
@@ -58,7 +64,7 @@ export default function SMMCreatives() {
         setResult(res?.raw ? { raw: res.raw } : null);
         showToast('Generation failed', 'error');
       }
-    } catch { showToast('Error generating creative', 'error'); }
+    } catch { showToast('Error generating creative', 'error'); } finally { stopGeneration(); }
     setLoading(false);
   };
 
@@ -140,11 +146,7 @@ export default function SMMCreatives() {
         </div>
 
         <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 20 }}>
-          <label style={{ fontSize: 12, color: C.dim, display: 'block', marginBottom: 6 }}>Creative Platform</label>
-          <select value={platform} onChange={e => setPlatform(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, background: C.bg, color: C.text, border: '1px solid ' + C.border, fontSize: 13 }}>
-            {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <div style={{ marginTop: 16, padding: 12, borderRadius: 8, background: C.bg }}>
+          <div style={{ padding: 12, borderRadius: 8, background: C.bg }}>
             <p style={{ fontSize: 12, color: C.dim, marginBottom: 4 }}>Selected type:</p>
             <p style={{ fontSize: 14, fontWeight: 600, color: C.accent }}>{CREATIVE_TYPES.find(t => t.value === type)?.icon} {CREATIVE_TYPES.find(t => t.value === type)?.label}</p>
             <p style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{CREATIVE_TYPES.find(t => t.value === type)?.desc}</p>

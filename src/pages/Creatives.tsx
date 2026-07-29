@@ -5,7 +5,7 @@ import { ImageGalleryViewer, type GalleryImage } from '../components/ImageGaller
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
 import { InlineCreativeReview, type InlineReviewProject } from '../components/InlineCreativeReview';
 import { supabase } from '../lib/supabase';
-import { getOrgId, getUserId } from '../lib/constants';
+import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildVariantBriefs } from '../lib/senior-designer-prompts';
@@ -20,6 +20,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { Spinner } from '../components/ui/Spinner';
 import { useNavigation } from '../contexts/NavigationContext';
 import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 interface Project {
   id: string;
@@ -66,7 +67,10 @@ const FUNNEL_OPTIONS = [
   { value: 'BOFU', label: 'BOFU — Bottom of Funnel' },
 ];
 
-const PLATFORM_OPTIONS = [
+// Kept for TODO(multi-platform) re-exposure — the picker UI using this was
+// removed (see DEFAULT_CREATIVE_PLATFORM in lib/constants.ts). Exported so
+// the unused-in-this-file array doesn't trip noUnusedLocals.
+export const PLATFORM_OPTIONS = [
   { value: 'Nanobanana (Gemini)', label: 'Nanobanana (Gemini)' },
   { value: 'ChatGPT / DALL-E', label: 'ChatGPT / DALL-E' },
   { value: 'Midjourney', label: 'Midjourney' },
@@ -246,13 +250,13 @@ function VariantCard({ variant, onSave, project, platform }: { variant: AiVarian
           </div>
         </div>
 
-        <PurpleCard label="Nanobanana (1080x1080)" text={variant.nanoPrompt} />
+        <PurpleCard label="Image Prompt (1080x1080)" text={variant.nanoPrompt} />
         {variant.nanoStory && <PurpleCard label="Story (1080x1920)" text={variant.nanoStory} />}
 
         <InlineCreativeReview
           project={project ?? null}
           context={{
-            platform: platform || 'Nanobanana (Gemini)',
+            platform: platform || DEFAULT_CREATIVE_PLATFORM,
             headline: variant.headline,
             idea: variant.angle,
           }}
@@ -317,11 +321,12 @@ function AiCreativesOutput({ data, onRetry, onSaveVariant, project, platform }: 
 
 export function Creatives() {
   const { navigate } = useNavigation();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectId, setProjectId] = useState('');
   const [funnelStage, setFunnelStage] = useState('TOFU');
-  const [creativePlatform, setCreativePlatform] = useState('Nanobanana (Gemini)');
+  const [creativePlatform] = useState(DEFAULT_CREATIVE_PLATFORM);
   const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
   const [image, setImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
@@ -454,10 +459,15 @@ export function Creatives() {
     if (submitting) return;
     setSubmitting(true);
     setResult({ status: 'idle' });
+    startGeneration('Generating creatives…');
+    // Image rendering (nanobanana path) runs as an un-awaited background chain —
+    // when it's kicked off, the lock must survive past this function's own
+    // try/finally and only release once that chain's .finally() fires.
+    let imagesInFlight = false;
 
     try {
       if (!isAiEnabled()) {
-        setResult({ status: 'error', message: 'Add your Claude API key in Settings to generate creative variants.' });
+        setResult({ status: 'error', message: 'Creative generation is currently unavailable.' });
         setSubmitting(false);
         return;
       }
@@ -593,7 +603,7 @@ export function Creatives() {
             status: 'ok',
             data: {
               strategy: successCount === 3
-                ? 'Aanya generated all 3 variants — designed for Nanobanana (Gemini).'
+                ? 'Aanya generated all 3 variants.'
                 : `Aanya generated ${successCount}/3 variants. Failed variants are shown with empty fields — regenerate to retry.`,
               variants: aiVariants,
             },
@@ -608,6 +618,7 @@ export function Creatives() {
             .map((v) => ({ label: v.angle, prompt: v.nanoPrompt, headline: v.headline, cta: v.cta }));
           const promptsToRender = SINGLE_IMAGE_TESTING_MODE ? allPromptsToRender.slice(0, 1) : allPromptsToRender;
           if (promptsToRender.length > 0) {
+            imagesInFlight = true;
             setGalleryImages([]);
             setGeneratingImages(true);
             // sessionId groups all 3 images so edits overwrite the same files (saves storage)
@@ -639,7 +650,7 @@ export function Creatives() {
                 claudeOutputTokens: variantOutputTokens,
                 geminiImagesGenerated: imgs.length,
               });
-            }).finally(() => setGeneratingImages(false));
+            }).finally(() => { setGeneratingImages(false); stopGeneration(); });
           } else {
             logAiSession(supabase, {
               sessionType: 'creative',
@@ -709,6 +720,8 @@ Return ONLY a JSON object:
       }
     } catch (err: unknown) {
       setResult({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
+    } finally {
+      if (!imagesInFlight) stopGeneration();
     }
 
     setSubmitting(false);
@@ -752,7 +765,6 @@ Return ONLY a JSON object:
               <Select label="Project" options={projectOptions} value={projectId} onChange={(e) => { setProjectId(e.target.value); setResult({ status: 'idle' }); }} />
             )}
             <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnelStage} onChange={(e) => { setFunnelStage(e.target.value); setResult({ status: 'idle' }); }} />
-            <Select label="Creative Platform" options={PLATFORM_OPTIONS} value={creativePlatform} onChange={(e) => setCreativePlatform(e.target.value)} />
             <Select label="Output Ad Platform" options={AD_PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as 'Meta Ads Manager' | 'AiSensy')} />
           </div>
 
@@ -815,7 +827,7 @@ Return ONLY a JSON object:
           {generatingImages && galleryImages.length === 0 ? (
             <div className="flex items-center gap-2 py-4">
               <Spinner size="sm" />
-              <span className="text-xs text-text-tertiary">Rendering images with Gemini…</span>
+              <span className="text-xs text-text-tertiary">Rendering images…</span>
             </div>
           ) : (
             <ImageGalleryViewer
@@ -928,7 +940,7 @@ Return ONLY a JSON object:
                       {c.nano_prompt && (
                         <div>
                           <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Nanobanana (1080x1080)</p>
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">Image Prompt (1080x1080)</p>
                             <CopyButton text={c.nano_prompt} />
                           </div>
                           <p className="text-xs text-text-primary font-mono leading-relaxed bg-surface rounded-lg p-3 border border-border">{c.nano_prompt}</p>

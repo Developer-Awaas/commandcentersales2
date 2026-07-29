@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Library, Search, Trash2, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../contexts/ToastContext';
+import { Select } from '../components/ui/Select';
 
 const C = {
   bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
@@ -100,21 +101,21 @@ export default function ContentLibrary() {
             style={{ width: '100%', padding: '10px 10px 10px 34px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 13, outline: 'none' }}
           />
         </div>
-        <select value={filterType} onChange={e => setFilterType(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 12 }}>
-          <option value="all">All Types</option>
-          {['reel', 'carousel', 'static', 'story', 'video'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-        </select>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 12 }}>
-          <option value="all">All Status</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 12 }}>
-          <option value="all">All Categories</option>
-          {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        <div style={{ width: 150, flexShrink: 0 }}>
+          <Select value={filterType} onChange={e => setFilterType(e.target.value)}
+            className="text-xs"
+            options={[{ value: 'all', label: 'All Types' }, ...['reel', 'carousel', 'static', 'story', 'video'].map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))]} />
+        </div>
+        <div style={{ width: 150, flexShrink: 0 }}>
+          <Select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+            className="text-xs"
+            options={[{ value: 'all', label: 'All Status' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v.label }))]} />
+        </div>
+        <div style={{ width: 170, flexShrink: 0 }}>
+          <Select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
+            className="text-xs"
+            options={[{ value: 'all', label: 'All Categories' }, ...Object.entries(CATEGORY_LABELS).map(([k, v]) => ({ value: k, label: v }))]} />
+        </div>
       </div>
 
       {/* Content Grid */}

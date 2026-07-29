@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckSquare, ChevronLeft, ChevronRight, Download, Square, Upload, Wand2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildVariantBriefs } from '../lib/senior-designer-prompts';
 import type { SeniorDesignerResult } from './strategy/types';
@@ -15,6 +15,7 @@ import { Select } from '../components/ui/Select';
 import { Spinner } from '../components/ui/Spinner';
 import { CopyButton } from '../components/ui/CopyButton';
 import { useToast } from '../contexts/ToastContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,10 @@ const PLATFORM_OPTIONS = [
   { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
 ];
 
-const CREATIVE_PLATFORM_OPTIONS = [
+// Kept for TODO(multi-platform) re-exposure — the picker UI using this was
+// removed (see DEFAULT_CREATIVE_PLATFORM in lib/constants.ts). Exported so
+// the unused-in-this-file array doesn't trip noUnusedLocals.
+export const CREATIVE_PLATFORM_OPTIONS = [
   { value: 'Nanobanana (Gemini)', label: 'Nanobanana (Gemini)' },
   { value: 'ChatGPT / DALL-E', label: 'ChatGPT / DALL-E' },
   { value: 'Midjourney', label: 'Midjourney' },
@@ -125,28 +129,34 @@ function StepStrategy({ projects, data, onResult }: {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
 
   const project = projects.find((p) => p.id === projectId);
   const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }));
 
   async function generate() {
-    if (!isAiEnabled()) { showToast('Add Claude API key in Settings.', 'info'); return; }
+    if (!isAiEnabled()) { showToast('AI features are currently unavailable.', 'info'); return; }
     if (!project) return;
     setLoading(true);
-    const context = await buildContext({ projectId });
-    const month = new Date().toLocaleString('en-IN', { month: 'short', year: '2-digit' });
-    const prompt = [
-      `Generate a ready-to-deploy real estate ad for ${project.name}, ${project.locality || ''} ${project.city || ''}. Price ₹${project.price_range_lacs || 'N/A'}L. USPs: ${project.usps || 'None'}. Units left: ${project.units_remaining ?? 'N/A'}.`,
-      `OBJECTIVE: ${objective}. PLATFORM: ${platform}.`,
-      notes ? `USER NOTES: ${notes}` : '',
-      `Reply ONLY with JSON (no prose): { "idea": "...", "campaignName": "NH-${month.replace(' ', '').toUpperCase()}", "primaryText": "150-250 char ad copy with emojis", "primaryTextOdia": "...", "headline": "max 25 chars", "description": "30 chars", "callToAction": "Send WhatsApp Message", "locations": "...", "ageRange": "30 to 50", "interests": "...", "dailyBudget": "500", "duration": "7", "icebreakers": ["...","...","..."], "creativePrompt": "detailed image prompt 1080x1080", "creativePromptStory": "1080x1920 prompt", "launchChecklist": ["...","...","..."] }`,
-    ].filter(Boolean).join('\n\n');
-    const res = await aiCall(context ? prompt + '\n\nCONTEXT:\n' + context : prompt);
-    const parsed = parseAiJson(res);
-    if (!parsed) { showToast('Generation failed. Try again.', 'error'); setLoading(false); return; }
-    logAiSession(supabase, { sessionType: 'quick_generate', projectIds: [projectId], inputSummary: `Wizard S1: ${project.name}`, inputData: { objective, platform }, outputData: parsed });
-    onResult(parsed, projectId, project.name);
-    setLoading(false);
+    startGeneration('Generating strategy…');
+    try {
+      const context = await buildContext({ projectId });
+      const month = new Date().toLocaleString('en-IN', { month: 'short', year: '2-digit' });
+      const prompt = [
+        `Generate a ready-to-deploy real estate ad for ${project.name}, ${project.locality || ''} ${project.city || ''}. Price ₹${project.price_range_lacs || 'N/A'}L. USPs: ${project.usps || 'None'}. Units left: ${project.units_remaining ?? 'N/A'}.`,
+        `OBJECTIVE: ${objective}. PLATFORM: ${platform}.`,
+        notes ? `USER NOTES: ${notes}` : '',
+        `Reply ONLY with JSON (no prose): { "idea": "...", "campaignName": "NH-${month.replace(' ', '').toUpperCase()}", "primaryText": "150-250 char ad copy with emojis", "primaryTextOdia": "...", "headline": "max 25 chars", "description": "30 chars", "callToAction": "Send WhatsApp Message", "locations": "...", "ageRange": "30 to 50", "interests": "...", "dailyBudget": "500", "duration": "7", "icebreakers": ["...","...","..."], "creativePrompt": "detailed image prompt 1080x1080", "creativePromptStory": "1080x1920 prompt", "launchChecklist": ["...","...","..."] }`,
+      ].filter(Boolean).join('\n\n');
+      const res = await aiCall(context ? prompt + '\n\nCONTEXT:\n' + context : prompt);
+      const parsed = parseAiJson(res);
+      if (!parsed) { showToast('Generation failed. Try again.', 'error'); setLoading(false); return; }
+      logAiSession(supabase, { sessionType: 'quick_generate', projectIds: [projectId], inputSummary: `Wizard S1: ${project.name}`, inputData: { objective, platform }, outputData: parsed });
+      onResult(parsed, projectId, project.name);
+      setLoading(false);
+    } finally {
+      stopGeneration();
+    }
   }
 
   return (
@@ -229,16 +239,18 @@ function VariantCard({ v }: { v: AiVariant }) {
 // ── Step 2: Creatives ─────────────────────────────────────────────────────────
 
 function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Record<string, unknown>) => void }) {
-  const [platform, setPlatform] = useState('Nanobanana (Gemini)');
+  const [platform] = useState(DEFAULT_CREATIVE_PLATFORM);
   const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
   const [funnel, setFunnel] = useState('BOFU');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
 
   async function generate() {
-    if (!isAiEnabled()) { showToast('Add Claude API key in Settings.', 'info'); return; }
+    if (!isAiEnabled()) { showToast('AI features are currently unavailable.', 'info'); return; }
     setLoading(true);
-
+    startGeneration('Generating creatives…');
+    try {
     const isNanobanana = platform.toLowerCase().includes('nanobanana');
     const s = data.strategyResult;
 
@@ -347,7 +359,7 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
 
       const result = {
         strategy: successCount === 3
-          ? 'Aanya generated all 3 variants — designed for Nanobanana (Gemini).'
+          ? 'Aanya generated all 3 variants.'
           : `Aanya generated ${successCount}/3 variants. Failed variants are shown with empty fields — regenerate to retry.`,
         variants: aiVariants,
       };
@@ -379,6 +391,9 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
     logAiSession(supabase, { sessionType: 'creative', projectIds: [data.projectId], inputSummary: `Wizard S2: ${data.projectName}`, inputData: { platform, funnel }, outputData: parsed });
     onResult({ ...parsed, funnel });
     setLoading(false);
+    } finally {
+      stopGeneration();
+    }
   }
 
   const variants = (data.creativesResult?.variants as AiVariant[] | undefined) ?? [];
@@ -387,7 +402,6 @@ function StepCreatives({ data, onResult }: { data: WizardData; onResult: (r: Rec
     <div className="flex flex-col gap-5">
       <p className="text-sm text-text-tertiary">Generating creatives for <span className="text-text-primary font-medium">{data.projectName || 'selected project'}</span></p>
       <div className="grid grid-cols-2 gap-4">
-        <Select label="Creative Platform" options={CREATIVE_PLATFORM_OPTIONS} value={platform} onChange={(e) => setPlatform(e.target.value)} />
         <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnel} onChange={(e) => setFunnel(e.target.value)} />
         <Select label="Output Ad Platform" options={PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as 'Meta Ads Manager' | 'AiSensy')} />
       </div>
@@ -419,6 +433,7 @@ function StepAdReview({ data, onResult, onImageChange }: {
   const [loading, setLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
 
   function setImageAndNotify(f: File | null) {
     setImage(f);
@@ -428,18 +443,23 @@ function StepAdReview({ data, onResult, onImageChange }: {
   async function analyze() {
     if (!image || !isAiEnabled()) { showToast('Upload an image first.', 'info'); return; }
     setLoading(true);
+    startGeneration('Analyzing creative…');
     const reader = new FileReader();
     reader.onload = async () => {
-      const b64 = (reader.result as string).split(',')[1];
-      const prompt = `Analyze this real estate ad creative for ${data.projectName}. Reply ONLY with JSON: { "overallScore": 7, "verdict": "...", "issues": [{ "area": "...", "severity": "high", "issue": "...", "fix": "..." }], "strengths": ["..."], "revisedPrompt": "improved image generation prompt" }`;
-      const res = await aiVision([
-        { type: 'image', source: { type: 'base64', media_type: image.type || 'image/png', data: b64 } },
-        { type: 'text', text: prompt }
-      ], 'Analyze the real estate ad creative. Reply ONLY with JSON.');
-      const parsed = parseAiJson(res);
-      if (!parsed) { showToast('Analysis failed.', 'error'); setLoading(false); return; }
-      onResult(parsed);
-      setLoading(false);
+      try {
+        const b64 = (reader.result as string).split(',')[1];
+        const prompt = `Analyze this real estate ad creative for ${data.projectName}. Reply ONLY with JSON: { "overallScore": 7, "verdict": "...", "issues": [{ "area": "...", "severity": "high", "issue": "...", "fix": "..." }], "strengths": ["..."], "revisedPrompt": "improved image generation prompt" }`;
+        const res = await aiVision([
+          { type: 'image', source: { type: 'base64', media_type: image.type || 'image/png', data: b64 } },
+          { type: 'text', text: prompt }
+        ], 'Analyze the real estate ad creative. Reply ONLY with JSON.');
+        const parsed = parseAiJson(res);
+        if (!parsed) { showToast('Analysis failed.', 'error'); setLoading(false); return; }
+        onResult(parsed);
+        setLoading(false);
+      } finally {
+        stopGeneration();
+      }
     };
     reader.readAsDataURL(image);
   }
@@ -484,6 +504,7 @@ function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Reco
   const [pendingFunnel, setPendingFunnel] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
 
   function handleFunnelChange(newValue: string) {
     if (newValue === funnel) return;
@@ -496,8 +517,10 @@ function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Reco
   }
 
   async function generate() {
-    if (!isAiEnabled()) { showToast('Add Claude API key in Settings.', 'info'); return; }
+    if (!isAiEnabled()) { showToast('AI features are currently unavailable.', 'info'); return; }
     setLoading(true);
+    startGeneration('Generating ad configuration…');
+    try {
     const context = await buildContext({ projectId: data.projectId });
     const s = data.strategyResult;
     const prompt = [
@@ -511,6 +534,9 @@ function StepAdConfig({ data, onResult }: { data: WizardData; onResult: (r: Reco
     logAiSession(supabase, { sessionType: 'ad_config', projectIds: [data.projectId], inputSummary: `Wizard S4: ${data.projectName}`, inputData: { platform, funnel }, outputData: parsed });
     onResult(parsed);
     setLoading(false);
+    } finally {
+      stopGeneration();
+    }
   }
 
   return (

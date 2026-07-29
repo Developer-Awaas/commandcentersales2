@@ -8,6 +8,8 @@ import { ToastProvider } from './contexts/ToastContext';
 import { ToastContainer } from './components/ui/Toast';
 import { ChatbotProvider } from './contexts/ChatbotContext';
 import { AIChatbot } from './components/AIChatbot';
+import { GenerationLockProvider, useGenerationLock } from './hooks/useGenerationLock';
+import { GenerationOverlay } from './components/GenerationOverlay';
 import { LoginPage } from './pages/LoginPage';
 import { Dashboard } from './pages/Dashboard';
 import { Projects } from './pages/Projects';
@@ -83,6 +85,44 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'content-library': return <ContentLibrary />;
     default: return <Dashboard />;
   }
+}
+
+function AppShell({
+  activePage,
+  onNavigate,
+  profile,
+  onSignOut,
+  activeSection,
+  onSectionChange,
+  wizardActive,
+  onWizardEnd,
+  onWizardStart,
+}: {
+  activePage: string;
+  onNavigate: (page: string) => void;
+  profile: Profile | null;
+  onSignOut?: () => void;
+  activeSection: AppSection;
+  onSectionChange: (section: AppSection) => void;
+  wizardActive: boolean;
+  onWizardEnd: () => void;
+  onWizardStart: () => void;
+}) {
+  const { isGenerating, label, startedAt } = useGenerationLock();
+
+  return (
+    <>
+      <Layout activePage={activePage} onNavigate={onNavigate} profile={profile} onSignOut={onSignOut} activeSection={activeSection} onSectionChange={onSectionChange} wizardActive={wizardActive}>
+        <ErrorBoundary key={activePage}>
+          <PageContent page={activePage} profile={profile} wizardActive={wizardActive} onWizardEnd={onWizardEnd} onWizardStart={onWizardStart} />
+        </ErrorBoundary>
+      </Layout>
+      {/* AIChatbot launcher hidden during generation — a generation in flight already
+          locks nav; a second concurrent AI call from the chatbot would be confusing. */}
+      {!isGenerating && <AIChatbot />}
+      {isGenerating && label && startedAt !== null && <GenerationOverlay label={label} startedAt={startedAt} />}
+    </>
+  );
 }
 
 function getSectionFromPage(page: string): AppSection {
@@ -178,17 +218,24 @@ export default function App() {
 
   return (
     <ToastProvider>
-      <ChatbotProvider>
-        <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage, generationProgress, setGenerationProgress, hasUnsavedCreatives, setHasUnsavedCreatives }}>
-          <Layout activePage={activePage} onNavigate={navigate} profile={profile} onSignOut={signOut} activeSection={activeSection} onSectionChange={setSection} wizardActive={wizardActive}>
-            <ErrorBoundary key={activePage}>
-              <PageContent page={activePage} profile={profile} wizardActive={wizardActive} onWizardEnd={() => { setWizardActive(false); navigate('strategy'); }} onWizardStart={() => setWizardActive(true)} />
-            </ErrorBoundary>
-          </Layout>
-          <AIChatbot />
-          <ToastContainer />
-        </NavigationContext.Provider>
-      </ChatbotProvider>
+      <GenerationLockProvider>
+        <ChatbotProvider>
+          <NavigationContext.Provider value={{ navigate, activePage, activeSection, setSection, generatingPage, setGeneratingPage, generationProgress, setGenerationProgress, hasUnsavedCreatives, setHasUnsavedCreatives }}>
+            <AppShell
+              activePage={activePage}
+              onNavigate={navigate}
+              profile={profile}
+              onSignOut={signOut}
+              activeSection={activeSection}
+              onSectionChange={setSection}
+              wizardActive={wizardActive}
+              onWizardEnd={() => { setWizardActive(false); navigate('strategy'); }}
+              onWizardStart={() => setWizardActive(true)}
+            />
+            <ToastContainer />
+          </NavigationContext.Provider>
+        </ChatbotProvider>
+      </GenerationLockProvider>
     </ToastProvider>
   );
 }

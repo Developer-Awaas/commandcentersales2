@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { supabase } from '../../lib/supabase';
-import { getOrgId } from '../../lib/constants';
+import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../../lib/constants';
 import { enforceCreativeHistoryLimit } from '../../lib/creative-history';
 import { useNavigation } from '../../contexts/NavigationContext';
 import { Card } from '../../components/ui/Card';
@@ -85,7 +85,7 @@ export function AanyaDesignerNotes({ brief }: { brief?: SeniorDesignerResult }) 
           {refs && refs.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">
-                Reference images to upload to Nanobanana (in order)
+                Reference images to upload (in order)
               </p>
               <ol className="flex flex-col gap-1.5">
                 {refs.map((r, i) => (
@@ -1215,7 +1215,7 @@ function FullAiOutput({ data, inputs, projects, onSave }: { data: FullAiResult; 
       {data._aanyaBrief && (data.creativePrompt || data.creativePromptStory) && (
         <Card>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-            <SectionLabel>Creative Prompts — Nanobanana (Gemini)</SectionLabel>
+            <SectionLabel>Creative Prompts</SectionLabel>
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand/10 border border-brand/20">
               <Sparkles size={11} className="text-brand" />
               <span className="text-[10px] font-semibold text-brand tracking-wide">
@@ -1664,7 +1664,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       {/* Reference Image Manifest */}
       {Array.isArray(data.reference_image_manifest) && data.reference_image_manifest.length > 0 && (
         <Card className="p-5">
-          <SectionLabel>Upload These Images to Nanobanana (in order)</SectionLabel>
+          <SectionLabel>Upload These Images (in order)</SectionLabel>
           <ol className="space-y-3">
             {data.reference_image_manifest.map((ref, i) => (
               <li key={i} className="flex gap-3 items-start">
@@ -1769,7 +1769,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         <InlineCreativeReview
           project={project ?? null}
           context={{
-            platform: 'Nanobanana (Gemini)',
+            platform: DEFAULT_CREATIVE_PLATFORM,
             headline: data.ad_copy?.headline_english,
             idea: data.creative_concept,
           }}

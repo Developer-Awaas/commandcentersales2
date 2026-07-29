@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
-import { getOrgId, getUserId } from '../lib/constants';
+import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 import { buildQuickGenerateBrief } from '../lib/senior-designer-prompts';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
@@ -96,6 +97,7 @@ const DEFAULT_FULL: FullStrategyInputs = {
 
 export function Strategy() {
   const { navigate, setGeneratingPage, setGenerationProgress } = useNavigation();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const { setCurrentData } = useChatbot();
   const [mode, setMode] = useState<StrategyMode>('quick');
   const [projects, setProjects] = useState<StrategyProject[]>([]);
@@ -122,18 +124,22 @@ export function Strategy() {
     if (submitting) {
       setGeneratingPage('strategy');
       setGenerationProgress(30);
+      startGeneration('Generating strategy…');
     } else if (geminiActive) {
       setGeneratingPage('strategy');
       setGenerationProgress(65);
+      startGeneration('Generating images…');
     } else {
       setGeneratingPage(null);
       setGenerationProgress(null);
+      stopGeneration();
     }
     return () => {
       setGeneratingPage(null);
       setGenerationProgress(null);
+      stopGeneration();
     };
-  }, [submitting, geminiActive, setGeneratingPage, setGenerationProgress]);
+  }, [submitting, geminiActive, setGeneratingPage, setGenerationProgress, startGeneration, stopGeneration]);
 
   useEffect(() => {
     if (result) {
@@ -352,12 +358,12 @@ export function Strategy() {
         : selectedProject?.name ?? 'Unknown Project';
 
     if (!isAiEnabled()) {
-      showToast('Add Claude API key in Settings to enable AI.', 'info');
+      showToast('AI features are currently unavailable.', 'info');
       setResult({
         type: 'quick',
         inputs: quickInputs,
         projectName,
-        error: 'Add your Claude API key in Settings to enable AI generation.',
+        error: 'AI generation is currently unavailable.',
       });
       return;
     }
@@ -477,7 +483,7 @@ export function Strategy() {
           design_dna_tags: parsed.design_dna_tags ?? {},
           languages: quickInputs.languages,
           angle: parsed.creative_concept ?? '',
-          platform_used: 'Nanobanana (Gemini)',
+          platform_used: DEFAULT_CREATIVE_PLATFORM,
           status: 'draft',
         };
         console.log('🎨 [DIAGNOSTIC] About to save creative with payload keys:', Object.keys(savePayload));
@@ -527,7 +533,7 @@ export function Strategy() {
         type: 'full',
         inputs: fullInputs,
         projects,
-        error: 'Add your Claude API key in Settings to enable AI generation.',
+        error: 'AI generation is currently unavailable.',
       });
       return;
     }
