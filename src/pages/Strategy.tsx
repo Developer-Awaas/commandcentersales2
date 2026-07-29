@@ -82,6 +82,7 @@ const DEFAULT_QUICK: QuickGenerateInputs = {
   languages: ['English'],
   quickRefs: [],
   projectMediaIds: [],
+  heroRefKey: null,
 };
 
 const DEFAULT_FULL: FullStrategyInputs = {
@@ -406,6 +407,7 @@ export function Strategy() {
               pickedAssets.map(async (asset) => {
                 const desc = await describeImageForFlux(asset.asset_url as string);
                 return {
+                  id: asset.id as string,
                   preview_url: asset.asset_url as string,
                   base64: '',
                   mimeType: '',
@@ -420,6 +422,24 @@ export function Strategy() {
         }
 
         const allRefs = [...enrichedRefs, ...projectMediaRefs];
+
+        // Hero reference image feature: resolve the marked hero + any
+        // amenity-role supporting refs into the shape generate-image expects.
+        // Refs with real base64 (quick uploads) go through as bytes; project-
+        // asset-sourced refs (base64 === '') go through as a URL — the
+        // generate-image edge function fetches those server-side.
+        let heroImages: import('../lib/gemini-service').HeroImageRef[] | undefined;
+        if (quickInputs.heroRefKey) {
+          const heroEntry = allRefs.find((r) => r.id === quickInputs.heroRefKey);
+          if (heroEntry) {
+            const supportingEntries = allRefs.filter(
+              (r) => r.id !== quickInputs.heroRefKey && r.role_hint === 'amenity'
+            );
+            const toHeroRef = (r: typeof heroEntry): import('../lib/gemini-service').HeroImageRef =>
+              r.base64 ? { base64: r.base64, mimeType: r.mimeType } : { url: r.preview_url };
+            heroImages = [toHeroRef(heroEntry), ...supportingEntries.map(toHeroRef)];
+          }
+        }
 
         console.log('🎨 [AANYA] Starting two-stage generation (concept+copy, then 3 parallel layout prompts)...');
 
@@ -533,7 +553,7 @@ export function Strategy() {
 
         if (updatePricesInDb) await savePriceUpdates();
 
-        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id });
+        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';
       showToast('Generation failed. Check console.', 'error');

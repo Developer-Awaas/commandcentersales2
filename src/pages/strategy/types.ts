@@ -33,10 +33,15 @@ export interface QuickGenerateInputs {
   // Senior designer fields
   campaignGoal: string;
   languages: string[];
-  quickRefs: { preview_url: string; base64: string; mimeType: string; user_intent: string; role_hint?: string; filename?: string; visual_description?: string }[];
+  quickRefs: { id: string; preview_url: string; base64: string; mimeType: string; user_intent: string; role_hint?: string; filename?: string; visual_description?: string }[];
   // IDs of project_assets rows the user ticked to ground this specific generation in —
   // see ProjectMediaPicker. Resolved to vision-described references at submit time.
   projectMediaIds: string[];
+  // Hero reference image feature: matches a project_assets id (from
+  // projectMediaIds) or a quickRefs[].id. When set, that photo's real pixels
+  // are edited in-place (composition preserved) instead of only described in
+  // text — see buildHeroEditPrompt() in senior-designer-prompts.ts.
+  heroRefKey: string | null;
 }
 
 export interface FullStrategyInputs {
@@ -217,6 +222,12 @@ export type StrategyResult =
       // see the resume effect in Strategy.tsx. Lets SeniorDesignerResultPanel
       // skip its normal auto-generate-on-mount and show what already exists.
       resumedGalleryImages?: GalleryImage[];
+      // Hero reference image feature: resolved at submit time in
+      // handleQuickSubmit (first entry = hero, rest = supporting amenity
+      // photos). Present only when inputs.heroRefKey was set. Consumed by
+      // StrategyResult.tsx's handleGenerateWithGemini to switch all 3 image
+      // slots to edit-mode instead of from-scratch generation.
+      heroImages?: import('../../lib/gemini-service').HeroImageRef[];
     }
   | {
       type: 'full';

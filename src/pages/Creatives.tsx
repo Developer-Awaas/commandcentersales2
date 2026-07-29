@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, aiVision, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
-import { runTwoStageVariantBrief, VARIANT_ANGLES } from '../lib/senior-designer-prompts';
+import { runTwoStageVariantBrief, VARIANT_ANGLES, buildHeroEditPrompt } from '../lib/senior-designer-prompts';
 import { QuickReferenceUploader, type QuickReferenceUpload } from '../components/CreativeInputs';
 import { ProjectMediaPicker, projectAssetRoleHint } from '../components/ProjectMediaPicker';
 import type { SeniorDesignerResult } from './strategy/types';
@@ -329,6 +329,10 @@ export function Creatives() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [quickRefs, setQuickRefs] = useState<QuickReferenceUpload[]>([]);
   const [projectMediaIds, setProjectMediaIds] = useState<string[]>([]);
+  // Hero reference image feature: matches a projectMediaIds entry or a
+  // quickRefs[].id. When set, that photo's real pixels are edited in-place
+  // (composition preserved) instead of only described in text.
+  const [heroRefKey, setHeroRefKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
@@ -506,6 +510,7 @@ export function Creatives() {
               pickedAssets.map(async (asset) => {
                 const desc = await describeImageForFlux(asset.asset_url as string);
                 return {
+                  id: asset.id as string,
                   preview_url: asset.asset_url as string,
                   base64: '',
                   mimeType: '',
@@ -520,6 +525,21 @@ export function Creatives() {
         }
 
         const allQuickRefs = [...enrichedQuickRefs, ...projectMediaRefs];
+
+        // Hero reference image feature: resolve the marked hero + any
+        // amenity-role supporting refs into the shape generate-image expects.
+        let heroImages: import('../lib/gemini-service').HeroImageRef[] | undefined;
+        if (heroRefKey) {
+          const heroEntry = allQuickRefs.find((r) => r.id === heroRefKey);
+          if (heroEntry) {
+            const supportingEntries = allQuickRefs.filter(
+              (r) => r.id !== heroRefKey && r.role_hint === 'amenity'
+            );
+            const toHeroRef = (r: typeof heroEntry): import('../lib/gemini-service').HeroImageRef =>
+              r.base64 ? { base64: r.base64, mimeType: r.mimeType } : { url: r.preview_url };
+            heroImages = [toHeroRef(heroEntry), ...supportingEntries.map(toHeroRef)];
+          }
+        }
 
         const angleLabels = [
           'Price-led with Urgency',
@@ -644,9 +664,15 @@ export function Creatives() {
             // sessionId groups all 3 images so edits overwrite the same files (saves storage)
             const sessionId = crypto.randomUUID();
             currentSessionIdRef.current = sessionId;
+            // Hero reference image feature: when a hero was marked, every
+            // variant becomes an edit of that same photo (composition
+            // preserved) instead of 3 independently-imagined concepts.
+            const hasHero = !!heroImages?.length;
+            const hasSupporting = (heroImages?.length ?? 0) > 1;
             Promise.allSettled(
               promptsToRender.map(async ({ label, prompt, headline, cta }) => {
-                const [img] = await generateImageWithGemini(prompt, '1:1');
+                const finalPrompt = hasHero ? buildHeroEditPrompt(prompt, hasSupporting) : prompt;
+                const [img] = await generateImageWithGemini(finalPrompt, '1:1', undefined, heroImages);
                 const { url, id, storagePath } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
                   sessionId,
                   angleLabel: label,
@@ -800,13 +826,18 @@ Return ONLY a JSON object:
                     orgId={getOrgId()}
                     selectedIds={projectMediaIds}
                     onChange={setProjectMediaIds}
+                    heroId={heroRefKey}
+                    onSetHero={setHeroRefKey}
                   />
                 ) : (
                   <p className="text-xs text-text-disabled">Select a project above to pick from its uploaded photos.</p>
                 )}
                 <div className="pt-1 border-t border-border">
-                  <QuickReferenceUploader onChange={setQuickRefs} />
+                  <QuickReferenceUploader onChange={setQuickRefs} heroId={heroRefKey} onSetHero={setHeroRefKey} />
                 </div>
+                {heroRefKey && (
+                  <p className="text-xs text-amber-400">★ Hero image marked — all 3 variants will be this exact photo, enhanced (quality/mood only), not reimagined.</p>
+                )}
               </>
             ) : (
               <div className="flex flex-col gap-1.5">

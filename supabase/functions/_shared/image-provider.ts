@@ -23,6 +23,11 @@
  * default-provider choice can be made from a real benchmark (see
  * benchmark/image-providers.ts) instead of assumption.
  *
+ * True image-to-image editing (real input photo bytes, composition preserved)
+ * also routes through here — `editImage()`, calling OpenAI's /v1/images/edits.
+ * OpenAI-only; Gemini isn't wired for edits. Used by the hero-reference-image
+ * feature (generate-image/index.ts's heroImage/supportingImages params).
+ *
  * Image provider API keys (OPENAI_API_KEY, GEMINI_API_KEY) are read from
  * Deno.env here only — never exposed to the client bundle.
  */
@@ -63,6 +68,18 @@ export interface GenerateImageResult {
   mimeType: string
   providerUsed: ImageProvider
   costMeta: ImageCostMeta
+}
+
+export interface EditImageInput {
+  prompt: string
+  size?: ImageSize
+  quality?: ImageQuality
+  // First entry is the hero/primary photo being edited (composition preserved);
+  // any further entries are supporting reference photos (e.g. amenities) the
+  // model may blend in as secondary elements. Only OpenAI supports edits today.
+  images: { base64: string; mimeType: string }[]
+  traceId?: string
+  observationName?: string
 }
 
 function resolveProvider(hint?: ImageProvider): ImageProvider {
@@ -150,6 +167,63 @@ async function generateWithOpenAI(
       costMeta: { provider: 'openai', model, unitCost: OPENAI_IMAGE_COST_USD[quality], currency: 'USD' },
     }
   }, 'generateWithOpenAI')
+}
+
+const OPENAI_EDITS_URL = 'https://api.openai.com/v1/images/edits'
+
+function mimeToExt(mimeType: string): string {
+  if (mimeType.includes('png')) return 'png'
+  if (mimeType.includes('webp')) return 'webp'
+  return 'jpg'
+}
+
+// True image-to-image editing — OpenAI's /v1/images/edits endpoint, given real
+// input image bytes (unlike generateWithOpenAI, which is pure text→image).
+// Only OpenAI's gpt-image-1 supports this among the two wired providers.
+async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResult> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
+  if (!apiKey) throw new Error('OPENAI_API_KEY secret is not set')
+  if (input.images.length === 0) throw new Error('editWithOpenAI requires at least one input image')
+
+  const size = input.size ?? '1024x1024'
+  const quality = input.quality ?? 'medium'
+  const safePrompt = input.prompt.slice(0, 4000)
+  const model = 'gpt-image-1'
+
+  return withRetry(async () => {
+    const form = new FormData()
+    form.append('model', model)
+    form.append('prompt', safePrompt)
+    form.append('n', '1')
+    form.append('size', size)
+    form.append('quality', quality)
+    for (const img of input.images) {
+      const bytes = Uint8Array.from(atob(img.base64), (c) => c.charCodeAt(0))
+      form.append('image[]', new Blob([bytes], { type: img.mimeType }), `image.${mimeToExt(img.mimeType)}`)
+    }
+
+    const res = await fetch(OPENAI_EDITS_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      body: form,
+    })
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText)
+      throw new Error(`OpenAI API error ${res.status}: ${errText}`)
+    }
+
+    const result = await res.json() as { data?: { b64_json?: string }[] }
+    const base64 = result.data?.[0]?.b64_json
+    if (!base64) throw new Error('No image returned from OpenAI edits API')
+
+    return {
+      imageBase64: base64,
+      mimeType: 'image/png',
+      providerUsed: 'openai' as ImageProvider,
+      costMeta: { provider: 'openai' as ImageProvider, model, unitCost: OPENAI_IMAGE_COST_USD[quality], currency: 'USD' as const },
+    }
+  }, 'editWithOpenAI')
 }
 
 // Published Gemini 2.5 Flash Image per-image price (USD) — flat rate,
@@ -263,6 +337,52 @@ export async function generateImage(input: GenerateImageInput): Promise<Generate
       name: observationName,
       model: provider === 'openai' ? 'gpt-image-1' : provider === 'gemini' ? GEMINI_MODEL : provider,
       input: { prompt: input.prompt.slice(0, 4000), size: input.size, quality: input.quality },
+      level: 'ERROR',
+      statusMessage: message,
+    })
+    throw err
+  }
+}
+
+// True image-to-image editing (hero photo + optional supporting photos kept
+// as real pixels, not just a text description). OpenAI-only today — there is
+// no provider switch here because Gemini isn't wired for edits in this repo.
+export async function editImage(input: EditImageInput): Promise<GenerateImageResult> {
+  const traceId = input.traceId ?? `image-edit-${crypto.randomUUID()}`
+  const ownsTrace = !input.traceId
+  if (ownsTrace) {
+    await langfuseTrace(traceId, {
+      name: 'edit-image',
+      tags: ['image-edit', 'openai'],
+      metadata: { size: input.size, quality: input.quality, imageCount: input.images.length },
+      input: { prompt: input.prompt.slice(0, 4000) },
+    })
+  }
+
+  const observationName = input.observationName ?? 'openai-image-edit'
+
+  // Same review-build budget gate as generateImage() — reserved before the
+  // paid call, using the same approximate per-quality cost figures.
+  const estimatedCostUsd = OPENAI_IMAGE_COST_USD[input.quality ?? 'medium']
+  await reserveImageBudget(estimatedCostUsd)
+
+  try {
+    const result = await editWithOpenAI(input)
+
+    await langfuseGeneration(traceId, {
+      name: observationName,
+      model: result.costMeta.model,
+      input: { prompt: input.prompt.slice(0, 4000), size: input.size, quality: input.quality, imageCount: input.images.length },
+      output: { imageGenerated: true, mimeType: result.mimeType, costMeta: result.costMeta },
+    })
+
+    return result
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await langfuseGeneration(traceId, {
+      name: observationName,
+      model: 'gpt-image-1',
+      input: { prompt: input.prompt.slice(0, 4000), size: input.size, quality: input.quality, imageCount: input.images.length },
       level: 'ERROR',
       statusMessage: message,
     })

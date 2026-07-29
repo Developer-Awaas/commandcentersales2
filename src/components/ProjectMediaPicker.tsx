@@ -60,11 +60,18 @@ export function ProjectMediaPicker({
   orgId,
   selectedIds,
   onChange,
+  heroId,
+  onSetHero,
 }: {
   projectId: string;
   orgId: string;
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  // Hero reference image feature: which selected asset (by id) is the hero —
+  // its real pixels are edited-in-place (composition preserved) instead of
+  // only being described in text. Optional so non-hero-aware callers don't break.
+  heroId?: string | null;
+  onSetHero?: (id: string | null) => void;
 }) {
   const [assets, setAssets] = useState<ProjectMediaAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +97,9 @@ export function ProjectMediaPicker({
   }
 
   function toggle(id: string) {
-    onChange(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
+    const willDeselect = selectedIds.includes(id);
+    if (willDeselect && onSetHero && heroId === id) onSetHero(null);
+    onChange(willDeselect ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
   }
 
   async function handleUpload(files: FileList | null) {
@@ -161,26 +170,40 @@ export function ProjectMediaPicker({
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {assets.map((a) => {
             const selected = selectedIds.includes(a.id);
+            const isHero = selected && onSetHero && heroId === a.id;
             return (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => toggle(a.id)}
-                className={`relative aspect-square rounded-lg overflow-hidden border-2 transition ${
-                  selected ? 'border-brand ring-2 ring-brand/40' : 'border-border hover:border-border-strong'
-                }`}
-                title={a.title || ASSET_TYPE_LABELS[a.asset_type] || a.asset_type}
-              >
-                <img src={a.asset_url} alt={a.title || a.asset_type} className="w-full h-full object-cover" />
-                <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[9px] px-1 py-0.5 truncate text-left">
-                  {ASSET_TYPE_LABELS[a.asset_type] || a.asset_type}
-                </span>
-                {selected && (
-                  <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center">
-                    <Check size={11} />
+              <div key={a.id} className="relative">
+                <button
+                  type="button"
+                  onClick={() => toggle(a.id)}
+                  className={`relative aspect-square w-full rounded-lg overflow-hidden border-2 transition ${
+                    isHero ? 'border-amber-400 ring-2 ring-amber-400/40' : selected ? 'border-brand ring-2 ring-brand/40' : 'border-border hover:border-border-strong'
+                  }`}
+                  title={a.title || ASSET_TYPE_LABELS[a.asset_type] || a.asset_type}
+                >
+                  <img src={a.asset_url} alt={a.title || a.asset_type} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[9px] px-1 py-0.5 truncate text-left">
+                    {ASSET_TYPE_LABELS[a.asset_type] || a.asset_type}
                   </span>
+                  {isHero && (
+                    <span className="absolute top-1 left-1 text-amber-400 text-sm" title="Hero image">★</span>
+                  )}
+                  {selected && !isHero && (
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center">
+                      <Check size={11} />
+                    </span>
+                  )}
+                </button>
+                {selected && onSetHero && (
+                  <button
+                    type="button"
+                    onClick={() => onSetHero(isHero ? null : a.id)}
+                    className={`mt-0.5 w-full text-[9px] font-medium ${isHero ? 'text-amber-400' : 'text-text-tertiary hover:text-amber-400'}`}
+                  >
+                    {isHero ? '★ Hero (keep as-is)' : '☆ Set as hero'}
+                  </button>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

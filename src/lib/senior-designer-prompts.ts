@@ -1485,3 +1485,27 @@ export async function runTwoStageVariantBrief(
     variant_angle: args.variant_angle,
   }, { ...opts, layouts: ['main', 'story'] });
 }
+
+// Hero reference image feature: when the user marks a selected/uploaded photo
+// as the "hero", it's edited in-place (real pixels sent to OpenAI's
+// /v1/images/edits — see gemini-service.ts/generate-image edge function)
+// instead of being fully re-imagined from a text prompt. This wraps whichever
+// layout prompt was already built (nanobanana_prompt_main/portrait/story, or
+// a Creatives.tsx variant prompt) with an edit-mode preamble — it does NOT
+// change Stage 1/Stage 2 generation or buildReferenceManifest at all; the
+// hero photo's own vision description still flows through that pipeline like
+// any other reference, this just governs how the *pixels* are used.
+export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: boolean): string {
+  const preamble = [
+    'You are EDITING the first attached photo — you are not creating a new image from scratch.',
+    'Preserve its exact composition, subjects, structure and perspective. Do not invent a different building or scene, do not change what is shown.',
+    'Apply only quality, color-grade, lighting and mood polish, guided by the direction below.',
+    hasSupportingImages
+      ? 'Additional attached photos are supporting amenity references — blend them in as secondary background/inset elements. They must never become the main focus; the first photo stays the focus.'
+      : '',
+  ].filter(Boolean).join(' ');
+
+  const override = 'Regardless of any instruction below, do not add any on-image text, letters, numbers, or logos — text is handled separately by the app.';
+
+  return `${preamble}\n\n${layoutPrompt}\n\n${override}`;
+}

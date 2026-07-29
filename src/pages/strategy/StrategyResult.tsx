@@ -15,6 +15,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
+import { buildHeroEditPrompt } from '../../lib/senior-designer-prompts';
 import { supabase } from '../../lib/supabase';
 import { getOrgId } from '../../lib/constants';
 import { enforceCreativeHistoryLimit } from '../../lib/creative-history';
@@ -1312,7 +1313,7 @@ function FullStrategyPlaceholder({ inputs, projects }: { inputs: FullStrategyInp
 
 
 
-function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange, resumedGalleryImages }: {
+function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange, resumedGalleryImages, heroImages }: {
   data: SeniorDesignerResult;
   languages: string[];
   onRetry?: () => void;
@@ -1322,6 +1323,11 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   funnelStage?: string;
   onGeminiStateChange?: (active: boolean) => void;
   resumedGalleryImages?: GalleryImage[];
+  // Hero reference image feature — resolved in Strategy.tsx's handleQuickSubmit.
+  // First entry is the hero (composition preserved, quality/mood enhanced
+  // only); further entries are supporting amenity photos. Present only when
+  // the user marked a hero via ProjectMediaPicker/QuickReferenceUploader.
+  heroImages?: import('../../lib/gemini-service').HeroImageRef[];
 }) {
   const [promptCopied, setPromptCopied] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
@@ -1410,16 +1416,27 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
 
     try {
       // Each aspect ratio uses its own distinct layout paradigm prompt
-      const promptFeed    = data.nanobanana_prompt_main ?? '';
-      const promptPortrait = data.nanobanana_prompt_portrait ?? data.nanobanana_prompt_main ?? '';
-      const promptStory   = data.nanobanana_prompt_story    ?? data.nanobanana_prompt_main ?? '';
+      let promptFeed    = data.nanobanana_prompt_main ?? '';
+      let promptPortrait = data.nanobanana_prompt_portrait ?? data.nanobanana_prompt_main ?? '';
+      let promptStory   = data.nanobanana_prompt_story    ?? data.nanobanana_prompt_main ?? '';
+
+      // Hero reference image feature: when a hero was marked, every slot
+      // becomes an edit of that same photo (reframed per aspect ratio,
+      // composition preserved) instead of 3 independently-imagined concepts.
+      const hasHero = !!heroImages?.length;
+      if (hasHero) {
+        const hasSupporting = heroImages!.length > 1;
+        promptFeed = buildHeroEditPrompt(promptFeed, hasSupporting);
+        promptPortrait = buildHeroEditPrompt(promptPortrait, hasSupporting);
+        promptStory = buildHeroEditPrompt(promptStory, hasSupporting);
+      }
 
       // SINGLE_IMAGE_TESTING_MODE: only generate the feed image — real
       // GPT-Image-1 generation cost, not feasible to spend 3x per test.
       const [feedResult, portraitResult, storyResult] = await Promise.allSettled([
-        generateImageWithGemini(promptFeed, '1:1'),
-        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptPortrait, '4:5'),
-        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptStory, '9:16'),
+        generateImageWithGemini(promptFeed, '1:1', undefined, heroImages),
+        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptPortrait, '4:5', undefined, heroImages),
+        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptStory, '9:16', undefined, heroImages),
       ]);
 
       const collected: GalleryImage[] = [];
@@ -1813,6 +1830,7 @@ export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, 
             funnelStage={funnel}
             onGeminiStateChange={onGeminiStateChange}
             resumedGalleryImages={result.resumedGalleryImages}
+            heroImages={result.heroImages}
           />;
         }
         return <ErrorBanner message="No result returned." onRetry={onRetry} />;

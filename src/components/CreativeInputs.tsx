@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from 'react';
 // ============================================================
 
 export interface QuickReferenceUpload {
+  id: string;            // stable key — used to mark this upload as the hero reference image
   preview_url: string;  // blob URL for <img> thumbnail (revoked on unmount)
   base64: string;       // raw base64 image data (no data: prefix) — passed to Claude Vision
   mimeType: string;     // e.g. 'image/jpeg'
@@ -32,9 +33,17 @@ const QUICK_REF_ROLES = [
 export function QuickReferenceUploader({
   onChange,
   maxFiles = 5,
+  heroId,
+  onSetHero,
 }: {
   onChange: (refs: QuickReferenceUpload[]) => void;
   maxFiles?: number;
+  // Hero reference image feature: which upload (by id) is the hero — its real
+  // pixels are edited-in-place instead of only being described in text. Optional
+  // so callers that don't support hero mode (e.g. the legacy single-image flow)
+  // don't need to change.
+  heroId?: string | null;
+  onSetHero?: (id: string | null) => void;
 }) {
   const [refs, setRefs] = useState<QuickReferenceUpload[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -62,6 +71,7 @@ export function QuickReferenceUploader({
         const previewUrl = URL.createObjectURL(file);
         blobUrlsRef.current.push(previewUrl);
         newRefs.push({
+          id: crypto.randomUUID(),
           preview_url: previewUrl,
           base64,
           mimeType,
@@ -102,6 +112,7 @@ export function QuickReferenceUploader({
 
   function removeRef(index: number) {
     URL.revokeObjectURL(refs[index].preview_url);
+    if (onSetHero && heroId === refs[index].id) onSetHero(null);
     const updated = refs.filter((_, i) => i !== index);
     setRefs(updated);
     onChange(updated);
@@ -156,13 +167,20 @@ export function QuickReferenceUploader({
             </p>
           </div>
 
-          {refs.map((ref, i) => (
-            <div key={i} className="flex gap-3 p-3 bg-surface-elevated border border-border rounded">
-              <img
-                src={ref.preview_url}
-                alt={ref.filename ?? 'reference'}
-                className="w-16 h-16 object-cover rounded flex-shrink-0"
-              />
+          {refs.map((ref, i) => {
+            const isHero = onSetHero && heroId === ref.id;
+            return (
+            <div key={ref.id} className={`flex gap-3 p-3 bg-surface-elevated border rounded ${isHero ? 'border-amber-400 ring-1 ring-amber-400/40' : 'border-border'}`}>
+              <div className="relative flex-shrink-0">
+                <img
+                  src={ref.preview_url}
+                  alt={ref.filename ?? 'reference'}
+                  className="w-16 h-16 object-cover rounded"
+                />
+                {isHero && (
+                  <span className="absolute -top-1.5 -right-1.5 text-amber-400 text-sm" title="Hero image">★</span>
+                )}
+              </div>
               <div className="flex-1 space-y-2 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3 text-emerald-400 flex-shrink-0">
@@ -180,10 +198,20 @@ export function QuickReferenceUploader({
                   placeholder="What is this for? e.g. 'Use as the project building hero'"
                   onChange={e => updateRef(i, { user_intent: e.target.value })}
                   className="w-full bg-surface-sunken border border-border rounded px-2 py-1 text-xs" />
+                {onSetHero && (
+                  <button
+                    type="button"
+                    onClick={() => onSetHero(isHero ? null : ref.id)}
+                    className={`text-[10px] font-medium ${isHero ? 'text-amber-400' : 'text-text-tertiary hover:text-amber-400'}`}
+                  >
+                    {isHero ? '★ Hero image (keep as-is, only enhance)' : '☆ Set as hero image'}
+                  </button>
+                )}
               </div>
               <button onClick={() => removeRef(i)} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0 self-start pt-0.5">✕</button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

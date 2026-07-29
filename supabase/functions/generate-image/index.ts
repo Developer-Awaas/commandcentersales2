@@ -6,7 +6,7 @@
  *
  * Requires env secret: OPENAI_API_KEY
  *
- * Input:  { prompt: string, width?: number, height?: number }
+ * Input:  { prompt: string, width?: number, height?: number, heroImage?, supportingImages? }
  * Output: { base64: string, mimeType: string }
  *
  * GPT-Image-1 supported sizes:
@@ -16,6 +16,17 @@
  *
  * GPT-Image-1 always returns base64 in data[0].b64_json directly.
  *
+ * heroImage / supportingImages (hero reference image feature): when
+ * `heroImage` is present, this becomes a true image-to-image EDIT — the real
+ * photo's bytes are sent to OpenAI's /v1/images/edits via
+ * `_shared/image-provider.ts`'s editImage(), composition preserved, instead
+ * of the pure text→image /v1/images/generations call below. Each entry is
+ * either `{base64,mimeType}` (already in memory client-side, e.g. a fresh
+ * upload) or `{url}` (an existing project_assets photo — fetched server-side
+ * here so the client never has to download+re-upload bytes it already has a
+ * URL for). `supportingImages` (e.g. amenity photos) ride alongside the hero
+ * as secondary, non-focal elements in the same edit call.
+ *
  * Observability: each call is wrapped in its own Langfuse trace (no-op if
  * LANGFUSE_* secrets aren't set). Image bytes are never sent to Langfuse —
  * only the prompt, size/quality params, and success/failure.
@@ -23,10 +34,39 @@
 
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
-import { OPENAI_IMAGE_COST_USD } from '../_shared/image-provider.ts'
+import { OPENAI_IMAGE_COST_USD, editImage } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
+
+type ImageRef = { base64: string; mimeType: string } | { url: string }
+
+// This function requires a valid Supabase auth JWT (not in deploy-functions.yml's
+// --no-verify-jwt list), but any authenticated org member could otherwise pass an
+// arbitrary internal/external URL here and get the server to fetch it (SSRF) —
+// `heroImage`/`supportingImages` are only ever meant to be existing
+// project_assets photos, which always live under this project's own Supabase
+// Storage public bucket. Enforce that instead of trusting the caller's URL.
+function assertAllowedImageUrl(url: string): void {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+  const allowedPrefix = `${supabaseUrl}/storage/v1/object/public/`
+  if (!supabaseUrl || !url.startsWith(allowedPrefix)) {
+    throw new Error('Reference image URL must be a Supabase Storage public URL for this project')
+  }
+}
+
+async function resolveImageRef(ref: ImageRef): Promise<{ base64: string; mimeType: string }> {
+  if ('base64' in ref) return ref
+  assertAllowedImageUrl(ref.url)
+  const res = await fetch(ref.url)
+  if (!res.ok) throw new Error('Failed to fetch reference image')
+  const mimeType = res.headers.get('content-type') ?? 'image/jpeg'
+  const buf = await res.arrayBuffer()
+  let binary = ''
+  const bytes = new Uint8Array(buf)
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return { base64: btoa(binary), mimeType }
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -41,14 +81,21 @@ Deno.serve(async (req: Request) => {
     )
   }
 
-  let body: { prompt?: string; width?: number; height?: number; quality?: 'low' | 'medium' | 'high' }
+  let body: {
+    prompt?: string
+    width?: number
+    height?: number
+    quality?: 'low' | 'medium' | 'high'
+    heroImage?: ImageRef
+    supportingImages?: ImageRef[]
+  }
   try {
     body = await req.json()
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders() })
   }
 
-  const { prompt, width = 1080, height = 1080, quality = 'medium' } = body
+  const { prompt, width = 1080, height = 1080, quality = 'medium', heroImage, supportingImages = [] } = body
   if (!prompt || typeof prompt !== 'string') {
     return new Response(JSON.stringify({ error: 'prompt is required' }), { status: 400, headers: corsHeaders() })
   }
@@ -57,6 +104,38 @@ Deno.serve(async (req: Request) => {
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
 
   const safePrompt = prompt.slice(0, 4000)
+
+  // Hero reference image path — true image-to-image edit, real photo bytes
+  // preserved. editImage() (image-provider.ts) reserves its own budget
+  // internally, so this branch must stay BEFORE the generic reservation
+  // below — reserving here too would silently double-count every hero-mode
+  // generation against the review-build cap.
+  if (heroImage) {
+    try {
+      const resolvedHero = await resolveImageRef(heroImage)
+      const resolvedSupporting = await Promise.all(supportingImages.map(resolveImageRef))
+      const result = await editImage({
+        prompt: safePrompt,
+        size,
+        quality,
+        images: [resolvedHero, ...resolvedSupporting],
+        observationName: 'openai-image-edit',
+      })
+      return new Response(
+        JSON.stringify({ base64: result.imageBase64, mimeType: result.mimeType }),
+        { headers: corsHeaders() }
+      )
+    } catch (err) {
+      if (err instanceof ImageBudgetExceededError) {
+        return new Response(
+          JSON.stringify({ error: 'review budget reached' }),
+          { status: 429, headers: corsHeaders() }
+        )
+      }
+      const message = err instanceof Error ? err.message : String(err)
+      return new Response(JSON.stringify({ error: message }), { status: 502, headers: corsHeaders() })
+    }
+  }
 
   // review-build only: server-enforced global image cap, reserved BEFORE
   // the paid OpenAI call — never bill-then-reject. This function doesn't

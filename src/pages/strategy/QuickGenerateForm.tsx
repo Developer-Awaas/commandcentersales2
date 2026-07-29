@@ -191,6 +191,8 @@ export function QuickGenerateForm({
             orgId={getOrgId()}
             selectedIds={inputs.projectMediaIds}
             onChange={(ids) => set('projectMediaIds', ids)}
+            heroId={inputs.heroRefKey}
+            onSetHero={(id) => set('heroRefKey', id)}
           />
         ) : (
           <p className="text-xs text-text-disabled">Select a saved project above to pick from its uploaded photos.</p>
@@ -198,8 +200,13 @@ export function QuickGenerateForm({
         <div className="pt-1 border-t border-border">
           <QuickReferenceUploader
             onChange={(refs) => set('quickRefs', refs)}
+            heroId={inputs.heroRefKey}
+            onSetHero={(id) => set('heroRefKey', id)}
           />
         </div>
+        {inputs.heroRefKey && (
+          <p className="text-xs text-amber-400 -mt-2">★ Hero image marked — the generated creative will be this exact photo, enhanced (quality/mood only), not a reimagined scene.</p>
+        )}
       </Card>
 
       {/* Competitor Analysis */}

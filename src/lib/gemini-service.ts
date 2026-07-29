@@ -33,10 +33,21 @@ const FUNNEL_MAP: Record<string, string> = {
   conversion: 'conversion',
 };
 
+// Either bytes already in memory client-side (e.g. a fresh QuickReferenceUpload)
+// or a URL to an existing project_assets photo — the generate-image edge
+// function fetches URL-based refs server-side rather than round-tripping
+// bytes the client would have to download+re-upload for no reason.
+export type HeroImageRef = { base64: string; mimeType: string } | { url: string };
+
 export async function generateImageWithGemini(
   prompt: string,
   aspectRatio: '1:1' | '9:16' | '4:5' = '1:1',
-  quality?: 'low' | 'medium' | 'high'
+  quality?: 'low' | 'medium' | 'high',
+  // Hero reference image feature: when set, the FIRST entry is the hero photo
+  // (real pixels sent for a true image-to-image edit, composition preserved)
+  // and any further entries are supporting photos (e.g. amenities) blended in
+  // as secondary elements. Omit entirely for the normal text-to-image path.
+  heroImages?: HeroImageRef[]
 ): Promise<GeminiGeneratedImage[]> {
   const dimensionMap: Record<string, { width: number; height: number }> = {
     '9:16': { width: 1080, height: 1920 },
@@ -47,8 +58,14 @@ export async function generateImageWithGemini(
   // Always high quality — production-grade images required for customer-facing use
   const resolvedQuality = quality ?? 'high';
 
+  const body: Record<string, unknown> = { prompt, width, height, quality: resolvedQuality };
+  if (heroImages && heroImages.length > 0) {
+    body.heroImage = heroImages[0];
+    if (heroImages.length > 1) body.supportingImages = heroImages.slice(1);
+  }
+
   const { data, error } = await supabase.functions.invoke('generate-image', {
-    body: { prompt, width, height, quality: resolvedQuality },
+    body,
   });
 
   if (error) {
