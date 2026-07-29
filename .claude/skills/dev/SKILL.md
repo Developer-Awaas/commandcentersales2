@@ -67,7 +67,6 @@ deno check \
   supabase/functions/canva-oauth-callback/index.ts \
   supabase/functions/canva-open-editor/index.ts \
   supabase/functions/canva-sync-design/index.ts \
-  supabase/functions/generate-creatives/index.ts \
   supabase/functions/generate-image/index.ts \
   supabase/functions/langfuse-ingest/index.ts \
   supabase/functions/meta-insights-sync/index.ts \
@@ -116,7 +115,6 @@ deno check \
   supabase/functions/canva-oauth-callback/index.ts \
   supabase/functions/canva-open-editor/index.ts \
   supabase/functions/canva-sync-design/index.ts \
-  supabase/functions/generate-creatives/index.ts \
   supabase/functions/generate-image/index.ts \
   supabase/functions/langfuse-ingest/index.ts \
   supabase/functions/meta-insights-sync/index.ts \
