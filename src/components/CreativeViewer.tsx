@@ -16,6 +16,8 @@ import {
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { CanvaConnectButton } from './CanvaConnectButton';
 import { useGenerationLock } from '../hooks/useGenerationLock';
+import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
+import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
 
 export interface CreativeAsset {
   id: string;
@@ -54,6 +56,42 @@ interface CreativeViewerProps {
 }
 
 const ANGLES = ['lifestyle', 'architecture', 'amenity'] as const;
+
+// Ported from the now-deleted generate-creatives Edge Function (legacy Imagen
+// 3 path) — this component's prompts stay simple/template-based, not the
+// full 9-section senior-designer prompt system, since brandKit/projectContext
+// here carry far less detail than Strategy/Creatives' inputs.
+const CREATIVE_TONE_MAP: Record<string, string> = {
+  awareness: 'aspirational, dream-building, wide establishing shot, golden hour lighting',
+  consideration: 'informative, feature-highlighting, lifestyle-oriented, warm interiors',
+  conversion: 'urgent, value-driven, action-oriented closeup, clear CTA space at bottom third',
+};
+
+const CREATIVE_ANGLE_MAP: Record<string, string> = {
+  lifestyle: 'Family enjoying the space, natural light, premium feel, aspirational',
+  architecture: 'Dramatic exterior shot, strong geometry, sky backdrop, professional photography',
+  amenity: 'Close-up of key amenity (pool/gym/garden/lobby), aspirational detail shot',
+};
+
+function buildCreativeImagePrompt(
+  brandKit: NonNullable<CreativeViewerProps['brandKit']>,
+  project: NonNullable<CreativeViewerProps['projectContext']>,
+  funnelStage: string,
+  angle: string
+): string {
+  const tone = CREATIVE_TONE_MAP[funnelStage] ?? 'aspirational, high quality';
+  const angleDesc = CREATIVE_ANGLE_MAP[angle] ?? angle;
+  return `Professional real estate advertisement for ${project.name}.
+Location: ${project.city}, India.
+Property: ${project.type} — ${project.description}.
+Target buyer: ${project.targetBuyer}.
+Ad funnel stage: ${funnelStage} — tone: ${tone}.
+Visual approach: ${angleDesc}.
+Brand palette: primary ${brandKit.primaryColor}, accent ${brandKit.accentColor}.
+Style: ${brandKit.photographyStyle}. Photorealistic, high quality.
+NO text overlays, NO logos, NO watermarks.
+Format: square 1:1 for Instagram/Facebook Feed.`;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   generating: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
@@ -413,8 +451,13 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     setGenerating(true);
     startGeneration('Generating creatives…');
 
+    // SINGLE_IMAGE_TESTING_MODE: same testing-only cost guard Creatives.tsx/
+    // StrategyResult.tsx use — generating 3 real images per manual test run
+    // burns 3x the API credit for no extra verification value.
+    const anglesToGenerate = SINGLE_IMAGE_TESTING_MODE ? ANGLES.slice(0, 1) : ANGLES;
+
     // Insert placeholder rows to show skeletons
-    const placeholders = ANGLES.map((angle) => ({
+    const placeholders = anglesToGenerate.map((angle) => ({
       id: `placeholder-${angle}`,
       org_id: resolvedOrgId,
       campaign_id: campaignId || null,
@@ -432,27 +475,28 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     setAssets(placeholders);
 
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-      const res = await fetch(`${supabaseUrl}/functions/v1/generate-creatives`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${anonKey}`,
-        },
-        body: JSON.stringify({
-          orgId: resolvedOrgId,
-          campaignId: campaignId ?? null,
-          funnelStage,
-          brandKit,
-          projectContext,
-        }),
-      });
-      const json = await res.json() as { success: boolean; assets: CreativeAsset[]; errors: string[] };
-      if (json.errors?.length) {
-        showToast(`${json.assets.length}/3 images generated. Some failed.`, 'error');
+      const settled = await Promise.allSettled(
+        anglesToGenerate.map(async (angle) => {
+          const prompt = buildCreativeImagePrompt(brandKit, projectContext, funnelStage, angle);
+          const [img] = await generateImageWithGemini(prompt, '1:1');
+          const { id } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
+            angleLabel: angle,
+            projectId: campaignId || undefined,
+          });
+          // uploadGeminiImageToSupabase's built-in funnel-stage mapping only
+          // understands Creatives.tsx's TOFU/MOFU/BOFU vocabulary — this
+          // component's funnelStage prop is already correct DB vocabulary
+          // (awareness/consideration/conversion), so set it directly rather
+          // than routing through that mapping (which would silently produce
+          // the wrong value for 'consideration'/'conversion').
+          await supabase.from('creative_assets').update({ funnel_stage: funnelStage, prompt_used: prompt }).eq('id', id);
+        })
+      );
+      const failures = settled.filter((s) => s.status === 'rejected').length;
+      if (failures > 0) {
+        showToast(`${anglesToGenerate.length - failures}/${anglesToGenerate.length} images generated. Some failed.`, 'error');
       } else {
-        showToast('3 creatives generated!', 'success');
+        showToast(`${anglesToGenerate.length} creative${anglesToGenerate.length > 1 ? 's' : ''} generated!`, 'success');
       }
       // Realtime will update the cards; reload as fallback
       await loadAssets();
@@ -494,21 +538,24 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         if (!projectContext || !brandKit) { showToast('Project context required', 'error'); return; }
         startGeneration('Regenerating creative…');
         try {
-          // Delete old asset and regenerate this angle
+          // Delete old asset and regenerate just this one angle — the old
+          // generate-creatives Edge Function always regenerated all 3 angles
+          // server-side and discarded 2/3 of the result, burning real API
+          // credit for no reason.
           await supabase.from('creative_assets').delete().eq('id', assetId);
           setAssets((prev) => prev.map((a) => a.id === assetId ? { ...a, status: 'generating', image_url: '' } : a));
 
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-          const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-          const res = await fetch(`${supabaseUrl}/functions/v1/generate-creatives`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${anonKey}` },
-            body: JSON.stringify({ orgId: resolvedOrgId, campaignId, funnelStage, brandKit, projectContext }),
+          const prompt = buildCreativeImagePrompt(brandKit, projectContext, funnelStage, asset.angle);
+          const [img] = await generateImageWithGemini(prompt, '1:1');
+          const { id } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
+            angleLabel: asset.angle,
+            projectId: campaignId || undefined,
           });
-          const json = await res.json() as { assets: CreativeAsset[] };
-          const match = json.assets.find((a) => a.angle === asset.angle);
-          if (match) {
-            setAssets((prev) => prev.map((a) => a.id === assetId ? match : a));
+          await supabase.from('creative_assets').update({ funnel_stage: funnelStage, prompt_used: prompt }).eq('id', id);
+
+          const { data: fresh } = await supabase.from('creative_assets').select('*').eq('id', id).single();
+          if (fresh) {
+            setAssets((prev) => prev.map((a) => a.id === assetId ? (fresh as CreativeAsset) : a));
           }
           showToast('Regenerated!', 'success');
         } finally {
