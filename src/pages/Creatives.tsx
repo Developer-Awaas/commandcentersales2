@@ -852,7 +852,7 @@ Return ONLY a JSON object:
             <div className="h-px flex-1 bg-border" />
           </div>
           <CreativeViewer
-            campaignId={projectId}
+            projectId={projectId}
             funnelStage={funnelStage.toLowerCase() === 'tofu' ? 'awareness' : funnelStage.toLowerCase() === 'mofu' ? 'consideration' : 'conversion'}
           />
         </div>

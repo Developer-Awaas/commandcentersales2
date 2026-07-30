@@ -120,7 +120,7 @@ export async function uploadGeminiImageToSupabase(
     .from('creative_assets')
     .insert({
       org_id: orgId,
-      campaign_id: opts?.projectId ?? null,
+      project_id: opts?.projectId ?? null,
       funnel_stage,
       angle,
       image_url: url,

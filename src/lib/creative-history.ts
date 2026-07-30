@@ -17,7 +17,7 @@ export async function enforceCreativeHistoryLimit(orgId: string, projectId: stri
     .from('creative_assets')
     .select('id, creative_id, created_at')
     .eq('org_id', orgId)
-    .eq('campaign_id', projectId)
+    .eq('project_id', projectId)
     .eq('status', 'approved')
     .order('created_at', { ascending: false });
 

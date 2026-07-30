@@ -22,7 +22,7 @@ import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
 export interface CreativeAsset {
   id: string;
   org_id: string;
-  campaign_id: string | null;
+  project_id: string | null;
   funnel_stage: string;
   angle: string;
   image_url: string;
@@ -37,7 +37,7 @@ export interface CreativeAsset {
 
 interface CreativeViewerProps {
   orgId?: string;
-  campaignId: string;
+  projectId: string;
   funnelStage: string;
   brandKit?: {
     primaryColor: string;
@@ -364,7 +364,7 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
   );
 }
 
-export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, projectContext }: CreativeViewerProps) {
+export function CreativeViewer({ orgId, projectId, funnelStage, brandKit, projectContext }: CreativeViewerProps) {
   const resolvedOrgId = orgId ?? getOrgId();
   const { showToast } = useToast();
   const { activePage } = useNavigation();
@@ -396,12 +396,12 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
       .eq('org_id', resolvedOrgId)
       .eq('status', 'approved')
       .order('created_at', { ascending: true });
-    if (campaignId) {
-      setAssets(((data ?? []) as CreativeAsset[]).filter((a) => a.campaign_id === campaignId));
+    if (projectId) {
+      setAssets(((data ?? []) as CreativeAsset[]).filter((a) => a.project_id === projectId));
     } else {
       setAssets((data ?? []) as CreativeAsset[]);
     }
-  }, [resolvedOrgId, campaignId]);
+  }, [resolvedOrgId, projectId]);
 
   useEffect(() => {
     loadAssets();
@@ -416,7 +416,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           // DELETE events carry an empty `new` (no id) — a full reload is
           // simplest and cheap rather than tracking `old` separately.
           if (!updated?.id) { loadAssets(); return; }
-          if (campaignId && updated.campaign_id !== campaignId) return;
+          if (projectId && updated.project_id !== projectId) return;
           if (updated.status !== 'approved') {
             // No longer part of the saved history (synced/edited back out
             // of 'approved' pending a re-save) — drop it live instead of
@@ -441,7 +441,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     return () => {
       if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
-  }, [loadAssets, resolvedOrgId, funnelStage, campaignId]);
+  }, [loadAssets, resolvedOrgId, funnelStage, projectId]);
 
   async function handleGenerate() {
     if (!projectContext || !brandKit) {
@@ -460,7 +460,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
     const placeholders = anglesToGenerate.map((angle) => ({
       id: `placeholder-${angle}`,
       org_id: resolvedOrgId,
-      campaign_id: campaignId || null,
+      project_id: projectId || null,
       funnel_stage: funnelStage,
       angle,
       image_url: '',
@@ -481,7 +481,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           const [img] = await generateImageWithGemini(prompt, '1:1');
           const { id } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
             angleLabel: angle,
-            projectId: campaignId || undefined,
+            projectId: projectId || undefined,
           });
           // uploadGeminiImageToSupabase's built-in funnel-stage mapping only
           // understands Creatives.tsx's TOFU/MOFU/BOFU vocabulary — this
@@ -526,8 +526,8 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
         showToast('Creative approved!', 'success');
         // Same rolling 10-entry cap as StrategyResult's Save action —
         // best-effort, a failure here shouldn't undo the approval above.
-        if (campaignId) {
-          try { await enforceCreativeHistoryLimit(resolvedOrgId, campaignId); }
+        if (projectId) {
+          try { await enforceCreativeHistoryLimit(resolvedOrgId, projectId); }
           catch (err) { console.warn('[handleAction] history limit enforcement failed:', err); }
         }
       } else if (action === 'reject') {
@@ -549,7 +549,7 @@ export function CreativeViewer({ orgId, campaignId, funnelStage, brandKit, proje
           const [img] = await generateImageWithGemini(prompt, '1:1');
           const { id } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
             angleLabel: asset.angle,
-            projectId: campaignId || undefined,
+            projectId: projectId || undefined,
           });
           await supabase.from('creative_assets').update({ funnel_stage: funnelStage, prompt_used: prompt }).eq('id', id);
 

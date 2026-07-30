@@ -11,7 +11,7 @@ interface Campaign {
   funnel_stage: string | null;
   platform: string | null;
   status: string;
-  budget: number | null;
+  budget: { daily?: number; total?: string; duration?: number; bid_strategy?: string } | null;
   created_at: string;
   projects?: { name: string } | null;
 }
@@ -99,7 +99,7 @@ export function Campaigns() {
                       {c.status}
                     </span>
                   </td>
-                  <td className="px-5 py-4 text-[13px] text-text-tertiary">{c.budget ? formatINR(c.budget) : '—'}</td>
+                  <td className="px-5 py-4 text-[13px] text-text-tertiary">{c.budget?.daily ? formatINR(c.budget.daily) : '—'}</td>
                   <td className="px-5 py-4 text-[13px] text-text-tertiary">{formatDate(c.created_at)}</td>
                 </tr>
               ))}
