@@ -70,7 +70,8 @@ deno check \
   supabase/functions/generate-image/index.ts \
   supabase/functions/langfuse-ingest/index.ts \
   supabase/functions/meta-insights-sync/index.ts \
-  supabase/functions/claude-proxy/index.ts
+  supabase/functions/claude-proxy/index.ts \
+  supabase/functions/history-retention-sweep/index.ts
 ```
 
 ### Unit tests (no credentials required)
@@ -118,7 +119,8 @@ deno check \
   supabase/functions/generate-image/index.ts \
   supabase/functions/langfuse-ingest/index.ts \
   supabase/functions/meta-insights-sync/index.ts \
-  supabase/functions/claude-proxy/index.ts && \
+  supabase/functions/claude-proxy/index.ts \
+  supabase/functions/history-retention-sweep/index.ts && \
 deno test --allow-env supabase/functions/_shared/agents/
 ```
 

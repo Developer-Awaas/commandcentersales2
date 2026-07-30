@@ -32,7 +32,8 @@ deno check \
   supabase/functions/generate-image/index.ts \
   supabase/functions/langfuse-ingest/index.ts \
   supabase/functions/meta-insights-sync/index.ts \
-  supabase/functions/claude-proxy/index.ts
+  supabase/functions/claude-proxy/index.ts \
+  supabase/functions/history-retention-sweep/index.ts
 
 echo "[pre-push] deno test (credential-free)..."
 deno test --allow-env supabase/functions/_shared/agents/

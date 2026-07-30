@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // insert, update, delete, eq, order, limit) returns the same builder, and
 // the builder is thenable (awaiting it directly resolves the result) as
 // well as exposing `.single()` for the single-row call shape.
-function makeBuilder(result: { data: unknown; error: unknown }) {
+function makeBuilder(result: { data: unknown; error: unknown; count?: number | null }) {
   const builder: Record<string, unknown> = {};
   const returnSelf = () => builder;
   builder.select = vi.fn(returnSelf);
@@ -16,12 +16,29 @@ function makeBuilder(result: { data: unknown; error: unknown }) {
   builder.update = vi.fn(returnSelf);
   builder.delete = vi.fn(returnSelf);
   builder.eq = vi.fn(returnSelf);
+  builder.in = vi.fn(returnSelf);
+  builder.not = vi.fn(returnSelf);
   builder.order = vi.fn(returnSelf);
   builder.limit = vi.fn(returnSelf);
   builder.single = vi.fn(() => Promise.resolve(result));
+  builder.maybeSingle = vi.fn(() => Promise.resolve(result));
   builder.then = (resolve: (v: typeof result) => unknown, reject?: (e: unknown) => unknown) =>
     Promise.resolve(result).then(resolve, reject);
   return builder;
+}
+
+// Queues one builder per call to `.from(table)`, keyed by table name —
+// needed for distillCampaign, which hits several different tables (some
+// more than once) in a fixed sequence.
+function makeTableQueue(queues: Record<string, Array<{ data: unknown; error: unknown; count?: number | null }>>) {
+  const cursors: Record<string, number> = {};
+  return (table: string) => {
+    const queue = queues[table] ?? [];
+    const i = cursors[table] ?? 0;
+    cursors[table] = i + 1;
+    const result = queue[Math.min(i, queue.length - 1)] ?? { data: null, error: null };
+    return makeBuilder(result) as never;
+  };
 }
 
 const callLog: string[] = [];
@@ -225,5 +242,123 @@ describe('deleteToolOutput', () => {
 
     const { deleteToolOutput } = await import('./history-service');
     await expect(deleteToolOutput('t1')).rejects.toThrow('fk violation');
+  });
+});
+
+describe('enforceRetentionCap', () => {
+  it('does nothing when at or under the 30-row cap', async () => {
+    const { supabase } = await import('./supabase');
+    const rows = Array.from({ length: 30 }, (_, i) => ({ id: `t${i}` }));
+    vi.mocked(supabase.from).mockReturnValueOnce(makeBuilder({ data: rows, error: null }) as never);
+
+    const { enforceRetentionCap } = await import('./history-service');
+    await enforceRetentionCap('org1', 'strategy');
+
+    // Only the listing call — no deletes attempted.
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes the oldest overflow rows beyond the 30-row cap', async () => {
+    const { supabase } = await import('./supabase');
+    // 33 rows, newest-first (matches the service's own ordering) — rows
+    // beyond index 29 (3 of them) are the overflow to delete. Each overflow
+    // row's deleteToolOutput makes two further `.from('tool_outputs')`
+    // calls (select asset_refs, then delete) — dispatch by call order:
+    // call 0 is the listing query, every pair after that is one row's
+    // select+delete.
+    const rows = Array.from({ length: 33 }, (_, i) => ({ id: `t${i}` }));
+    const deleteCalls: string[] = [];
+    let callIndex = -1;
+    vi.mocked(supabase.from).mockImplementation(((table: string) => {
+      if (table !== 'tool_outputs') return makeBuilder({ data: null, error: null }) as never;
+      callIndex += 1;
+      if (callIndex === 0) return makeBuilder({ data: rows, error: null }) as never;
+      const isSelectCall = (callIndex - 1) % 2 === 0;
+      if (isSelectCall) return makeBuilder({ data: { asset_refs: [] }, error: null }) as never;
+      const b = makeBuilder({ data: null, error: null });
+      b.delete = vi.fn(() => ({
+        eq: vi.fn((_col: string, id: string) => { deleteCalls.push(id); return Promise.resolve({ data: null, error: null }); }),
+      }));
+      return b as never;
+    }) as never);
+
+    const { enforceRetentionCap } = await import('./history-service');
+    await enforceRetentionCap('org1', 'strategy');
+
+    expect(deleteCalls.sort()).toEqual(['t30', 't31', 't32']);
+  });
+});
+
+describe('distillCampaign', () => {
+  it('dedupes on storage_path — skips assets already in aanya_training_creatives', async () => {
+    const { supabase } = await import('./supabase');
+    const from = makeTableQueue({
+      campaigns: [{ data: { id: 'camp1', org_id: 'org1' }, error: null }],
+      creative_assets: [
+        { data: [{ id: 'ca1', project_id: 'p1', creative_id: null, image_url: 'https://x/a.png', storage_path: 'a.png', status: 'approved' }], error: null },
+        { data: [], error: null }, // cleanupCampaignHistory's creative_assets re-fetch
+      ],
+      aanya_training_creatives: [
+        { data: [{ storage_path: 'a.png' }], error: null }, // existing check — already distilled
+      ],
+      tool_outputs: [
+        { data: [], error: null }, // cleanupCampaignHistory's tool_outputs fetch
+      ],
+    });
+    vi.mocked(supabase.from).mockImplementation(from);
+
+    const { distillCampaign } = await import('./history-service');
+    const result = await distillCampaign('camp1');
+
+    expect(result).toEqual({ distilledCount: 0, skippedDuplicateCount: 1 });
+  });
+
+  it('inserts new (non-duplicate) assets into aanya_training_creatives, then cleans up history', async () => {
+    const { supabase } = await import('./supabase');
+    const insertedRows: unknown[] = [];
+    const deletedCreativeAssetsCampaigns: string[] = [];
+    vi.mocked(supabase.from).mockImplementation(((table: string) => {
+      if (table === 'campaigns') return makeBuilder({ data: { id: 'camp1', org_id: 'org1' }, error: null });
+      if (table === 'creative_assets') {
+        const b = makeBuilder({
+          data: [{ id: 'ca1', project_id: 'p1', creative_id: null, image_url: 'https://x/new.png', storage_path: 'new.png', status: 'approved' }],
+          error: null,
+        });
+        b.delete = vi.fn(() => ({
+          eq: vi.fn((_col: string, val: string) => { deletedCreativeAssetsCampaigns.push(val); return Promise.resolve({ data: null, error: null }); }),
+        }));
+        return b;
+      }
+      if (table === 'aanya_training_creatives') {
+        const b = makeBuilder({ data: [], error: null, count: 0 }); // existing check: empty, and liveCount check: 0
+        b.insert = vi.fn((row: unknown) => { insertedRows.push(row); return makeBuilder({ data: null, error: null }); });
+        return b;
+      }
+      if (table === 'tool_outputs') return makeBuilder({ data: [], error: null });
+      return makeBuilder({ data: null, error: null });
+    }) as never);
+
+    const { distillCampaign } = await import('./history-service');
+    const result = await distillCampaign('camp1');
+
+    expect(result).toEqual({ distilledCount: 1, skippedDuplicateCount: 0 });
+    expect(insertedRows).toHaveLength(1);
+    expect(insertedRows[0]).toMatchObject({ org_id: 'org1', storage_path: 'new.png', source: 'own_ad', is_live: true });
+    expect(deletedCreativeAssetsCampaigns).toEqual(['camp1']);
+  });
+
+  it('still cleans up history when the campaign has no creative_assets', async () => {
+    const { supabase } = await import('./supabase');
+    const from = makeTableQueue({
+      campaigns: [{ data: { id: 'camp1', org_id: 'org1' }, error: null }],
+      creative_assets: [{ data: [], error: null }],
+      tool_outputs: [{ data: [], error: null }],
+    });
+    vi.mocked(supabase.from).mockImplementation(from);
+
+    const { distillCampaign } = await import('./history-service');
+    const result = await distillCampaign('camp1');
+
+    expect(result).toEqual({ distilledCount: 0, skippedDuplicateCount: 0 });
   });
 });
