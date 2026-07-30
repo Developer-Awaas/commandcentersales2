@@ -26,6 +26,8 @@ export const PAGE_TO_MODULE: Record<string, string> = {
   settings: 'settings',
   users: 'user_management',
   'leadgen-v2': 'strategy_quick',
+  'history-ads': 'history_ads',
+  'history-social': 'history_social',
 };
 
 export function hasModuleAccess(profile: Profile | null, pageId: string): boolean {

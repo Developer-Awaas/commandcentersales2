@@ -30,6 +30,7 @@ import SMMCreatives from './pages/SMMCreatives';
 import SMMAnalyzer from './pages/SMMAnalyzer';
 import ContentLibrary from './pages/ContentLibrary';
 import { Campaigns } from './pages/Campaigns';
+import { History } from './pages/History';
 import { CampaignWizard } from './pages/CampaignWizard';
 import BrandKit from './pages/BrandKit';
 import AanyaMemory from './pages/AanyaMemory';
@@ -76,6 +77,8 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'brand-kit': return <BrandKit />;
     case 'aanya-memory': return <AanyaMemory />;
     case 'campaigns': return <Campaigns />;
+    case 'history-ads': return <History domain="ads" />;
+    case 'history-social': return <History domain="social" />;
     case 'leadgen-v2': return LEADGEN_V2_ENABLED ? <LeadGenV2 /> : <Dashboard />;
     case 'campaign-wizard': return <CampaignWizard onWizardEnd={onWizardEnd} onWizardStart={onWizardStart} wizardActive={wizardActive} />;
     case 'smm-planner': return <SMMPlanner />;
@@ -126,8 +129,8 @@ function AppShell({
 }
 
 function getSectionFromPage(page: string): AppSection {
-  const smmPages = ['smm-planner', 'smm-calendar', 'smm-creatives', 'smm-analyzer', 'content-library'];
-  const leadGenPages = ['strategy', 'campaign-wizard', 'ad-config', 'creatives', 'aanya-memory', 'ad-review', 'analyzer', 'organic', 'campaigns', 'leadgen-v2'];
+  const smmPages = ['smm-planner', 'smm-calendar', 'smm-creatives', 'smm-analyzer', 'content-library', 'history-social'];
+  const leadGenPages = ['strategy', 'campaign-wizard', 'ad-config', 'creatives', 'aanya-memory', 'ad-review', 'analyzer', 'organic', 'campaigns', 'leadgen-v2', 'history-ads'];
   if (smmPages.includes(page)) return 'smm';
   if (leadGenPages.includes(page)) return 'lead_gen';
   return 'dashboard';

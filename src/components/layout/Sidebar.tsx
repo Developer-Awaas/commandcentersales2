@@ -23,6 +23,7 @@ import {
   Wand2,
   ChevronDown,
   Bot,
+  History,
 } from 'lucide-react';
 
 import { supabase } from '../../lib/supabase';
@@ -60,6 +61,7 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
   { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
+  { id: 'history-ads', label: 'History', icon: History },
   ...(LEADGEN_V2_ENABLED ? [{ id: 'leadgen-v2', label: 'Aarav Agent ✦', icon: Bot }] : []),
 ];
 
@@ -69,6 +71,7 @@ const SMM_NAV: NavItem[] = [
   { id: 'smm-creatives', label: 'SMM Creatives', icon: Image },
   { id: 'smm-analyzer', label: 'SMM Analyzer', icon: BarChart3 },
   { id: 'content-library', label: 'Content Library', icon: Library },
+  { id: 'history-social', label: 'History', icon: History },
 ];
 
 const BOTTOM_NAV: NavItem[] = [
