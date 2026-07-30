@@ -68,7 +68,6 @@ jobs:
             supabase/functions/canva-connect-init/index.ts \
             supabase/functions/canva-sync-design/index.ts \
             supabase/functions/canva-verify-return-nav/index.ts \
-            supabase/functions/generate-creatives/index.ts \
             supabase/functions/generate-image/index.ts \
             supabase/functions/langfuse-ingest/index.ts \
             supabase/functions/meta-insights-sync/index.ts \

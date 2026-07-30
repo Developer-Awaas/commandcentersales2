@@ -44,7 +44,6 @@ jobs:
             canva-sync-design \
             canva-verify-return-nav \
             claude-proxy \
-            generate-creatives \
             generate-image \
             langfuse-ingest; do
             echo "Deploying $fn..."
