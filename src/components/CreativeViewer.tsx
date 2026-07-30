@@ -479,17 +479,12 @@ export function CreativeViewer({ orgId, projectId, funnelStage, brandKit, projec
         anglesToGenerate.map(async (angle) => {
           const prompt = buildCreativeImagePrompt(brandKit, projectContext, funnelStage, angle);
           const [img] = await generateImageWithGemini(prompt, '1:1');
-          const { id } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
+          await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
             angleLabel: angle,
             projectId: projectId || undefined,
+            funnelStage,
+            promptUsed: prompt,
           });
-          // uploadGeminiImageToSupabase's built-in funnel-stage mapping only
-          // understands Creatives.tsx's TOFU/MOFU/BOFU vocabulary — this
-          // component's funnelStage prop is already correct DB vocabulary
-          // (awareness/consideration/conversion), so set it directly rather
-          // than routing through that mapping (which would silently produce
-          // the wrong value for 'consideration'/'conversion').
-          await supabase.from('creative_assets').update({ funnel_stage: funnelStage, prompt_used: prompt }).eq('id', id);
         })
       );
       const failures = settled.filter((s) => s.status === 'rejected').length;
@@ -550,8 +545,9 @@ export function CreativeViewer({ orgId, projectId, funnelStage, brandKit, projec
           const { id } = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
             angleLabel: asset.angle,
             projectId: projectId || undefined,
+            funnelStage,
+            promptUsed: prompt,
           });
-          await supabase.from('creative_assets').update({ funnel_stage: funnelStage, prompt_used: prompt }).eq('id', id);
 
           const { data: fresh } = await supabase.from('creative_assets').select('*').eq('id', id).single();
           if (fresh) {

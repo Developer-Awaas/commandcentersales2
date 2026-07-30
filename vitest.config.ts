@@ -16,6 +16,7 @@ export default defineConfig({
       'src/lib/smm-generation-error.test.ts',
       'src/lib/smm-prompts.separation.test.ts',
       'src/lib/history-service.test.ts',
+      'src/lib/gemini-service.test.ts',
     ],
   },
 });
