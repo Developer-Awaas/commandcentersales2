@@ -16,6 +16,9 @@ npm run typecheck
 echo "[pre-push] client build..."
 npm run build
 
+echo "[pre-push] client unit tests..."
+npm test
+
 echo "[pre-push] deno checks..."
 if ! command -v deno >/dev/null 2>&1; then
   echo "[pre-push] WARNING: deno not on PATH — skipping Edge Function checks. CI will catch errors."
