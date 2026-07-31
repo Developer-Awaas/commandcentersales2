@@ -22,10 +22,14 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    command: `npm run dev -- --port ${PORT} --strictPort`,
+    // A built preview, not the dev server — closer to what actually ships
+    // and faster to serve once built. VITE_MOCK_AI is baked into the build
+    // (Vite inlines import.meta.env at build time), so it must be set for
+    // the `build` half of this command, not just `preview`.
+    command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 120_000,
     env: { VITE_MOCK_AI: 'true' },
   },
 });

@@ -38,7 +38,10 @@ test('generate strategy -> save -> History -> journey -> complete campaign -> di
   await page.getByRole('button', { name: /campaign wizard/i }).click();
   await expect(page.getByRole('heading', { name: 'Campaign Wizard' })).toBeVisible();
 
-  await page.getByLabel('Project').selectOption({ index: 0 });
+  // The dedicated, disposable project seeded by e2e/seed-e2e.mjs — selecting
+  // it by name (not index 0) keeps this deterministic and keeps every row
+  // the test creates reachable by cleanup-e2e.mjs (scoped to this project).
+  await page.getByLabel('Project').selectOption({ label: 'ZZ-E2E Test Project' });
   await page.getByPlaceholder(/brief|describe/i).fill('E2E test brief — 2BHK apartments, festive season offer.');
   await page.getByRole('button', { name: /generate strategy/i }).click();
 
