@@ -30,43 +30,72 @@ test('generate strategy -> save -> History -> journey -> complete campaign -> di
   await page.getByLabel('Email').fill(EMAIL as string);
   await page.getByLabel('Password').fill(PASSWORD as string);
   await page.getByRole('button', { name: /sign in/i }).click();
-  await expect(page.getByText('NH Command Center')).not.toBeVisible({ timeout: 15_000 });
+  // Post-login anchor: the Dashboard heading (more reliable than asserting
+  // the login brand text is gone).
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 20_000 });
 
-  // Campaign Wizard is the only flow that creates a real `campaigns` row
-  // today (Strategy.tsx's own standalone save is a separate, untouched
-  // path — see CC-P3's PR description scoping note).
-  await page.getByRole('button', { name: /campaign wizard/i }).click();
+  // The sidebar is section-collapsed on login (Overview open; Lead Gen /
+  // Social Media collapsed). Clicking the "Lead Gen" section header both
+  // navigates to its default page and reveals its items (incl. Campaign
+  // Wizard, History, Campaigns). exact:true avoids matching the dashboard's
+  // "Go to Lead Gen" button.
+  await page.getByRole('button', { name: 'Lead Gen', exact: true }).click();
+
+  // Campaign Wizard is the only flow that creates a real `campaigns` row +
+  // a `strategy` tool_output today (Strategy.tsx's own standalone save is a
+  // separate, untouched path writing only to `creatives` — see CC-P3's PR
+  // description scoping note).
+  await page.getByRole('button', { name: 'Campaign Wizard', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Campaign Wizard' })).toBeVisible();
 
-  await page.getByLabel('Project').selectOption({ index: 0 });
-  await page.getByPlaceholder(/brief|describe/i).fill('E2E test brief — 2BHK apartments, festive season offer.');
+  // Select the dedicated, disposable project seeded by e2e/seed-e2e.mjs (by
+  // name, not index 0 — keeps every row the test creates reachable by
+  // cleanup-e2e.mjs, scoped to this project). The brief is intentionally
+  // left empty: generation is gated only on a project, and under
+  // VITE_MOCK_AI the brief text is ignored anyway.
+  await page.getByLabel('Project').selectOption({ label: 'ZZ-E2E Test Project' });
   await page.getByRole('button', { name: /generate strategy/i }).click();
 
-  // Post-generation: form collapses, "Save Strategy" appears.
+  // Post-generation: form collapses, "Save Strategy" appears. Clicking it
+  // creates the campaign + the strategy tool_output.
   const saveStrategyButton = page.getByRole('button', { name: /save strategy/i });
-  await expect(saveStrategyButton).toBeVisible({ timeout: 20_000 });
+  await expect(saveStrategyButton).toBeVisible({ timeout: 30_000 });
   await saveStrategyButton.click();
-  await expect(page.getByText(/strategy saved/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /strategy saved/i })).toBeVisible();
 
-  // History (Lead Gen section) — the just-saved strategy should appear.
-  await page.getByRole('button', { name: /^history$/i }).first().click();
+  // Exit the wizard — in wizard mode the sidebar shows a reduced nav, so
+  // History/Campaigns aren't reachable until we leave. The campaign +
+  // tool_output persist across the abandon (separate tables from
+  // wizard_sessions).
+  await page.getByRole('button', { name: 'Exit Wizard' }).click();
+  await page.getByRole('button', { name: /yes, cancel/i }).click();
+
+  const main = page.getByRole('main');
+
+  // History (Lead Gen) — the just-saved strategy should appear. Target the
+  // row's "part of a campaign journey" marker, NOT getByText('Strategy'):
+  // the History page always renders a "Strategy" filter-pill button
+  // regardless of contents, so matching that text is a false positive. The
+  // journey marker only appears on a real campaign-linked history row.
+  await page.getByRole('button', { name: 'History', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
-  const historyRow = page.getByText('Strategy').first();
-  await expect(historyRow).toBeVisible({ timeout: 10_000 });
-  await historyRow.click();
-  // Journey view renders the tool sequence.
-  await expect(page.getByText('Strategy', { exact: true })).toBeVisible();
+  const journeyRow = main.getByText(/part of a campaign journey/i);
+  await expect(journeyRow).toBeVisible({ timeout: 10_000 });
+  await journeyRow.click(); // expand the journey view
 
   // Campaigns — mark the new campaign completed, confirm the distill dialog.
-  await page.getByRole('button', { name: /campaigns/i }).click();
+  await page.getByRole('button', { name: 'Campaigns', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Campaigns' })).toBeVisible();
-  const statusSelect = page.locator('select').first();
-  await statusSelect.selectOption('completed');
+  await main.locator('select').first().selectOption('completed');
   await expect(page.getByText(/distilled for AI training/i)).toBeVisible();
   await page.getByRole('button', { name: /yes, mark complete/i }).click();
-  await expect(page.getByText('completed', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(main.getByText('completed', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
-  // Back in History — the campaign's entries should be gone (distilled + cleaned up).
-  await page.getByRole('button', { name: /^history$/i }).first().click();
-  await expect(historyRow).not.toBeVisible({ timeout: 10_000 });
+  // Back in History — the distilled campaign's entries should be gone. Again
+  // target the journey-row marker (not the ever-present "Strategy" filter
+  // pill); with the only entry distilled away, the empty-state copy shows.
+  await page.getByRole('button', { name: 'History', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
+  await expect(main.getByText(/part of a campaign journey/i)).toHaveCount(0, { timeout: 10_000 });
+  await expect(main.getByText(/no saved history yet/i)).toBeVisible();
 });
