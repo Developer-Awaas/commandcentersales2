@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, Zap } from 
 import { useChatbot } from '../contexts/ChatbotContext';
 import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
+import { getBrandProvider } from '../lib/providers';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
@@ -149,8 +150,8 @@ export function Strategy() {
   const [brandKit, setBrandKit] = useState<{ default_languages?: string[] } | null>(null);
 
   useEffect(() => {
-    supabase.from('brand_kits').select('default_languages').eq('org_id', getOrgId()).maybeSingle()
-      .then(({ data }) => { if (data) setBrandKit(data); });
+    getBrandProvider().getBrandKit(getOrgId())
+      .then((kit) => { if (kit) setBrandKit({ default_languages: kit.default_languages as string[] | undefined }); });
   }, []);
 
   useEffect(() => {
