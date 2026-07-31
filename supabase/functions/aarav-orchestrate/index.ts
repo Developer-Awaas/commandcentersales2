@@ -41,6 +41,34 @@ import { runDhruv, DhruvOutputError, type DhruvIntent } from '../_shared/agents/
 import { buildMetricsContext } from '../_shared/metrics-query.ts'
 import { langfuseTrace, langfuseGeneration, langfuseSpan } from '../_shared/langfuse.ts'
 import { getTierConfig } from '../_shared/tier-config.ts'
+import { getBrandProvider } from '../_shared/providers/config.ts'
+
+// applyBrandCheck — CC-P4 Step 2 invariant: no Aanya creative reaches the user
+// without a Diya brand verdict. Runs the (provider-abstracted) brand check over
+// the batch, merges each per-variant verdict onto variant.brand_check, and logs
+// the Diya cost row. Fail-safe: if the whole check throws, every variant is
+// flagged for manual review rather than left unchecked.
+async function applyBrandCheck(
+  variants: CreativeVariant[],
+  ctx2: { orgId: string; userId: string; projectId?: string; traceId: string; adminClient: DB },
+): Promise<CreativeVariant[]> {
+  if (variants.length === 0) return variants
+  try {
+    const { verdict, model, inputTokens, outputTokens, totalCostUsd } = await getBrandProvider().runBrandCheck({
+      orgId: ctx2.orgId, projectId: ctx2.projectId, variants, traceId: ctx2.traceId,
+    })
+    if (model !== 'none' && (inputTokens > 0 || outputTokens > 0)) {
+      await ctx2.adminClient.from('agent_interactions').insert({
+        org_id: ctx2.orgId, user_id: ctx2.userId, agent: 'diya', trace_id: ctx2.traceId,
+        model, input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: totalCostUsd,
+      })
+    }
+    return variants.map(v => ({ ...v, brand_check: verdict.per_variant?.[v.id] ?? { status: 'flag', note: 'No brand verdict returned — review manually.' } }))
+  } catch (err) {
+    console.error('applyBrandCheck failed — flagging all variants fail-safe:', err instanceof Error ? err.message : err)
+    return variants.map(v => ({ ...v, brand_check: { status: 'flag', note: 'Brand check unavailable — review manually.' } }))
+  }
+}
 
 // ─── Request/response types (mirror contracts.ts) ────────────────────────────
 
@@ -391,7 +419,8 @@ Deno.serve(async (req: Request) => {
         cost_usd: aanyaResult.totalCostUsd,
       })
 
-      creatives = aanyaResult.variants
+      // Invariant: every Aanya creative passes through Diya before the user.
+      creatives = await applyBrandCheck(aanyaResult.variants, { orgId, userId, projectId: body.project_id, traceId, adminClient })
       if (aanyaResult.capHit) turnCapHit = true
     } catch (aanyaErr) {
       delegations[1].status = 'failed'
@@ -897,9 +926,12 @@ async function handleRegenerateCreatives(
       cost_usd: result.totalCostUsd,
     })
 
+    // Only the freshly regenerated variants need a new brand check — the
+    // `keep` set already carries its verdict from the prior turn.
+    const checkedFresh = await applyBrandCheck(result.variants, { orgId, userId, projectId, traceId, adminClient })
     const creatives = regen.angle
-      ? [...(regen.keep ?? []), ...result.variants]
-      : result.variants
+      ? [...(regen.keep ?? []), ...checkedFresh]
+      : checkedFresh
 
     const capNote = result.capHit
       ? " I hit your plan's limit partway through — here's what I managed." : ''

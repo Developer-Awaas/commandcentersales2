@@ -5,7 +5,8 @@
 // (aarav-orchestrate) is also wired in Step 2).
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import type { BrandProvider, MediaProvider, BrandKit, ProjectMediaAsset, BrandCheckVerdict } from './types.ts'
+import type { BrandProvider, MediaProvider, BrandKit, ProjectMediaAsset } from './types.ts'
+import { runBrandCheck as diyaRunBrandCheck, type RunBrandCheckInput, type RunBrandCheckResult } from '../agents/diya.ts'
 
 export class LocalBrandProvider implements BrandProvider {
   async getBrandKit(supabase: SupabaseClient, orgId: string, _projectId?: string): Promise<BrandKit | null> {
@@ -15,13 +16,10 @@ export class LocalBrandProvider implements BrandProvider {
     return (data as BrandKit | null) ?? null
   }
 
-  async runBrandCheck(
-    _supabase: SupabaseClient,
-    _input: { orgId: string; creativeImageUrl: string; brandKit: BrandKit | null; traceId?: string },
-  ): Promise<BrandCheckVerdict> {
-    // Replaced in CC-P4 Step 2 with a call to Diya's runBrandCheck. Until then,
-    // fail-safe flag (never a fabricated pass).
-    return { status: 'flag', note: 'Brand check not yet wired (Diya restore pending).' }
+  // The brand check IS Diya (CC-P4 Step 2) — the provider is the seam a future
+  // Praveshika brand service slots into without touching aarav-orchestrate.
+  runBrandCheck(input: RunBrandCheckInput): Promise<RunBrandCheckResult> {
+    return diyaRunBrandCheck(input)
   }
 }
 

@@ -4,6 +4,7 @@
 // Selection via a config constant (./config.ts), matching the client side.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import type { RunBrandCheckInput, RunBrandCheckResult, BrandKitRow } from '../agents/diya.ts'
 
 export interface BrandKit {
   id: string
@@ -19,25 +20,18 @@ export interface ProjectMediaAsset {
   [key: string]: unknown
 }
 
-export interface BrandCheckVerdict {
-  status: 'pass' | 'flag'
-  note?: string
-}
-
 // Providers are constructed with a per-request SupabaseClient (edge functions
 // build a fresh service-role client per invocation — see metrics-query.ts's
 // buildMetricsContext, which takes the client as a param the same way).
 export interface BrandProvider {
   getBrandKit(supabase: SupabaseClient, orgId: string, projectId?: string): Promise<BrandKit | null>
-  // Vision brand check for one creative image. The Local impl delegates to
-  // Diya (CC-P4 Step 2). Returns fail-safe 'flag' on any error, never throws.
-  runBrandCheck(supabase: SupabaseClient, input: {
-    orgId: string
-    creativeImageUrl: string
-    brandKit: BrandKit | null
-    traceId?: string
-  }): Promise<BrandCheckVerdict>
+  // Batch vision brand check over Aanya's variants — the Local impl delegates
+  // to Diya (CC-P4 Step 2). Fail-safe by design: missing kit / parse / API
+  // error resolve to per-variant 'flag', never a fabricated pass or a crash.
+  runBrandCheck(input: RunBrandCheckInput): Promise<RunBrandCheckResult>
 }
+
+export type { RunBrandCheckInput, RunBrandCheckResult, BrandKitRow }
 
 export interface MediaProvider {
   listProjectMedia(supabase: SupabaseClient, orgId: string, projectId: string): Promise<ProjectMediaAsset[]>
