@@ -24,6 +24,28 @@ jobs:
 
       - run: npm run build
 
+  client-unit-tests:
+    name: Client unit tests (Vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 (not 20 like the build job) specifically because the Vitest
+      # jsdom environment loads undici@8.9.0 (jsdom@30's transitive dep),
+      # which declares engines.node ">=22.19.0" and hard-crashes on Node 20
+      # with "webidl.util.markAsUncloneable is not a function" before any
+      # test runs. Only this job needs the bump — the build job doesn't load
+      # jsdom, so it stays on 20. (This is the same undici engine mismatch
+      # first spotted as a warning during the PR #17 lockfile investigation.)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm test
+
   edge-typecheck:
     name: Edge Function type check (Deno)
     runs-on: ubuntu-latest
@@ -72,7 +94,8 @@ jobs:
             supabase/functions/langfuse-ingest/index.ts \
             supabase/functions/meta-insights-sync/index.ts \
             supabase/functions/claude-proxy/index.ts \
-            supabase/functions/dhruv-anomaly-check/index.ts
+            supabase/functions/dhruv-anomaly-check/index.ts \
+            supabase/functions/history-retention-sweep/index.ts
 
   edge-unit-tests:
     name: Edge Function unit tests (no credentials)

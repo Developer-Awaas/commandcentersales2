@@ -87,6 +87,10 @@ export async function uploadGeminiImageToSupabase(
     funnelStage?: string;
     projectId?: string;
     creativeId?: string;
+    // Real generation prompt, stored in creative_assets.prompt_used.
+    // Optional — callers that don't pass one keep the pre-existing
+    // fallback (angleLabel), unchanged.
+    promptUsed?: string;
   }
 ): Promise<GeminiUploadResult> {
   const orgId = getOrgId() || 'shared';
@@ -114,18 +118,28 @@ export async function uploadGeminiImageToSupabase(
   const url = data.publicUrl;
 
   const angle = ANGLE_MAP[(opts?.angleLabel ?? '').toLowerCase()] ?? 'lifestyle';
-  const funnel_stage = FUNNEL_MAP[(opts?.funnelStage ?? 'TOFU').toUpperCase()] ?? 'awareness';
+  // Root cause of the long-standing funnel-stage bug (CC-P0 workaround,
+  // now fixed here instead): FUNNEL_MAP has both uppercase TOFU/MOFU/BOFU
+  // keys and lowercase awareness/consideration/conversion passthrough
+  // keys, but this lookup used to force .toUpperCase() unconditionally —
+  // turning 'consideration' into 'CONSIDERATION', which matches neither
+  // key, silently falling through to the 'awareness' default for every
+  // caller already using DB vocabulary. Try the raw value first (matches
+  // the lowercase keys), only uppercase as a fallback (matches TOFU/MOFU/
+  // BOFU regardless of case the caller passed).
+  const funnelInput = opts?.funnelStage ?? 'TOFU';
+  const funnel_stage = FUNNEL_MAP[funnelInput] ?? FUNNEL_MAP[funnelInput.toUpperCase()] ?? 'awareness';
 
   const { data: asset, error: dbErr } = await supabase
     .from('creative_assets')
     .insert({
       org_id: orgId,
-      campaign_id: opts?.projectId ?? null,
+      project_id: opts?.projectId ?? null,
       funnel_stage,
       angle,
       image_url: url,
       storage_path: filename,
-      prompt_used: opts?.angleLabel ?? null,
+      prompt_used: opts?.promptUsed ?? opts?.angleLabel ?? null,
       model_used: 'gpt-image-1',
       status: 'generated',
       session_id: opts?.sessionId ?? null,
