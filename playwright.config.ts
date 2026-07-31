@@ -12,7 +12,11 @@ export default defineConfig({
   timeout: 60_000,
   fullyParallel: false,
   retries: 0,
-  reporter: [['list']],
+  // list = readable CI console output; html = the report the CI job's
+  // upload-artifact step publishes (with the trace, on failure) — a
+  // list-only reporter produces no playwright-report/ dir, making that
+  // upload a silent no-op.
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
