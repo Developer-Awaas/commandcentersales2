@@ -9,7 +9,10 @@ const PORT = 5199;
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 60_000,
+  // Generous: one test drives a full multi-step flow with several real
+  // PROD writes (creatives + campaign + tool_outputs inserts, then a
+  // distill that does sequential deletes).
+  timeout: 120_000,
   fullyParallel: false,
   retries: 0,
   // list = readable CI console output; html = the report the CI job's
