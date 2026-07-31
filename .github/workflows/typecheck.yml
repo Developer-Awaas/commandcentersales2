@@ -30,9 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22 (not 20 like the build job) specifically because the Vitest
+      # jsdom environment loads undici@8.9.0 (jsdom@30's transitive dep),
+      # which declares engines.node ">=22.19.0" and hard-crashes on Node 20
+      # with "webidl.util.markAsUncloneable is not a function" before any
+      # test runs. Only this job needs the bump — the build job doesn't load
+      # jsdom, so it stays on 20. (This is the same undici engine mismatch
+      # first spotted as a warning during the PR #17 lockfile investigation.)
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - run: npm ci
