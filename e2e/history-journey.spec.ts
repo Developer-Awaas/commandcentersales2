@@ -72,14 +72,16 @@ test('generate strategy -> save -> History -> journey -> complete campaign -> di
 
   const main = page.getByRole('main');
 
-  // History (Lead Gen) — the just-saved strategy should appear. Scope text
-  // assertions to <main> so they don't collide with the "Strategy" /
-  // "History" sidebar nav buttons.
+  // History (Lead Gen) — the just-saved strategy should appear. Target the
+  // row's "part of a campaign journey" marker, NOT getByText('Strategy'):
+  // the History page always renders a "Strategy" filter-pill button
+  // regardless of contents, so matching that text is a false positive. The
+  // journey marker only appears on a real campaign-linked history row.
   await page.getByRole('button', { name: 'History', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
-  const strategyPill = main.getByText('Strategy', { exact: true }).first();
-  await expect(strategyPill).toBeVisible({ timeout: 10_000 });
-  await strategyPill.click();
+  const journeyRow = main.getByText(/part of a campaign journey/i);
+  await expect(journeyRow).toBeVisible({ timeout: 10_000 });
+  await journeyRow.click(); // expand the journey view
 
   // Campaigns — mark the new campaign completed, confirm the distill dialog.
   await page.getByRole('button', { name: 'Campaigns', exact: true }).click();
@@ -89,8 +91,11 @@ test('generate strategy -> save -> History -> journey -> complete campaign -> di
   await page.getByRole('button', { name: /yes, mark complete/i }).click();
   await expect(main.getByText('completed', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
-  // Back in History — the distilled campaign's entries should be gone.
+  // Back in History — the distilled campaign's entries should be gone. Again
+  // target the journey-row marker (not the ever-present "Strategy" filter
+  // pill); with the only entry distilled away, the empty-state copy shows.
   await page.getByRole('button', { name: 'History', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
-  await expect(main.getByText('Strategy', { exact: true })).toHaveCount(0, { timeout: 10_000 });
+  await expect(main.getByText(/part of a campaign journey/i)).toHaveCount(0, { timeout: 10_000 });
+  await expect(main.getByText(/no saved history yet/i)).toBeVisible();
 });
