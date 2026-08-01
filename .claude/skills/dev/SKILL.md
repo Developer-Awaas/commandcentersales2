@@ -71,7 +71,8 @@ deno check \
   supabase/functions/langfuse-ingest/index.ts \
   supabase/functions/meta-insights-sync/index.ts \
   supabase/functions/claude-proxy/index.ts \
-  supabase/functions/history-retention-sweep/index.ts
+  supabase/functions/history-retention-sweep/index.ts \
+  supabase/functions/dhruv-weekly-report/index.ts
 ```
 
 ### Unit tests (no credentials required)
