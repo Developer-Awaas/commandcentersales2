@@ -5,8 +5,9 @@
 
 import { supabase } from '../supabase';
 import type {
-  BrandProvider, MediaProvider, MetaSyncProvider,
+  BrandProvider, MediaProvider, MetaSyncProvider, SocialMetricsProvider,
   BrandKit, ProjectMediaAsset, CampaignMetricRow, MetaConnectionStatus,
+  SocialMetricRow, SocialTargets,
 } from './types';
 
 export class LocalBrandProvider implements BrandProvider {
@@ -45,6 +46,37 @@ export class LocalMediaProvider implements MediaProvider {
     if (!data) return null;
     const kit = data as { logo_color_url?: string | null; logo_dark_url?: string | null; logo_white_url?: string | null };
     return kit.logo_color_url || kit.logo_dark_url || kit.logo_white_url || null;
+  }
+}
+
+export class ManualSocialMetricsProvider implements SocialMetricsProvider {
+  async getMetrics(orgId: string, opts?: { sinceDate?: string; platform?: string }): Promise<SocialMetricRow[]> {
+    let query = supabase
+      .from('smm_metrics')
+      .select('id, org_id, platform, date, followers, avg_reach, avg_likes, avg_comments, engagement_rate, follower_growth, posts_published, data_source')
+      .eq('org_id', orgId)
+      .order('date', { ascending: false });
+    if (opts?.sinceDate) query = query.gte('date', opts.sinceDate);
+    if (opts?.platform) query = query.eq('platform', opts.platform);
+    const { data } = await query;
+    return (data as SocialMetricRow[] | null) ?? [];
+  }
+
+  async getTargets(orgId: string): Promise<SocialTargets> {
+    const { data } = await supabase
+      .from('organizations')
+      .select('fb_page_url, ig_page_url, ig_follower_target, ig_reach_target, fb_follower_target, fb_reach_target')
+      .eq('id', orgId)
+      .maybeSingle();
+    const o = (data ?? {}) as Partial<SocialTargets>;
+    return {
+      fb_page_url: o.fb_page_url ?? null,
+      ig_page_url: o.ig_page_url ?? null,
+      ig_follower_target: o.ig_follower_target ?? null,
+      ig_reach_target: o.ig_reach_target ?? null,
+      fb_follower_target: o.fb_follower_target ?? null,
+      fb_reach_target: o.fb_reach_target ?? null,
+    };
   }
 }
 

@@ -73,6 +73,37 @@ export interface MediaProvider {
   getLogo(orgId: string): Promise<string | null>;
 }
 
+export interface SocialMetricRow {
+  id: string;
+  org_id: string;
+  platform: string;
+  date: string;
+  followers: number | null;
+  avg_reach: number | null;
+  avg_likes: number | null;
+  avg_comments: number | null;
+  engagement_rate: number | null;
+  follower_growth: number | null;
+  posts_published: number | null;
+  data_source: string | null;
+}
+
+export interface SocialTargets {
+  fb_page_url: string | null;
+  ig_page_url: string | null;
+  ig_follower_target: number | null;
+  ig_reach_target: number | null;
+  fb_follower_target: number | null;
+  fb_reach_target: number | null;
+}
+
+export interface SocialMetricsProvider {
+  // Actuals from smm_metrics over a window (sinceDate inclusive, ISO date).
+  getMetrics(orgId: string, opts?: { sinceDate?: string; platform?: string }): Promise<SocialMetricRow[]>;
+  // Org-level handles + follower/reach targets (from organizations).
+  getTargets(orgId: string): Promise<SocialTargets>;
+}
+
 export interface MetaSyncProvider {
   // Reads existing campaign_metrics rows for a project over a day-range window
   // (does NOT call Meta). `projectId === null` means org-level / all projects.

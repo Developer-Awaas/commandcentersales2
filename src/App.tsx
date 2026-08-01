@@ -27,7 +27,7 @@ import { AiSessions } from './pages/AiSessions';
 import SMMPlanner from './pages/SMMPlanner';
 import SMMCalendar from './pages/SMMCalendar';
 import SMMCreatives from './pages/SMMCreatives';
-import SMMAnalyzer from './pages/SMMAnalyzer';
+import { SMMMonitor } from './pages/SMMMonitor';
 import ContentLibrary from './pages/ContentLibrary';
 import { Campaigns } from './pages/Campaigns';
 import { History } from './pages/History';
@@ -84,7 +84,7 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'smm-planner': return <SMMPlanner />;
     case 'smm-calendar': return <SMMCalendar />;
     case 'smm-creatives': return <SMMCreatives />;
-    case 'smm-analyzer': return <SMMAnalyzer />;
+    case 'smm-analyzer': return <SMMMonitor />;
     case 'content-library': return <ContentLibrary />;
     default: return <Dashboard />;
   }

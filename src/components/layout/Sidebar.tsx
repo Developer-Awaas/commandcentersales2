@@ -69,7 +69,7 @@ const SMM_NAV: NavItem[] = [
   { id: 'smm-planner', label: 'SMM Planner', icon: Calendar },
   { id: 'smm-calendar', label: 'Content Calendar', icon: CalendarDays },
   { id: 'smm-creatives', label: 'SMM Creatives', icon: Image },
-  { id: 'smm-analyzer', label: 'SMM Analyzer', icon: BarChart3 },
+  { id: 'smm-analyzer', label: 'SMM Monitor', icon: BarChart3 },
   { id: 'content-library', label: 'Content Library', icon: Library },
   { id: 'history-social', label: 'History', icon: History },
 ];
