@@ -250,3 +250,13 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+      # Full-page Monitor screenshots (populated when ZZ-INTERNAL-TEST demo
+      # metrics are seeded) — downloadable from the run's Artifacts.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monitor-screenshots
+          path: screenshots/
+          retention-days: 14
+          if-no-files-found: ignore
