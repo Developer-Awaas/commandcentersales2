@@ -91,11 +91,14 @@ test('generate strategy -> save -> History -> journey -> complete campaign -> di
   await page.getByRole('button', { name: /yes, mark complete/i }).click();
   await expect(main.getByText('completed', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 
-  // Back in History — the distilled campaign's entries should be gone. Again
-  // target the journey-row marker (not the ever-present "Strategy" filter
-  // pill); with the only entry distilled away, the empty-state copy shows.
+  // Back in History — the distilled campaign's entries should be gone. Target
+  // the journey-row marker (not the ever-present "Strategy" filter pill): its
+  // disappearance is the real assertion that the distilled campaign was removed.
+  // STATE-TOLERANT: the global "no saved history yet" empty-state only shows
+  // when this was the org's ONLY entry — ZZ-INTERNAL-TEST now carries seeded
+  // demo data (Monitors), so the org is never truly empty. Asserting the
+  // journey marker is gone is the state-independent proof of distillation.
   await page.getByRole('button', { name: 'History', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
   await expect(main.getByText(/part of a campaign journey/i)).toHaveCount(0, { timeout: 10_000 });
-  await expect(main.getByText(/no saved history yet/i)).toBeVisible();
 });
