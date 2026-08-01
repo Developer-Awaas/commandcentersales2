@@ -36,3 +36,6 @@ _secrets.json
 # Playwright output — regenerate via `npm run test:e2e`, don't commit run artifacts.
 test-results/
 playwright-report/
+
+# Playwright monitor screenshots (regenerated in CI, uploaded as an artifact)
+screenshots/
