@@ -715,7 +715,7 @@ export interface Database {
           id: string
           org_id: string
           domain: 'ads' | 'social'
-          tool: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives'
+          tool: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis'
           campaign_id: string | null
           payload: Json
           asset_refs: Json
@@ -726,7 +726,7 @@ export interface Database {
           id?: string
           org_id: string
           domain: 'ads' | 'social'
-          tool: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives'
+          tool: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis'
           campaign_id?: string | null
           payload: Json
           asset_refs?: Json
@@ -737,7 +737,7 @@ export interface Database {
           id?: string
           org_id?: string
           domain?: 'ads' | 'social'
-          tool?: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives'
+          tool?: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis'
           campaign_id?: string | null
           payload?: Json
           asset_refs?: Json

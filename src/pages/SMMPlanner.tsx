@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
+import { getSocialMetricsProvider } from '../lib/providers';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildSMMPlannerPrompt, buildScreenshotExtractionPrompt } from '../lib/smm-prompts';
 import { generateSMMPlanPDF } from '../lib/pdf-generator';
@@ -91,7 +92,27 @@ export default function SMMPlanner() {
   useEffect(() => {
     fetchProjects();
     fetchHolidays();
+    prefillSocialMetrics();
   }, []);
+
+  // CC-P4 Step 4: pre-fill the manual social fields from SocialMetricsProvider
+  // (latest smm_metrics snapshot + org targets) — still fully editable as
+  // target overrides. Only fills blanks so a user's typed values win.
+  const prefillSocialMetrics = async () => {
+    try {
+      const orgId = getOrgId();
+      const [ig] = await getSocialMetricsProvider().getMetrics(orgId, { platform: 'instagram' });
+      const targets = await getSocialMetricsProvider().getTargets(orgId);
+      if (!ig && targets.ig_follower_target == null) return;
+      setMetrics((prev) => ({
+        ...prev,
+        ig_followers: prev.ig_followers || (ig?.followers ?? targets.ig_follower_target)?.toString() || '',
+        ig_avg_reach: prev.ig_avg_reach || (ig?.avg_reach ?? targets.ig_reach_target)?.toString() || '',
+        ig_avg_likes: prev.ig_avg_likes || ig?.avg_likes?.toString() || '',
+        ig_engagement_rate: prev.ig_engagement_rate || ig?.engagement_rate?.toString() || '',
+      }));
+    } catch { /* pre-fill is best-effort — manual entry still works */ }
+  };
 
   const fetchProjects = async () => {
     const { data } = await supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId());

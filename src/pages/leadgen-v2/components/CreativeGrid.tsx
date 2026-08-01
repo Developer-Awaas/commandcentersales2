@@ -120,6 +120,23 @@ function CreativeTile({
           <p className="text-[10px] text-text-tertiary italic leading-snug">{creative.rationale}</p>
         )}
 
+        {/* Diya brand verdict (CC-P4 Step 2) — advisory; the tile stays selectable when flagged. */}
+        {creative.brand_check && (
+          <div
+            className={`flex items-start gap-1 text-[10px] leading-snug ${
+              creative.brand_check.status === 'flag' ? 'text-amber-500' : 'text-emerald-500'
+            }`}
+            title={creative.brand_check.note}
+          >
+            <span className="font-semibold">
+              {creative.brand_check.status === 'flag' ? '⚠ Brand check' : '✓ On brand'}
+            </span>
+            {creative.brand_check.note && (
+              <span className="text-text-tertiary line-clamp-2">{creative.brand_check.note}</span>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   );

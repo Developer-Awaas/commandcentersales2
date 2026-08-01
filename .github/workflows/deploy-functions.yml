@@ -24,7 +24,7 @@ jobs:
       # pg_cron functions carry no user JWT — deploy without JWT verification
       - name: Deploy pg_cron functions (no JWT verification)
         run: |
-          for fn in meta-insights-sync dhruv-anomaly-check history-retention-sweep; do
+          for fn in meta-insights-sync dhruv-anomaly-check history-retention-sweep dhruv-weekly-report; do
             echo "Deploying $fn (no-verify-jwt)..."
             supabase functions deploy "$fn" \
               --no-verify-jwt \

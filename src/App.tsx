@@ -17,7 +17,7 @@ import { Strategy } from './pages/Strategy';
 import { AdConfig } from './pages/AdConfig';
 import { Creatives } from './pages/Creatives';
 import { AdReview } from './pages/AdReview';
-import { Analyzer } from './pages/Analyzer';
+import { PerformanceMonitor } from './pages/PerformanceMonitor';
 import { Organic } from './pages/Organic';
 import { Notifications } from './pages/Notifications';
 import { Reports } from './pages/Reports';
@@ -27,7 +27,7 @@ import { AiSessions } from './pages/AiSessions';
 import SMMPlanner from './pages/SMMPlanner';
 import SMMCalendar from './pages/SMMCalendar';
 import SMMCreatives from './pages/SMMCreatives';
-import SMMAnalyzer from './pages/SMMAnalyzer';
+import { SMMMonitor } from './pages/SMMMonitor';
 import ContentLibrary from './pages/ContentLibrary';
 import { Campaigns } from './pages/Campaigns';
 import { History } from './pages/History';
@@ -67,7 +67,7 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'ad-config': return <AdConfig />;
     case 'creatives': return <Creatives />;
     case 'ad-review': return <AdReview />;
-    case 'analyzer': return <Analyzer />;
+    case 'analyzer': return <PerformanceMonitor />;
     case 'organic': return <Organic />;
     case 'notifications': return <Notifications />;
     case 'reports': return <Reports />;
@@ -84,7 +84,7 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'smm-planner': return <SMMPlanner />;
     case 'smm-calendar': return <SMMCalendar />;
     case 'smm-creatives': return <SMMCreatives />;
-    case 'smm-analyzer': return <SMMAnalyzer />;
+    case 'smm-analyzer': return <SMMMonitor />;
     case 'content-library': return <ContentLibrary />;
     default: return <Dashboard />;
   }

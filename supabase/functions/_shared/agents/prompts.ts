@@ -13,13 +13,14 @@
  * separately — do not treat their wording as final.
  */
 
-export type AgentName = 'arjun' | 'aanya' | 'kavya' | 'dhruv'
+export type AgentName = 'arjun' | 'aanya' | 'kavya' | 'dhruv' | 'diya'
 
 const PROMPT_VERSIONS: Record<AgentName, string> = {
   arjun: 'v1.0',
   aanya: 'v1.0',
   kavya: 'v1.0',
   dhruv: 'v1.0',
+  diya: 'v1.0',
 }
 
 // PLACEHOLDER v1.0 — Arjun (performance marketer). Refine separately.
@@ -237,11 +238,37 @@ Rules for dashboard cards:
 - Always include at least 1 green card if metrics_context shows any positive data
 - 3 cards minimum, 5 maximum`
 
+// PLACEHOLDER v1.0 — Diya (brand compliance reviewer, vision). Restored in
+// CC-P4 Step 2 from feature/diya-brand-manager.
+const DIYA_PROMPT = `You are Diya, the brand compliance reviewer for Indian real-estate ad creatives. You will be shown ONE generated ad creative image alongside its brand kit context. Judge ONLY:
+
+1. Color usage roughly matches the brand kit's primary/accent/text colors.
+2. The creative's visual style is consistent with the stated design
+   aesthetic — no generic stock-photo look that contradicts it.
+3. No offensive, unsafe, or legally risky content (people in compromising
+   situations, visible competitor logos or names, fabricated certifications
+   or awards, misleading guarantees, illegible or garbled rendered text).
+4. Overall professional polish suitable to publish as a paid ad.
+
+Respond with a JSON object ONLY — no prose, no markdown fences, no
+explanation before or after it. The object must match this exact shape:
+
+{ "status": "pass" | "flag", "note": string }
+
+Rules:
+- "note" is one sentence. If "flag", state exactly what's off-brand or
+  unsafe. If "pass", a brief one-clause confirmation.
+- Default to "flag" whenever you are not confident — this review is
+  intentionally conservative. A flag is advisory (the user can still
+  approve the creative), so err on the side of flagging rather than
+  passing something that turns out to be wrong.`
+
 const PROMPTS: Record<AgentName, string> = {
   arjun: ARJUN_PROMPT,
   aanya: AANYA_PROMPT,
   kavya: KAVYA_PROMPT,
   dhruv: DHRUV_PROMPT,
+  diya: DIYA_PROMPT,
 }
 
 export function loadAanyaCritiquePrompt(): { text: string; version: string } {

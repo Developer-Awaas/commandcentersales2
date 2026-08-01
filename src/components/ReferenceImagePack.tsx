@@ -3,6 +3,7 @@ import { Download, ExternalLink, Package, ChevronDown, ChevronUp, RefreshCw, Upl
 import JSZip from 'jszip';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
+import { getBrandProvider, getMediaProvider } from '../lib/providers';
 
 export interface ReferenceManifestItem {
   role: string;
@@ -78,17 +79,11 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
   async function resolveManifest() {
     setLoading(true);
 
-    const [{ data: brandKit }, { data: projectAssetsRaw }] = await Promise.all([
-      supabase.from('brand_kits').select('*').eq('org_id', orgId).maybeSingle(),
+    const [brandKit, projectAssetsRaw] = await Promise.all([
+      getBrandProvider().getBrandKit(orgId),
       projectId
-        ? supabase
-            .from('project_assets')
-            .select('*')
-            .eq('project_id', projectId)
-            .eq('org_id', orgId)
-            .order('is_primary', { ascending: false })
-            .order('display_order')
-        : Promise.resolve({ data: [] }),
+        ? getMediaProvider().listProjectMedia(orgId, projectId, { primaryFirst: true })
+        : Promise.resolve([]),
     ]);
 
     const projectAssets = (projectAssetsRaw ?? []) as Record<string, unknown>[];

@@ -59,7 +59,7 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-config', label: 'Ad Config', icon: Target },
   { id: 'creatives', label: 'Ad Creatives', icon: Palette },
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
-  { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
+  { id: 'analyzer', label: 'Performance Monitor', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
   { id: 'history-ads', label: 'History', icon: History },
   ...(LEADGEN_V2_ENABLED ? [{ id: 'leadgen-v2', label: 'Aarav Agent ✦', icon: Bot }] : []),
@@ -69,7 +69,7 @@ const SMM_NAV: NavItem[] = [
   { id: 'smm-planner', label: 'SMM Planner', icon: Calendar },
   { id: 'smm-calendar', label: 'Content Calendar', icon: CalendarDays },
   { id: 'smm-creatives', label: 'SMM Creatives', icon: Image },
-  { id: 'smm-analyzer', label: 'SMM Analyzer', icon: BarChart3 },
+  { id: 'smm-analyzer', label: 'SMM Monitor', icon: BarChart3 },
   { id: 'content-library', label: 'Content Library', icon: Library },
   { id: 'history-social', label: 'History', icon: History },
 ];

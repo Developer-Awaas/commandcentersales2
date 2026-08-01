@@ -21,6 +21,8 @@ interface OrgData {
   fb_page_url: string;
   ig_page_url: string;
   default_age_range: string;
+  ig_follower_target: number | null;
+  ig_reach_target: number | null;
 }
 
 interface Competitor {
@@ -38,6 +40,8 @@ const DEFAULT_ORG: OrgData = {
   fb_page_url: '',
   ig_page_url: '',
   default_age_range: '28-50',
+  ig_follower_target: null,
+  ig_reach_target: null,
 };
 
 const DEFAULT_COMPETITORS = [
@@ -172,6 +176,8 @@ export function SettingsPage() {
         fb_page_url: data.fb_page_url ?? '',
         ig_page_url: data.ig_page_url ?? '',
         default_age_range: data.default_age_range ?? DEFAULT_ORG.default_age_range,
+        ig_follower_target: data.ig_follower_target ?? null,
+        ig_reach_target: data.ig_reach_target ?? null,
       });
     }
     setOrgLoading(false);
@@ -214,6 +220,14 @@ export function SettingsPage() {
 
   function handleOrgChange(key: keyof OrgData, value: string) {
     const updated = { ...org, [key]: value };
+    setOrg(updated);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => saveOrg(updated), 1000);
+  }
+
+  // Numeric variant for the follower/reach targets (CC-P4 Step 4).
+  function handleOrgNumberChange(key: 'ig_follower_target' | 'ig_reach_target', value: string) {
+    const updated = { ...org, [key]: value === '' ? null : parseInt(value) || null };
     setOrg(updated);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => saveOrg(updated), 1000);
@@ -343,6 +357,20 @@ export function SettingsPage() {
                 value={org.ig_page_url}
                 onChange={(e) => handleOrgChange('ig_page_url', e.target.value)}
                 placeholder="https://instagram.com/page"
+              />
+              <Input
+                label="Instagram Follower Target"
+                type="number"
+                value={org.ig_follower_target?.toString() ?? ''}
+                onChange={(e) => handleOrgNumberChange('ig_follower_target', e.target.value)}
+                placeholder="e.g. 10000"
+              />
+              <Input
+                label="Instagram Avg Reach Target"
+                type="number"
+                value={org.ig_reach_target?.toString() ?? ''}
+                onChange={(e) => handleOrgNumberChange('ig_reach_target', e.target.value)}
+                placeholder="e.g. 5000"
               />
               <Input
                 label="Default Age Range"

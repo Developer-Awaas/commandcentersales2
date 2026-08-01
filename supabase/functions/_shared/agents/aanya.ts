@@ -54,6 +54,14 @@ export interface CreativeCopy {
   cta: string
 }
 
+// Diya's per-creative brand verdict (CC-P4 Step 2). Attached to each variant
+// by aarav-orchestrate's applyBrandCheck before the creative reaches the user.
+// 'flag' is advisory — CreativeGrid keeps flagged tiles selectable.
+export interface CreativeBrandCheck {
+  status: 'pass' | 'flag'
+  note?: string
+}
+
 export interface CreativeVariant {
   id: string
   label: string
@@ -62,6 +70,7 @@ export interface CreativeVariant {
   image_url?: string
   copy?: CreativeCopy
   rationale?: string
+  brand_check?: CreativeBrandCheck
 }
 
 export interface RunAanyaInput {

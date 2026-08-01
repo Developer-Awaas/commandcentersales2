@@ -95,7 +95,8 @@ jobs:
             supabase/functions/meta-insights-sync/index.ts \
             supabase/functions/claude-proxy/index.ts \
             supabase/functions/dhruv-anomaly-check/index.ts \
-            supabase/functions/history-retention-sweep/index.ts
+            supabase/functions/history-retention-sweep/index.ts \
+            supabase/functions/dhruv-weekly-report/index.ts
 
   edge-unit-tests:
     name: Edge Function unit tests (no credentials)
