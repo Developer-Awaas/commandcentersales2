@@ -77,13 +77,20 @@ Deno.serve(async (_req: Request): Promise<Response> => {
       })
 
       const title = (dhruv.output as { title?: string }).title ?? "This week's performance report"
-      await supabase.from('notifications').insert({
+      // NOTE: the column is `message`, not `body`. Supabase's .insert<T>() infers
+      // its argument generically, which suppresses excess-property checking, so a
+      // wrong key like `body` slips past `deno check` and silently no-ops at
+      // runtime (returns {error}, never throws). See CLAUDE.md bug #47.
+      const { error: notifErr } = await supabase.from('notifications').insert({
         org_id,
         type: 'weekly_report',
         title: title.slice(0, 200),
-        body: JSON.stringify({ kind: 'weekly_report' }),
+        message: JSON.stringify({ kind: 'weekly_report' }),
         is_read: false,
       })
+      if (notifErr) {
+        console.error(`dhruv-weekly-report: notification insert failed for org ${org_id}:`, notifErr.message)
+      }
 
       results.push({ org_id, wrote_report: true })
     } catch (err) {
