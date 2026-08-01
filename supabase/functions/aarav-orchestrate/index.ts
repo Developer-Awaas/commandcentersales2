@@ -333,13 +333,13 @@ Deno.serve(async (req: Request) => {
   // ── Dhruv (analytics / reporting) turn — detected before other flows ─────
   const dhruvIntent = detectDhruvIntent(message)
   if (dhruvIntent) {
-    return await handleDhruvTurn(message, dhruvIntent, ctx)
+    return await handleDhruvTurn(message, dhruvIntent, ctx, tierCfg.textAgentCostCeilingUsd)
   }
 
   // ── Kavya (content / SMM) turn — detected before campaign flow ───────────
   const kavyaIntent = detectKavyaIntent(message)
   if (kavyaIntent) {
-    return await handleKavyaTurn(message, kavyaIntent, ctx)
+    return await handleKavyaTurn(message, kavyaIntent, ctx, tierCfg.textAgentCostCeilingUsd)
   }
 
   // ── Standard campaign turn (Arjun → Aanya) ───────────────────────────────
@@ -528,6 +528,7 @@ async function handleKavyaTurn(
   message: string,
   intent: KavyaIntent,
   ctx: OrchestrationCtx,
+  costCeilingUsd?: number,
 ): Promise<Response> {
   const { traceId, orgId, userId, adminClient, turnId, projectId } = ctx
 
@@ -545,7 +546,7 @@ async function handleKavyaTurn(
   }).eq('id', turnId)
 
   try {
-    const result = await runKavya({ orgId, projectId, intent, message })
+    const result = await runKavya({ orgId, projectId, intent, message, costCeilingUsd })
     ctx.delegations[0].status = 'done'
 
     await langfuseGeneration(traceId, {
@@ -673,6 +674,7 @@ async function handleDhruvTurn(
   message: string,
   intent: DhruvIntent,
   ctx: OrchestrationCtx,
+  costCeilingUsd?: number,
 ): Promise<Response> {
   const { traceId, orgId, userId, adminClient, turnId, projectId } = ctx
 
@@ -707,7 +709,7 @@ async function handleDhruvTurn(
 
   try {
     const result = await runDhruv({
-      orgId, projectId, intent, message, metricsContext,
+      orgId, projectId, intent, message, metricsContext, costCeilingUsd,
     })
     ctx.delegations[0].status = 'done'
 

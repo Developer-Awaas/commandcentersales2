@@ -22,12 +22,19 @@ export type ProfileTier = 'profile_1' | 'profile_2' | 'profile_3'
 export interface TierConfig {
   // Maximum USD Aanya may spend per runAanya invocation (image gen + critiques).
   aanyaCostCeilingUsd: number
+  // Anti-runaway ceiling for a single text-agent turn (Kavya/Dhruv). Deliberately
+  // GENEROUS, not a tight budget: Kavya's 'plan' intent alone allows 16000
+  // output tokens (~$0.24), so these sit comfortably above the largest single
+  // legitimate call — the guard exists to catch a runaway (a malformed huge
+  // call, a future retry loop), not to constrain normal single calls. Text
+  // agents make one bounded call per turn; the estimate is checked pre-call.
+  textAgentCostCeilingUsd: number
 }
 
 export const TIER_CONFIG: Record<ProfileTier, TierConfig> = {
-  profile_1: { aanyaCostCeilingUsd: 0.85  },
-  profile_2: { aanyaCostCeilingUsd: 3.00  },
-  profile_3: { aanyaCostCeilingUsd: 10.00 },
+  profile_1: { aanyaCostCeilingUsd: 0.85,  textAgentCostCeilingUsd: 0.50 },
+  profile_2: { aanyaCostCeilingUsd: 3.00,  textAgentCostCeilingUsd: 1.00 },
+  profile_3: { aanyaCostCeilingUsd: 10.00, textAgentCostCeilingUsd: 3.00 },
 }
 
 export function getTierConfig(tier: string): TierConfig {

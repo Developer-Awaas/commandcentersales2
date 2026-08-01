@@ -21,6 +21,7 @@
 
 import { loadAgentPrompt } from './prompts.ts'
 import { parseJsonObject }  from './json-extract.ts'
+import { assertWithinTextBudget } from './text-budget.ts'
 import type { MetricsContext } from '../metrics-query.ts'
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
@@ -79,6 +80,8 @@ export interface RunDhruvInput {
   metricsContext: MetricsContext
   // Optional enrichment: project name, month label for reports, etc.
   context?: Record<string, unknown>
+  // CC-P4 Step 5 — anti-runaway ceiling for this turn (USD).
+  costCeilingUsd?: number
 }
 
 export interface RunDhruvResult {
@@ -116,6 +119,9 @@ export async function runDhruv(input: RunDhruvInput): Promise<RunDhruvResult> {
     `metrics_context: ${JSON.stringify(input.metricsContext)}`,
     input.context ? `Additional context: ${JSON.stringify(input.context)}` : null,
   ].filter(Boolean).join('\n\n')
+
+  // Anti-runaway guard (CC-P4 Step 5): abort before spending if over the ceiling.
+  assertWithinTextBudget(input.costCeilingUsd, systemPrompt.length + userPrompt.length, maxTokens)
 
   const res = await fetch(CLAUDE_API_URL, {
     method: 'POST',
