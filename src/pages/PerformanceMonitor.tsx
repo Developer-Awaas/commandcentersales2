@@ -14,16 +14,12 @@ import { Spinner } from '../components/ui/Spinner';
 import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
+import { minutesSince, shouldAutoSync } from '../lib/monitor-freshness';
 
 const RANGE_DAYS = 7;
 const STALE_MINUTES = 60;
 
 interface Project { id: string; name: string; }
-
-function minutesSince(iso: string | null): number | null {
-  if (!iso) return null;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-}
 
 function rowToMetrics(rows: CampaignMetricRow[]): AdMetrics {
   // Aggregate a campaign's rows in the window into one metrics object for analysis.
@@ -82,10 +78,8 @@ export function PerformanceMonitor() {
     let cancelled = false;
     (async () => {
       const { conn, metrics } = await load();
-      if (cancelled || !conn.connected || syncing) return;
-      const lastSyncMins = minutesSince(conn.lastSyncAt ?? null);
-      const stale = lastSyncMins === null || lastSyncMins > STALE_MINUTES;
-      if (metrics.length === 0 || stale) {
+      if (cancelled || syncing) return;
+      if (shouldAutoSync({ connected: conn.connected, lastSyncAt: conn.lastSyncAt ?? null, hasRows: metrics.length > 0, staleMinutes: STALE_MINUTES })) {
         await handleSync();
       }
     })();

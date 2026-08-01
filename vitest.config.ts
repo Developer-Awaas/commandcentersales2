@@ -19,6 +19,8 @@ export default defineConfig({
       'src/lib/gemini-service.test.ts',
       'src/components/generation/StrategyGenerator.test.tsx',
       'src/pages/CampaignWizard.test.tsx',
+      'src/lib/providers.test.ts',
+      'src/lib/monitor-freshness.test.ts',
     ],
   },
 });
