@@ -17,7 +17,7 @@ import { Strategy } from './pages/Strategy';
 import { AdConfig } from './pages/AdConfig';
 import { Creatives } from './pages/Creatives';
 import { AdReview } from './pages/AdReview';
-import { Analyzer } from './pages/Analyzer';
+import { PerformanceMonitor } from './pages/PerformanceMonitor';
 import { Organic } from './pages/Organic';
 import { Notifications } from './pages/Notifications';
 import { Reports } from './pages/Reports';
@@ -67,7 +67,7 @@ function PageContent({ page, profile, wizardActive, onWizardEnd, onWizardStart }
     case 'ad-config': return <AdConfig />;
     case 'creatives': return <Creatives />;
     case 'ad-review': return <AdReview />;
-    case 'analyzer': return <Analyzer />;
+    case 'analyzer': return <PerformanceMonitor />;
     case 'organic': return <Organic />;
     case 'notifications': return <Notifications />;
     case 'reports': return <Reports />;

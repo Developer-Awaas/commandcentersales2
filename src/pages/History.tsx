@@ -8,16 +8,18 @@ import {
 import { Card } from '../components/ui/Card';
 import { Spinner } from '../components/ui/Spinner';
 
-const ADS_TOOLS: ToolOutputTool[] = ['strategy', 'ad_config', 'ad_creatives', 'ad_review'];
-const SOCIAL_TOOLS: ToolOutputTool[] = ['smm_planner', 'smm_creatives'];
+const ADS_TOOLS: ToolOutputTool[] = ['strategy', 'ad_config', 'ad_creatives', 'ad_review', 'performance'];
+const SOCIAL_TOOLS: ToolOutputTool[] = ['smm_planner', 'smm_creatives', 'smm_analysis'];
 
 const TOOL_LABELS: Record<ToolOutputTool, string> = {
   strategy: 'Strategy',
   ad_config: 'Ad Config',
   ad_creatives: 'Ad Creatives',
   ad_review: 'Ad Review',
+  performance: 'Performance',
   smm_planner: 'SMM Planner',
   smm_creatives: 'SMM Creatives',
+  smm_analysis: 'SMM Analysis',
 };
 
 function formatDate(iso: string): string {

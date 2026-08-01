@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 
 export type ToolOutputDomain = 'ads' | 'social';
-export type ToolOutputTool = 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives';
+export type ToolOutputTool = 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis';
 export type ToolOutputStatus = 'saved' | 'in_progress' | 'completed';
 
 export interface AssetRef {
@@ -129,8 +129,10 @@ const JOURNEY_TOOL_ORDER: Record<ToolOutputTool, number> = {
   ad_config: 1,
   ad_creatives: 2,
   ad_review: 3,
+  performance: 4,
   smm_planner: 0,
   smm_creatives: 1,
+  smm_analysis: 2,
 };
 
 export async function getCampaignJourney(campaignId: string): Promise<CampaignJourney> {

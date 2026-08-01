@@ -59,7 +59,7 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-config', label: 'Ad Config', icon: Target },
   { id: 'creatives', label: 'Ad Creatives', icon: Palette },
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
-  { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
+  { id: 'analyzer', label: 'Performance Monitor', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
   { id: 'history-ads', label: 'History', icon: History },
   ...(LEADGEN_V2_ENABLED ? [{ id: 'leadgen-v2', label: 'Aarav Agent ✦', icon: Bot }] : []),
