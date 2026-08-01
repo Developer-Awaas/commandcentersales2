@@ -376,10 +376,6 @@ export async function linkCreativeToMetrics(args: {
     return { success: false, performance_score: 0, message: 'Project not found.' };
   }
 
-  const days = Math.ceil(
-    (new Date(args.period_end).getTime() - new Date(args.period_start).getTime()) / (1000 * 60 * 60 * 24)
-  );
-
   // Insert performance record
   const { error } = await supabase
     .from('creative_performance')
@@ -402,7 +398,6 @@ export async function linkCreativeToMetrics(args: {
       design_dna_snapshot: args.design_dna_snapshot,
       period_start: args.period_start,
       period_end: args.period_end,
-      days_active: days,
     });
 
   if (error) {
