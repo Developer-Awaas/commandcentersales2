@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { listToolOutputs, deleteToolOutput, type ToolOutput } from '../lib/history-service';
 import { SingleStageView, formatDate } from '../components/history/JourneyViews';
+import { filterLibraryItems, libraryCounts, type LibrarySource } from '../lib/content-library-filter';
 import { useNavigation } from '../contexts/NavigationContext';
 import { useToast } from '../contexts/ToastContext';
 
@@ -14,7 +15,7 @@ const C = {
 };
 
 // Source filter — the prominent, primary Content Library filter (CC-P5 Step 2).
-type Source = 'all' | 'planner' | 'creatives' | 'calendar';
+type Source = LibrarySource;
 const SOURCE_TABS: { value: Source; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'planner', label: 'Planner' },
@@ -114,21 +115,8 @@ export default function ContentLibrary() {
     setLoading(false);
   };
 
-  const counts = {
-    all: items.length,
-    planner: items.filter(i => i.source === 'planner').length,
-    creatives: items.filter(i => i.source === 'creatives').length,
-    calendar: items.filter(i => i.source === 'calendar').length,
-  };
-
-  const filtered = items.filter(i => {
-    if (source !== 'all' && i.source !== source) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!(i.title.toLowerCase().includes(q) || i.subtitle.toLowerCase().includes(q))) return false;
-    }
-    return true;
-  });
+  const counts = libraryCounts(items);
+  const filtered = filterLibraryItems(items, source, search);
 
   const removeItem = async (item: UnifiedItem) => {
     try {
