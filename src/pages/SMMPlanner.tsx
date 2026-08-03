@@ -3,6 +3,7 @@ import { ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download,
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { getSocialMetricsProvider } from '../lib/providers';
+import { saveToolOutput } from '../lib/history-service';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildSMMPlannerPrompt, buildScreenshotExtractionPrompt } from '../lib/smm-prompts';
 import { generateSMMPlanPDF } from '../lib/pdf-generator';
@@ -339,8 +340,14 @@ export default function SMMPlanner() {
     if (pendingPosts.length === 0) return;
     setSaving(true);
     try {
+      // Resolve the selected project → its id (selectedProjects holds NAMES).
+      // Only when exactly one project is selected is the association unambiguous.
+      const selProjectRows = projects.filter(p => selectedProjects.includes(p.name || p['Project Name']));
+      const projectId = selProjectRows.length === 1 ? selProjectRows[0].id : null;
+
       const entries = pendingPosts.map(p => ({
         org_id: getOrgId(),
+        project_id: projectId,
         post_date: p.date,
         post_time: p.time || null,
         platform: normalizePlatform(p.platform),
@@ -361,6 +368,33 @@ export default function SMMPlanner() {
         setSaving(false);
         return;
       }
+
+      // History: also record the plan as a tool_outputs row (calendar stays the
+      // operational store; tool_outputs is the durable history/journey record).
+      // Best-effort — a history failure must never fail the calendar save.
+      try {
+        await saveToolOutput({
+          orgId: getOrgId(),
+          domain: 'social',
+          tool: 'smm_planner',
+          campaignId: null,
+          payload: {
+            plan: result ?? null,
+            plan_type: planType,
+            goal,
+            duration,
+            start_date: startDate,
+            end_date: endDate,
+            projects: selectedProjects,
+            project_id: projectId,
+            post_count: entries.length,
+          },
+          status: 'saved',
+        });
+      } catch (histErr) {
+        console.error('[SMM] tool_outputs (smm_planner) save failed (non-fatal):', histErr);
+      }
+
       setSaved(true);
       showToast(`Saved ${entries.length} post${entries.length === 1 ? '' : 's'} to calendar`, 'success');
     } catch (err) {

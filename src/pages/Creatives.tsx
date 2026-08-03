@@ -427,6 +427,7 @@ export function Creatives() {
         primary_text: variant.primaryText,
         primary_text_odia: variant.odiaText,
         headline: variant.headline,
+        description: variant.description,
         cta: variant.cta,
         nano_prompt: variant.nanoPrompt,
         nano_prompt_story: variant.nanoStory,

@@ -995,6 +995,7 @@ export interface Database {
           nano_prompt: string | null
           reel_script: string | null
           status: 'planned' | 'created' | 'posted' | 'skipped'
+          project_id: string | null
           created_at: string
         }
         Insert: {
@@ -1012,6 +1013,7 @@ export interface Database {
           nano_prompt?: string | null
           reel_script?: string | null
           status?: 'planned' | 'created' | 'posted' | 'skipped'
+          project_id?: string | null
           created_at?: string
         }
         Update: {
@@ -1029,6 +1031,7 @@ export interface Database {
           nano_prompt?: string | null
           reel_script?: string | null
           status?: 'planned' | 'created' | 'posted' | 'skipped'
+          project_id?: string | null
           created_at?: string
         }
         Relationships: Rel[]
@@ -1252,6 +1255,7 @@ export interface Database {
           retirement_reason: string | null
           design_dna_tags: Json
           cta: string | null
+          description: string | null
           senior_designer_brief: Json
           reference_image_manifest: Json
           languages: string[] | null
@@ -1281,6 +1285,7 @@ export interface Database {
           retirement_reason?: string | null
           design_dna_tags?: Json
           cta?: string | null
+          description?: string | null
           senior_designer_brief?: Json
           reference_image_manifest?: Json
           languages?: string[] | null
@@ -1310,6 +1315,7 @@ export interface Database {
           retirement_reason?: string | null
           design_dna_tags?: Json
           cta?: string | null
+          description?: string | null
           senior_designer_brief?: Json
           reference_image_manifest?: Json
           languages?: string[] | null
