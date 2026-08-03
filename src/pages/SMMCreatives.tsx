@@ -84,7 +84,6 @@ export default function SMMCreatives() {
       hashtags: result.hashtags || [],
       nano_prompt: result.nanoPrompt || '',
       reel_script: result.reelScript || '',
-      project_id: projects.find(p => (p.name || p['Project Name']) === project)?.id || null,
       status: 'planned',
     });
     showToast('Saved to Content Library!', 'success');
