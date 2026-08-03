@@ -3,6 +3,8 @@ import { RefreshCw, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
+import { generateImageWithGemini } from '../lib/gemini-service';
+import { saveToolOutput, type AssetRef } from '../lib/history-service';
 import { buildSMMCreativePrompt } from '../lib/smm-prompts';
 import { resolveGenerationErrorMessage } from '../lib/smm-generation-error';
 import { useToast } from '../contexts/ToastContext';
@@ -43,6 +45,8 @@ export default function SMMCreatives() {
   const [result, setResult] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
+  const [savingLib, setSavingLib] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId()).then(({ data }) => setProjects(data || []));
@@ -52,6 +56,7 @@ export default function SMMCreatives() {
   const generate = async () => {
     if (!isAiEnabled()) { showToast('AI features are currently unavailable', 'info'); return; }
     if (!description) { showToast('Describe what you want to create', 'info'); return; }
+    setImageUrl(null);
     setLoading(true);
     startGeneration('Generating creative…');
     try {
@@ -69,24 +74,101 @@ export default function SMMCreatives() {
     setLoading(false);
   };
 
+  // Decode a raw base64 image and upload it to storage under an SMM-specific
+  // path (NOT a creative_assets row — that table is ads-creative-specific).
+  // Returns the storage path, or null on failure.
+  const uploadSmmImage = async (base64: string, mimeType: string): Promise<string | null> => {
+    try {
+      const byteString = atob(base64);
+      const ia = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+      const ext = mimeType.split('/')[1] ?? 'png';
+      const path = `smm-creatives/${getOrgId() || 'shared'}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage
+        .from('brand-assets')
+        .upload(path, new Blob([ia], { type: mimeType }), { contentType: mimeType, upsert: true });
+      if (error) { console.error('[SMM Creatives] upload failed:', error.message); return null; }
+      return path;
+    } catch (e) {
+      console.error('[SMM Creatives] upload error:', e);
+      return null;
+    }
+  };
+
   const saveToLibrary = async () => {
     if (!result || result.raw) return;
-    await supabase.from('smm_calendar').insert({
-      org_id: getOrgId(),
-      post_date: new Date().toISOString().split('T')[0],
-      post_time: result.bestTime || '',
-      platform: result.bestPlatform || 'both',
-      post_type: result.postType || 'static',
-      category: type,
-      topic: result.concept || description,
-      caption_en: result.captionEn || '',
-      caption_od: result.captionOd || '',
-      hashtags: result.hashtags || [],
-      nano_prompt: result.nanoPrompt || '',
-      reel_script: result.reelScript || '',
-      status: 'planned',
-    });
-    showToast('Saved to Content Library!', 'success');
+    setSavingLib(true);
+    try {
+      const projectId = projects.find(p => (p.name || p['Project Name']) === project)?.id || null;
+
+      // Generate + upload ONE creative image from the AI's image prompt so the
+      // saved creative carries a real asset (asset_refs). MOCK_AI-gated inside
+      // generateImageWithGemini; single image only (respects the real-image-call
+      // discipline). Best-effort — a gen/upload failure still saves the text.
+      const assetRefs: AssetRef[] = [];
+      if (result.nanoPrompt) {
+        try {
+          const imgs = await generateImageWithGemini(result.nanoPrompt, '1:1');
+          if (imgs[0]) {
+            const path = await uploadSmmImage(imgs[0].base64, imgs[0].mimeType);
+            if (path) {
+              assetRefs.push({ bucket: 'brand-assets', path });
+              const { data } = supabase.storage.from('brand-assets').getPublicUrl(path);
+              setImageUrl(data.publicUrl);
+            }
+          }
+        } catch (imgErr) {
+          console.error('[SMM Creatives] image gen/upload failed (non-fatal):', imgErr);
+        }
+      }
+
+      // post_time is a `time` column — only pass a value that looks like HH:MM,
+      // otherwise null (the AI's bestTime is often prose like "6:00 PM evening").
+      const bestTime = typeof result.bestTime === 'string' && /^\d{1,2}:\d{2}$/.test(result.bestTime)
+        ? result.bestTime : null;
+
+      const { error } = await supabase.from('smm_calendar').insert({
+        org_id: getOrgId(),
+        project_id: projectId,
+        post_date: new Date().toISOString().split('T')[0],
+        post_time: bestTime,
+        platform: result.bestPlatform || 'both',
+        post_type: result.postType || 'static',
+        category: type,
+        topic: result.concept || description,
+        caption_en: result.captionEn || '',
+        caption_od: result.captionOd || '',
+        hashtags: result.hashtags || [],
+        nano_prompt: result.nanoPrompt || '',
+        reel_script: result.reelScript || '',
+        status: 'planned',
+      });
+      if (error) {
+        console.error('[SMM Creatives] calendar save failed:', error);
+        showToast('Failed to save. Try again.', 'error');
+        return;
+      }
+
+      // History: durable tool_outputs record with the generated asset ref(s).
+      // Best-effort — a history failure must never fail the calendar save.
+      try {
+        await saveToolOutput({
+          orgId: getOrgId(),
+          domain: 'social',
+          tool: 'smm_creatives',
+          campaignId: null,
+          payload: { creative: result, creative_type: type, project: project || null, project_id: projectId },
+          assetRefs,
+          status: 'saved',
+        });
+      } catch (histErr) {
+        console.error('[SMM Creatives] tool_outputs (smm_creatives) save failed (non-fatal):', histErr);
+      }
+
+      showToast('Saved to Content Library!', 'success');
+    } finally {
+      setSavingLib(false);
+    }
   };
 
   const copy = (text: string) => {
@@ -175,10 +257,16 @@ export default function SMMCreatives() {
                   {result.bestTime && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: C.yellow + '20', color: C.yellow }}>{result.bestTime}</span>}
                 </div>
               </div>
-              <button onClick={saveToLibrary} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: C.accent + '15', color: C.accent, border: '1px solid ' + C.accent }}>
-                Save to Library
+              <button onClick={saveToLibrary} disabled={savingLib} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, cursor: savingLib ? 'default' : 'pointer', background: C.accent + '15', color: C.accent, border: '1px solid ' + C.accent, opacity: savingLib ? 0.6 : 1 }}>
+                {savingLib ? 'Saving…' : 'Save to Library'}
               </button>
             </div>
+
+            {imageUrl && (
+              <div style={{ marginBottom: 12 }}>
+                <img src={imageUrl} alt="Generated creative" style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid ' + C.border, display: 'block' }} />
+              </div>
+            )}
 
             {result.engagementHook && (
               <div style={{ background: C.accent + '10', border: '1px solid ' + C.accent + '30', borderRadius: 8, padding: 10, marginBottom: 12 }}>

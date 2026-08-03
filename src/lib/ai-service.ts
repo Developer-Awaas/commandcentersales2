@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { ADMIN_EMAIL } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
+import { isValidReferenceAnalysis, sanitizePalette, type ReferenceAnalysis } from './reference-style';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_SYSTEM =
@@ -452,6 +453,63 @@ export async function describeImageForFlux(
     return text || null;
   } catch (err) {
     logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
+    return null;
+  }
+}
+
+/**
+ * Extract STYLE ONLY from a reference image (CC-P5 Step 4): palette + layout
+ * structure + text treatment. HARD RULE (in the prompt AND enforced downstream
+ * by buildReferenceStyleBlock): no subject/content carry-over — the reference
+ * informs style, never what the output depicts. Cheapest vision tier (Haiku).
+ * Returns null on any failure so callers fall back to a reference-free prompt.
+ */
+export async function analyzeReferenceStyle(
+  image: string | { base64: string; mimeType: string }
+): Promise<ReferenceAnalysis | null> {
+  if (MOCK_AI_ENABLED) {
+    return {
+      palette: ['#0A2540', '#F5F5F5', '#C9A24B'],
+      layout: 'Full-bleed hero image across the top two-thirds; a solid colour band across the bottom third carries the headline and price, small logo top-left.',
+      text_treatment: 'Bold uppercase sans-serif headline, oversized price in the accent colour, thin all-caps CTA; strong left-aligned size hierarchy.',
+    };
+  }
+
+  const imageSource = typeof image === 'string'
+    ? { type: 'url' as const, url: image }
+    : { type: 'base64' as const, media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: image.base64 };
+
+  try {
+    const outcome = await callClaudeProxyStream({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: imageSource },
+          {
+            type: 'text',
+            text: 'Analyze ONLY the visual STYLE of this real-estate ad reference. Return STRICT JSON with exactly these keys: {"palette": ["#rrggbb", ...] (3-6 dominant hex colours), "layout": "1-2 sentences on where text vs. imagery sits (the layout zones/structure)", "text_treatment": "1-2 sentences on typography — weight, case, size hierarchy, copy placement"}. HARD RULE: describe STYLE ONLY. Do NOT describe, name, or reference the subject, building, people, location, or any specific content of the image. Output ONLY the JSON object, no preamble.',
+          },
+        ],
+      }],
+    });
+
+    if (!outcome.ok) {
+      logToLangfuse('claude-vision-reference-style', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: outcome.error });
+      return null;
+    }
+    const parsed = extractJson(outcome.result.text);
+    logToLangfuse('claude-vision-reference-style', {
+      output: JSON.stringify(parsed),
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: outcome.result.inputTokens,
+      outputTokens: outcome.result.outputTokens,
+    });
+    if (!isValidReferenceAnalysis(parsed)) return null;
+    return { ...parsed, palette: sanitizePalette(parsed.palette) };
+  } catch (err) {
+    logToLangfuse('claude-vision-reference-style', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
     return null;
   }
 }

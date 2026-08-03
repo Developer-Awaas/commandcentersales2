@@ -21,6 +21,7 @@ import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
 import { useNavigation } from '../contexts/NavigationContext';
 import { AiSessionDetail } from '../components/AiSessionDetail';
+import { DashboardCalendar } from '../components/dashboard/DashboardCalendar';
 import { useChatbot } from '../contexts/ChatbotContext';
 
 interface Project {
@@ -291,6 +292,8 @@ export function Dashboard() {
       </div>
 
       <WeeklyPerformanceCard />
+
+      <DashboardCalendar />
 
       {/* Section summary cards */}
       <div className="grid grid-cols-2 gap-4 mb-6">

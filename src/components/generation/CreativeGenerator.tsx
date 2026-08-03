@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, RefreshCw } from 'lucide-react';
+import { Check, RefreshCw, ImagePlus, X } from 'lucide-react';
 import { getOrgId } from '../../lib/constants';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
+import { analyzeReferenceStyle, describeImageForFlux } from '../../lib/ai-service';
+import { getMediaProvider } from '../../lib/providers';
+import { buildReferenceStyleBlock, type ReferenceAnalysis } from '../../lib/reference-style';
+import { supabase } from '../../lib/supabase';
 import { SINGLE_IMAGE_TESTING_MODE } from '../../lib/feature-flags';
 import { saveToolOutput, type AssetRef } from '../../lib/history-service';
 import { useGenerationLock } from '../../hooks/useGenerationLock';
@@ -10,6 +14,17 @@ import type { SeniorDesignerResult } from '../../pages/strategy/types';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Spinner } from '../ui/Spinner';
+
+const MAX_REF_BYTES = 5 * 1024 * 1024; // 5 MB cap on the reference image
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '');
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
 
 interface GeneratedSlot {
   label: string;
@@ -53,7 +68,87 @@ export function CreativeGenerator({ data, campaignId, strategyOutputId, projectI
   const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const { showToast } = useToast();
 
-  async function generate() {
+  // Optional reference image (CC-P5 Step 4) — structure/palette/text-treatment
+  // only, never subject. Attached AFTER the initial auto-generation; the user
+  // then hits "Regenerate with reference".
+  const [refFile, setRefFile] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
+  const [refAnalysis, setRefAnalysis] = useState<ReferenceAnalysis | null>(null);
+  const [refPath, setRefPath] = useState<string | null>(null);
+  const [refBusy, setRefBusy] = useState(false);
+
+  async function onRefSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('Please select an image file.', 'error'); return; }
+    if (file.size > MAX_REF_BYTES) { showToast('Reference image must be under 5 MB.', 'error'); return; }
+    const base64 = await readAsBase64(file);
+    setRefFile({ base64, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
+    setRefAnalysis(null); // re-analyze for a new image
+    setRefPath(null);
+  }
+
+  function removeRef() {
+    setRefFile(null);
+    setRefAnalysis(null);
+    setRefPath(null);
+  }
+
+  // Upload the reference to the org-scoped quick-references bucket (once).
+  async function uploadReference(f: { base64: string; mimeType: string }): Promise<string | null> {
+    try {
+      const bytes = atob(f.base64);
+      const ia = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) ia[i] = bytes.charCodeAt(i);
+      const ext = f.mimeType.split('/')[1] ?? 'png';
+      const path = `${getOrgId() || 'shared'}/creativegen_${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from('quick-references')
+        .upload(path, new Blob([ia], { type: f.mimeType }), { contentType: f.mimeType, upsert: true });
+      if (error) { console.error('[CreativeGenerator] reference upload failed:', error.message); return null; }
+      return path;
+    } catch (e) {
+      console.error('[CreativeGenerator] reference upload error:', e);
+      return null;
+    }
+  }
+
+  // Compose the STYLE REFERENCE block: analyze the reference (Haiku vision,
+  // style-only) + this project's own media descriptions + logo. Returns null if
+  // there's no reference or analysis fails (→ generate without it). Also uploads
+  // the reference + records refAnalysis/refPath for persistence.
+  async function buildReferenceBlock(): Promise<string | null> {
+    if (!refFile) return null;
+    setRefBusy(true);
+    try {
+      let analysis = refAnalysis;
+      if (!analysis) {
+        analysis = await analyzeReferenceStyle({ base64: refFile.base64, mimeType: refFile.mimeType });
+        if (!analysis) { showToast('Could not read the reference style — generating without it.', 'info'); return null; }
+        setRefAnalysis(analysis);
+      }
+      if (!refPath) {
+        const path = await uploadReference(refFile);
+        if (path) setRefPath(path);
+      }
+      const descriptions: string[] = [];
+      if (projectId) {
+        try {
+          const media = await getMediaProvider().listProjectMedia(getOrgId(), projectId, { primaryFirst: true });
+          for (const m of media.slice(0, 3)) {
+            const desc = m.visual_description || (await describeImageForFlux(m.asset_url));
+            if (desc) descriptions.push(desc);
+          }
+        } catch (e) {
+          console.error('[CreativeGenerator] project media enrich failed:', e);
+        }
+      }
+      const logo = await getMediaProvider().getLogo(getOrgId()).catch(() => null);
+      return buildReferenceStyleBlock(analysis, descriptions, logo);
+    } finally {
+      setRefBusy(false);
+    }
+  }
+
+  async function generate(withReference = false) {
     if (!data.nanobanana_prompt_main) return;
     setGenerating(true);
     startGeneration('Generating creatives…');
@@ -63,9 +158,12 @@ export function CreativeGenerator({ data, campaignId, strategyOutputId, projectI
     sessionIdRef.current = crypto.randomUUID();
 
     try {
-      const promptFeed = data.nanobanana_prompt_main ?? '';
-      const promptPortrait = data.nanobanana_prompt_portrait ?? promptFeed;
-      const promptStory = data.nanobanana_prompt_story ?? promptFeed;
+      const refBlock = withReference ? await buildReferenceBlock() : null;
+      const append = refBlock ? `\n\n${refBlock}` : '';
+      const base = data.nanobanana_prompt_main ?? '';
+      const promptFeed = base + append;
+      const promptPortrait = (data.nanobanana_prompt_portrait ?? base) + append;
+      const promptStory = (data.nanobanana_prompt_story ?? base) + append;
 
       const [feedResult, portraitResult, storyResult] = await Promise.allSettled([
         generateImageWithGemini(promptFeed, '1:1'),
@@ -135,7 +233,15 @@ export function CreativeGenerator({ data, campaignId, strategyOutputId, projectI
         domain: 'ads',
         tool: 'ad_creatives',
         campaignId: campaignId ?? null,
-        payload: { session_id: sessionIdRef.current, strategy_output_id: strategyOutputId ?? null, slots: slots.map((s) => ({ angle: s.angleLabel, url: s.url, id: s.id })) },
+        payload: {
+          session_id: sessionIdRef.current,
+          strategy_output_id: strategyOutputId ?? null,
+          slots: slots.map((s) => ({ angle: s.angleLabel, url: s.url, id: s.id })),
+          // Reproducibility (CC-P5 Step 4): the exact style extraction + the
+          // reference's storage path, when a reference informed this batch.
+          ...(refAnalysis ? { reference_analysis: refAnalysis } : {}),
+          ...(refPath ? { reference_path: refPath } : {}),
+        },
         assetRefs,
         status: 'saved',
       });
@@ -167,7 +273,7 @@ export function CreativeGenerator({ data, campaignId, strategyOutputId, projectI
     return (
       <Card className="p-6 flex flex-col gap-3">
         <p className="text-sm text-red-400">{error}</p>
-        <Button onClick={generate} variant="ghost" className="w-fit">
+        <Button onClick={() => generate(false)} variant="ghost" className="w-fit">
           <RefreshCw size={14} />Retry
         </Button>
       </Card>
@@ -184,6 +290,46 @@ export function CreativeGenerator({ data, campaignId, strategyOutputId, projectI
           </div>
         ))}
       </div>
+
+      {/* Optional reference image — style/palette/layout only (CC-P5 Step 4) */}
+      <div className="rounded-lg border border-border bg-surface-elevated p-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-text-secondary">Reference image (optional)</span>
+          <span className="text-[10px] text-text-tertiary">style, palette &amp; layout only — not its subject</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {refFile ? (
+            <div className="relative">
+              <img src={refFile.previewUrl} alt="Reference" className="w-16 h-16 rounded-md object-cover border border-border" />
+              <button onClick={removeRef} className="absolute -top-1.5 -right-1.5 bg-surface border border-border rounded-full p-0.5 text-text-tertiary hover:text-red-400" aria-label="Remove reference">
+                <X size={11} />
+              </button>
+            </div>
+          ) : (
+            <label className="flex items-center gap-2 text-xs text-brand cursor-pointer hover:underline">
+              <ImagePlus size={15} /> Attach reference
+              <input type="file" accept="image/*" className="hidden" onChange={onRefSelect} />
+            </label>
+          )}
+          <Button
+            onClick={() => generate(true)}
+            disabled={!refFile || generating || refBusy}
+            variant="ghost"
+            className="ml-auto w-fit"
+          >
+            {refBusy || generating ? <Spinner size="sm" /> : <><RefreshCw size={14} />Regenerate with reference</>}
+          </Button>
+        </div>
+        {refAnalysis && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-text-tertiary">Palette:</span>
+            {refAnalysis.palette.map((c) => (
+              <span key={c} className="inline-block w-3.5 h-3.5 rounded-sm border border-border" style={{ background: c }} title={c} />
+            ))}
+          </div>
+        )}
+      </div>
+
       <Button onClick={handleSaveCreatives} disabled={saved || saving} className="w-full">
         {saved ? <><Check size={15} />Creatives Saved</> : saving ? <Spinner size="sm" /> : 'Save Creatives'}
       </Button>

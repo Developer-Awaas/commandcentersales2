@@ -21,6 +21,9 @@ export default defineConfig({
       'src/pages/CampaignWizard.test.tsx',
       'src/lib/providers.test.ts',
       'src/lib/monitor-freshness.test.ts',
+      'src/lib/reference-style.test.ts',
+      'src/lib/calendar-agenda.test.ts',
+      'src/lib/content-library-filter.test.ts',
     ],
   },
 });
