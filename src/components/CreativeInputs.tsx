@@ -21,6 +21,7 @@ export interface QuickReferenceUpload {
 }
 
 const QUICK_REF_ROLES = [
+  { value: 'replicate_creative', label: 'Replicate this creative’s layout', hint: 'Copy this ad’s layout & typography, using the project’s hero image as the building' },
   { value: 'logo', label: 'Logo (use exactly)', hint: 'Place this logo in the creative as-is' },
   { value: 'project_image', label: 'Project image', hint: 'Use as the building/project hero' },
   { value: 'lifestyle_mood', label: 'Lifestyle/mood reference', hint: 'Inspiration only — use mood and palette, not exact elements' },

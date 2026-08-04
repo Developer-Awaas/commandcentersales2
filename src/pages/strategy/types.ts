@@ -228,6 +228,11 @@ export type StrategyResult =
       // StrategyResult.tsx's handleGenerateWithGemini to switch all 3 image
       // slots to edit-mode instead of from-scratch generation.
       heroImages?: import('../../lib/gemini-service').HeroImageRef[];
+      // Replicate-an-ad-creative mode: set when a quick-ref was marked
+      // 'replicate_creative' and the project has a hero. StrategyResult then
+      // generates ONE image at this aspect (the reference creative's own
+      // aspect) using buildReplicatePrompt + the hero-image edit wire.
+      replicateAspect?: '1:1' | '4:5' | '9:16';
     }
   | {
       type: 'full';

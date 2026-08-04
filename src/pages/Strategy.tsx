@@ -9,6 +9,7 @@ import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
 import { buildQuickGenerateBrief, runTwoStageQuickGenerate } from '../lib/senior-designer-prompts';
+import { aspectFromBase64, type RefAspect } from '../lib/reference-edit';
 import { projectAssetRoleHint } from '../components/ProjectMediaPicker';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
@@ -441,6 +442,35 @@ export function Strategy() {
           }
         }
 
+        // Replicate-an-ad-creative mode: an uploaded quick-ref marked with the
+        // 'replicate_creative' role becomes the LAYOUT to copy, with the
+        // project's hero_exterior photo as the building subject. Reuses the
+        // exact hero-image wire (heroImage=reference creative, supportingImages
+        // =[project hero]); only the prompt wrapper + single-aspect output
+        // differ (handled in StrategyResult). Overrides any hero selection.
+        let replicateAspect: RefAspect | undefined;
+        const replicateRef = quickInputs.quickRefs.find((r) => r.role_hint === 'replicate_creative');
+        if (replicateRef && quickInputs.projectId && quickInputs.projectId !== 'custom') {
+          const { data: heroRow } = await supabase
+            .from('project_assets')
+            .select('asset_url')
+            .eq('project_id', quickInputs.projectId)
+            .eq('asset_type', 'hero_exterior')
+            .order('is_primary', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const heroUrl = (heroRow as { asset_url?: string } | null)?.asset_url;
+          if (heroUrl) {
+            replicateAspect = await aspectFromBase64(replicateRef.base64, replicateRef.mimeType);
+            heroImages = [
+              { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
+              { url: heroUrl },
+            ];
+          } else {
+            showToast('No hero image on this project — generating normally. Add a hero image in Projects → Media to replicate the uploaded creative.', 'info');
+          }
+        }
+
         console.log('🎨 [AANYA] Starting two-stage generation (concept+copy, then 3 parallel layout prompts)...');
 
         const rawResponse = await runTwoStageQuickGenerate({
@@ -464,7 +494,9 @@ export function Strategy() {
           languages: quickInputs.languages,
           quick_references: allRefs,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
-        }, { traceNamePrefix: 'strategy-quick-generate' });
+        }, replicateAspect
+          ? { traceNamePrefix: 'strategy-quick-generate', layouts: ['main'] }
+          : { traceNamePrefix: 'strategy-quick-generate' });
 
         console.log('🎨 [DIAGNOSTIC] AI raw response type:', typeof rawResponse);
         console.log('🎨 [DIAGNOSTIC] AI response keys:', Object.keys(rawResponse));
@@ -553,7 +585,7 @@ export function Strategy() {
 
         if (updatePricesInDb) await savePriceUpdates();
 
-        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages });
+        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages, replicateAspect });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';
       showToast('Generation failed. Check console.', 'error');
