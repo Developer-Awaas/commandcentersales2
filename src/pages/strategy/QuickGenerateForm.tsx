@@ -207,6 +207,9 @@ export function QuickGenerateForm({
         {inputs.heroRefKey && (
           <p className="text-xs text-amber-400 -mt-2">★ Hero image marked — the generated creative will be this exact photo, enhanced (quality/mood only), not a reimagined scene.</p>
         )}
+        {inputs.quickRefs.some((r) => r.role_hint === 'replicate_creative') && (
+          <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — Aanya copies the uploaded ad's layout &amp; typography, swapping in this project's hero image as the building. Produces one image at the reference's aspect ratio. Needs a hero image on the project.</p>
+        )}
       </Card>
 
       {/* Competitor Analysis */}

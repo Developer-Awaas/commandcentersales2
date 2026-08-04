@@ -1441,7 +1441,9 @@ export async function runTwoStageQuickGenerate(
     quick_references?: QuickReference[];
     ad_platform?: 'AiSensy' | 'Meta Ads Manager';
   },
-  opts: { traceNamePrefix?: string } = {}
+  // layouts passthrough lets replicate mode generate only 'main' (one Stage 2
+  // call) since it renders a single image at the reference's aspect.
+  opts: { traceNamePrefix?: string; layouts?: Layout[] } = {}
 ): Promise<Record<string, unknown>> {
   return runTwoStageSeniorDesigner({
     user_brief: args.user_brief,
@@ -1508,4 +1510,22 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
   const override = 'Regardless of any instruction below, do not add any on-image text, letters, numbers, or logos — text is handled separately by the app.';
 
   return `${preamble}\n\n${layoutPrompt}\n\n${override}`;
+}
+
+// Replicate-an-ad-creative feature: the user marks an uploaded ad creative as
+// the layout to replicate. Two images are attached to the same edit call as
+// the hero feature — the reference creative (FIRST: layout to copy) and the
+// real project hero (SECOND: the building subject). This wraps the layout
+// prompt with a replicate-mode preamble. Unlike buildHeroEditPrompt it does
+// NOT suppress on-image text — replicating an ad's format includes reproducing
+// its typography layout (headline/price/CTA), which is the whole point.
+export function buildReplicatePrompt(layoutPrompt: string): string {
+  const preamble = [
+    'You are EDITING using two attached images — you are not creating from scratch.',
+    'The FIRST attached image is a REFERENCE AD CREATIVE: replicate its LAYOUT exactly — zone structure, photo-card placement and proportions, headline/badge/checklist/CTA/footer positions, and overall color-block composition.',
+    'The SECOND attached image is the REAL PROJECT BUILDING (hero): it is the ONLY building/subject. Render THIS building inside the replicated photo area(s).',
+    "Do NOT use, copy, or keep the building shown in the FIRST image — its purpose is layout only. Populate the first image's layout with the second image's building, this project's brand colors, and the copy specified below.",
+  ].join(' ');
+
+  return `${preamble}\n\n${layoutPrompt}`;
 }
