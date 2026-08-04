@@ -13,9 +13,6 @@ export const PAGE_TO_MODULE: Record<string, string> = {
   'campaign-wizard': 'campaign_wizard',
   'ad-config': 'ad_config',
   creatives: 'creatives',
-  // Aanya Brain (training-creatives + DNA) rides the creatives module so any
-  // reviewer with creatives access can open it — no separate module_access key.
-  'aanya-memory': 'creatives',
   'ad-review': 'ad_review',
   analyzer: 'analyzer',
   campaigns: 'campaigns',

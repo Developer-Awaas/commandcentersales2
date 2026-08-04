@@ -189,17 +189,6 @@ export interface SeniorDesignerResult {
   ad_copy?: Record<string, string>;
   post_production_notes?: string;
   design_dna_tags?: Record<string, unknown>;
-  // Set by Strategy when a reference creative + project hero are attached.
-  // Drives image-edit generation in SeniorDesignerResultPanel: a single image
-  // at the reference's aspect, conditioned on both images. Absent → normal
-  // 3-aspect text-only generation.
-  reference_edit?: {
-    referenceBase64: string;
-    referenceMimeType: string;
-    heroBase64: string;
-    heroMimeType: string;
-    aspect: '1:1' | '4:5' | '9:16';
-  };
   [key: string]: unknown;
 }
 

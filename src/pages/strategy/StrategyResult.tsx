@@ -1409,54 +1409,27 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     sessionIdRef.current = crypto.randomUUID();
 
     try {
-      // Each aspect its own layout-paradigm prompt. Reference-creative mode
-      // instead produces a SINGLE image at the reference's aspect, conditioned
-      // on the attached reference creative + project hero (image-edit endpoint).
+      // Each aspect ratio uses its own distinct layout paradigm prompt
       const promptFeed    = data.nanobanana_prompt_main ?? '';
       const promptPortrait = data.nanobanana_prompt_portrait ?? data.nanobanana_prompt_main ?? '';
       const promptStory   = data.nanobanana_prompt_story    ?? data.nanobanana_prompt_main ?? '';
 
-      const refEdit = data.reference_edit;
-      const referenceImages = refEdit
-        ? [
-            { base64: refEdit.referenceBase64, mimeType: refEdit.referenceMimeType },
-            { base64: refEdit.heroBase64, mimeType: refEdit.heroMimeType },
-          ]
-        : undefined;
-
-      const ASPECT_LABEL: Record<'1:1' | '4:5' | '9:16', string> = {
-        '1:1': 'Feed (1080×1080)',
-        '4:5': 'Portrait Feed (1080×1350)',
-        '9:16': 'Story (1080×1920)',
-      };
-
-      // slot = [aspect, label, angleLabel, prompt]
-      const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = refEdit
-        ? [[refEdit.aspect, ASPECT_LABEL[refEdit.aspect], 'reference', promptFeed]]
-        : [
-            ['1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
-            ['4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],
-            ['9:16', 'Story (1080×1920)',         'story',    promptStory],
-          ];
-
-      // SINGLE_IMAGE_TESTING_MODE limits the default 3-up path to the feed
-      // image only (real GPT-Image-1 spend). Reference mode is already single.
-      const settled = await Promise.allSettled(
-        slots.map(([aspect, , , prompt], i) =>
-          (!refEdit && SINGLE_IMAGE_TESTING_MODE && i > 0)
-            ? Promise.resolve([] as Awaited<ReturnType<typeof generateImageWithGemini>>)
-            : generateImageWithGemini(prompt, aspect, undefined, referenceImages)
-        )
-      );
+      // SINGLE_IMAGE_TESTING_MODE: only generate the feed image — real
+      // GPT-Image-1 generation cost, not feasible to spend 3x per test.
+      const [feedResult, portraitResult, storyResult] = await Promise.allSettled([
+        generateImageWithGemini(promptFeed, '1:1'),
+        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptPortrait, '4:5'),
+        SINGLE_IMAGE_TESTING_MODE ? Promise.resolve([]) : generateImageWithGemini(promptStory, '9:16'),
+      ]);
 
       const collected: GalleryImage[] = [];
       const generationErrors: string[] = [];
 
-      for (const [result, label, angleLabel, promptUsedForThisSlot] of slots.map(
-        (s, i) => [settled[i], s[1], s[2], s[3]] as [
-          PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, string, string, string,
-        ]
-      )) {
+      for (const [result, _ratio, label, angleLabel, promptUsedForThisSlot] of [
+        [feedResult,    '1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
+        [portraitResult,'4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],
+        [storyResult,   '9:16', 'Story (1080×1920)',         'story',    promptStory],
+      ] as [PromiseSettledResult<Awaited<ReturnType<typeof generateImageWithGemini>>>, '1:1' | '4:5' | '9:16', string, string, string][]) {
         if (result.status === 'rejected') {
           generationErrors.push(String(result.reason instanceof Error ? result.reason.message : result.reason));
         }
