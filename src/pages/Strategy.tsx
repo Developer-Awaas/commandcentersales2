@@ -11,7 +11,6 @@ import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { buildQuickGenerateBrief } from '../lib/senior-designer-prompts';
-import { aspectFromBase64, urlToBase64 } from '../lib/reference-edit';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
 import { FullStrategyForm } from './strategy/FullStrategyForm';
 import { StrategyResultPanel } from './strategy/StrategyResult';
@@ -391,43 +390,6 @@ export function Strategy() {
             )
           : quickInputs.quickRefs;
 
-        // ── Reference-creative (image-edit) mode ────────────────────────────
-        // The "creative to replicate" uploader shares quickRefs; the first
-        // upload is the layout reference. Requires a real project WITH a hero
-        // image — otherwise fall back to normal text-only generation.
-        let referenceEdit: SeniorDesignerResult['reference_edit'] | undefined;
-        const refCreative = quickInputs.quickRefs[0];
-        if (refCreative && quickInputs.projectId && quickInputs.projectId !== 'custom') {
-          const { data: heroRow } = await supabase
-            .from('project_assets')
-            .select('asset_url')
-            .eq('project_id', quickInputs.projectId)
-            .eq('asset_type', 'hero_exterior')
-            .order('is_primary', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          const heroUrl = (heroRow as { asset_url?: string } | null)?.asset_url;
-          if (heroUrl) {
-            try {
-              const [hero, aspect] = await Promise.all([
-                urlToBase64(heroUrl),
-                aspectFromBase64(refCreative.base64, refCreative.mimeType),
-              ]);
-              referenceEdit = {
-                referenceBase64: refCreative.base64,
-                referenceMimeType: refCreative.mimeType,
-                heroBase64: hero.base64,
-                heroMimeType: hero.mimeType,
-                aspect,
-              };
-            } catch (e) {
-              console.error('[Reference-edit] hero fetch failed — normal generation:', e);
-            }
-          } else {
-            showToast('No hero image on this project — generating normally. Add a hero image in Projects → Media to replicate the uploaded creative.', 'info');
-          }
-        }
-
         const { systemPrompt, userPrompt } = await buildQuickGenerateBrief({
           user_brief: quickInputs.prompt,
           project_id: quickInputs.projectId !== 'custom' ? quickInputs.projectId : undefined,
@@ -449,8 +411,6 @@ export function Strategy() {
           languages: quickInputs.languages,
           quick_references: enrichedRefs,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
-          reference_creative_mode: !!referenceEdit,
-          reference_aspect: referenceEdit?.aspect,
         });
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -559,7 +519,6 @@ export function Strategy() {
 
         if (updatePricesInDb) await savePriceUpdates();
 
-        if (referenceEdit) parsed.reference_edit = referenceEdit;
         setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';

@@ -24,9 +24,6 @@
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
-// Image-edit endpoint: used only when the caller attaches reference images
-// (reference creative = layout, project hero = subject). Multipart, not JSON.
-const OPENAI_EDIT_URL = 'https://api.openai.com/v1/images/edits'
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -41,13 +38,7 @@ Deno.serve(async (req: Request) => {
     )
   }
 
-  let body: {
-    prompt?: string
-    width?: number
-    height?: number
-    quality?: 'low' | 'medium' | 'high'
-    images?: { base64?: string; mimeType?: string }[]
-  }
+  let body: { prompt?: string; width?: number; height?: number; quality?: 'low' | 'medium' | 'high' }
   try {
     body = await req.json()
   } catch {
@@ -59,12 +50,6 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'prompt is required' }), { status: 400, headers: corsHeaders() })
   }
 
-  // Reference images → image-edit mode. Ignore malformed entries defensively.
-  const refImages = Array.isArray(body.images)
-    ? body.images.filter((im): im is { base64: string; mimeType?: string } => !!im && typeof im.base64 === 'string' && im.base64.length > 0)
-    : []
-  const editMode = refImages.length > 0
-
   // Map caller dimensions to the closest supported GPT-Image-1 size
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
 
@@ -73,49 +58,26 @@ Deno.serve(async (req: Request) => {
   const traceId = `generate-image-${crypto.randomUUID()}`
   await langfuseTrace(traceId, {
     name: 'generate-image',
-    tags: ['image-gen', 'gpt-image-1', editMode ? 'edit' : 'generate'],
-    metadata: { size, quality, mode: editMode ? 'edit' : 'generate', refImageCount: refImages.length },
+    tags: ['image-gen', 'gpt-image-1'],
+    metadata: { size, quality },
     input: { prompt: safePrompt },
   })
 
   try {
-    let imageRes: Response
-    if (editMode) {
-      // Multipart form-data — fetch sets the multipart boundary itself, so we
-      // must NOT set Content-Type manually here.
-      const form = new FormData()
-      form.append('model', 'gpt-image-1')
-      form.append('prompt', safePrompt)
-      form.append('n', '1')
-      form.append('size', size)
-      form.append('quality', quality)
-      refImages.forEach((im, i) => {
-        const bytes = Uint8Array.from(atob(im.base64), (c) => c.charCodeAt(0))
-        const type = im.mimeType || 'image/png'
-        const ext = (type.split('/')[1] || 'png').replace('jpeg', 'jpg')
-        form.append('image[]', new Blob([bytes], { type }), `ref-${i}.${ext}`)
-      })
-      imageRes = await fetch(OPENAI_EDIT_URL, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}` },
-        body: form,
-      })
-    } else {
-      imageRes = await fetch(OPENAI_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-image-1',
-          prompt: safePrompt,
-          n: 1,
-          size,
-          quality, // low | medium | high — caller sets per aspect ratio
-        }),
-      })
-    }
+    const imageRes = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt: safePrompt,
+        n: 1,
+        size,
+        quality, // low | medium | high — caller sets per aspect ratio
+      }),
+    })
 
     if (!imageRes.ok) {
       const errText = await imageRes.text().catch(() => imageRes.statusText)

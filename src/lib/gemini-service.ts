@@ -38,11 +38,7 @@ const FUNNEL_MAP: Record<string, string> = {
 export async function generateImageWithGemini(
   prompt: string,
   aspectRatio: '1:1' | '9:16' | '4:5' = '1:1',
-  quality?: 'low' | 'medium' | 'high',
-  // When provided, generate-image switches to the image-edit endpoint and
-  // conditions on these images (reference creative + project hero). Omitted →
-  // unchanged text-only generation.
-  referenceImages?: { base64: string; mimeType: string }[]
+  quality?: 'low' | 'medium' | 'high'
 ): Promise<GeminiGeneratedImage[]> {
   const dimensionMap: Record<string, { width: number; height: number }> = {
     '9:16': { width: 1080, height: 1920 },
@@ -62,10 +58,7 @@ export async function generateImageWithGemini(
   }
 
   const { data, error } = await supabase.functions.invoke('generate-image', {
-    body: {
-      prompt, width, height, quality: resolvedQuality,
-      ...(referenceImages && referenceImages.length > 0 ? { images: referenceImages } : {}),
-    },
+    body: { prompt, width, height, quality: resolvedQuality },
   });
 
   if (error) {
