@@ -111,11 +111,11 @@ export function QuickReferenceUploader({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-text-primary">Quick References (optional)</label>
+        <label className="text-sm font-medium text-text-primary">Add a creative to replicate (optional)</label>
         <span className="text-xs text-text-tertiary">{refs.length}/{maxFiles}</span>
       </div>
       <p className="text-xs text-text-tertiary -mt-2">
-        Upload logo, project images, mood references, or competitor designs. Aanya's AI will analyze each image and inject a visual description into her brief.
+        Upload an existing ad creative. Aanya replicates its <span className="text-text-secondary">layout &amp; typography</span> and swaps in your project's <span className="text-text-secondary">hero image</span> as the building. Needs a hero image on the selected project — otherwise it falls back to normal generation.
       </p>
 
       {refs.length < maxFiles && (
@@ -131,7 +131,7 @@ export function QuickReferenceUploader({
               </div>
             ) : (
               <>
-                <div className="text-sm text-text-tertiary">Click to upload reference images</div>
+                <div className="text-sm text-text-tertiary">Click to upload a creative to replicate</div>
                 <div className="text-xs text-text-disabled mt-1">PNG, JPG, WEBP — max 10MB each</div>
               </>
             )}
@@ -153,7 +153,7 @@ export function QuickReferenceUploader({
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
             <p className="text-xs text-emerald-400">
-              {refs.length === 1 ? '1 reference uploaded' : `${refs.length} references uploaded`} — Aanya will analyze {refs.length === 1 ? 'it' : 'each'} before generating
+              {refs.length === 1 ? '1 creative uploaded' : `${refs.length} uploaded — the first is used as the layout to replicate`} — Aanya will replicate its format using your project hero
             </p>
           </div>
 

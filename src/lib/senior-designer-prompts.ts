@@ -33,6 +33,13 @@ export interface CreativeBriefInput {
   variant_label?: 'A' | 'B' | 'C'; // for multi-variant generation
   variant_angle?: string; // 'price_led' | 'lifestyle_led' etc
 
+  // Reference-creative (image-edit) mode: the user attached an existing ad
+  // creative to replicate. Two images get attached to the generator downstream
+  // (reference creative = layout, project hero = subject). When set, Aanya
+  // authors an edit-appropriate single prompt instead of inventing a building.
+  reference_creative_mode?: boolean;
+  reference_aspect?: '1:1' | '4:5' | '9:16';
+
   // Reference images
   brand_kit?: BrandKit;
   project_assets?: ProjectAsset[];
@@ -573,6 +580,31 @@ ${languageBlock}
 ## YOUR TASK
 
 Produce a GPT-Image-1 image generation prompt for ${aspectRatio}.
+${input.reference_creative_mode ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ REFERENCE-CREATIVE MODE — THIS OVERRIDES THE TASK ABOVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Two images will be ATTACHED to the image generator (image-edit endpoint):
+• ATTACHED IMAGE 1 = an existing ad creative. REPLICATE its layout: zone
+  structure, photo-card placement/proportions, headline/badge/checklist/CTA/
+  footer positions, and overall color-block structure.
+• ATTACHED IMAGE 2 = the real project hero building. This is the ONE and ONLY
+  building/subject. Do NOT invent, describe, or reuse image 1's building.
+
+The THREE reference examples above illustrate the nine-section FORMAT only —
+do NOT copy their specific buildings, localities, or prices.
+
+Output ONLY "nanobanana_prompt_main" (leave portrait/story empty). Write it in
+the same nine-section format at aspect ratio ${input.reference_aspect ?? aspectRatio}, BUT:
+- SECTION 1–2: describe the LAYOUT to replicate from ATTACHED IMAGE 1, and
+  state that the building shown is ATTACHED IMAGE 2. Do NOT describe specific
+  architecture — the generator can see it.
+- SECTION 3–4 (camera/lighting): "Preserve ATTACHED IMAGE 2 as provided; do
+  not restyle or re-render the building."
+- SECTION 5–9 (palette, typography overlays, brand, negatives, specs): author
+  exactly as normal from the brief above.
+- SECTION 8 must include: "DO NOT use the building from ATTACHED IMAGE 1."
+` : ''}
 
 CRITICAL CHECK — COLORS: Look at BRAND IDENTITY above. Copy the exact hex codes. Every Color field in every TEXT ELEMENT in Section 6 of all three prompts must be a hex code from that list — no exceptions. Writing "gold" or "navy" or "white" instead of the hex is wrong.
 
@@ -880,6 +912,8 @@ export async function buildQuickGenerateBrief(args: {
   languages: string[];
   quick_references?: QuickReference[];
   ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  reference_creative_mode?: boolean;
+  reference_aspect?: '1:1' | '4:5' | '9:16';
 }) {
   return buildSeniorDesignerCreativePrompt({
     user_brief: args.user_brief,
@@ -891,6 +925,8 @@ export async function buildQuickGenerateBrief(args: {
     languages: args.languages,
     quick_references: args.quick_references,
     ad_platform: args.ad_platform,
+    reference_creative_mode: args.reference_creative_mode,
+    reference_aspect: args.reference_aspect,
   });
 }
 
