@@ -13,6 +13,23 @@ export interface ReferenceAnalysis {
   layout: string;
   /** Typography / text styling notes (weight, case, placement of copy). */
   text_treatment: string;
+  /**
+   * Which reference mode this analysis serves (RB-P0 consolidation — one shape,
+   * two modes):
+   *  - 'style_hints'      CC-P5 text-to-image conditioning — palette/layout/text
+   *                       inform a composed prompt, no subject carry-over.
+   *  - 'replicate_layout' Strategy replicate path — image-to-image edit; the
+   *                       reference LAYOUT is copied and the building swapped.
+   *                       Photo-zone extraction (what Rung 2 masks will consume)
+   *                       is DEFERRED; today this only records intent.
+   * Absent = legacy analysis, treated as 'style_hints' (see referenceMode()).
+   */
+  mode?: 'style_hints' | 'replicate_layout';
+}
+
+/** Resolve the mode, defaulting legacy (mode-less) analyses to 'style_hints'. */
+export function referenceMode(a: ReferenceAnalysis): 'style_hints' | 'replicate_layout' {
+  return a.mode ?? 'style_hints';
 }
 
 /** Runtime schema guard — the analysis comes from an LLM, so validate it. */
@@ -23,6 +40,7 @@ export function isValidReferenceAnalysis(x: unknown): x is ReferenceAnalysis {
   if (!o.palette.every((c) => typeof c === 'string')) return false;
   if (typeof o.layout !== 'string') return false;
   if (typeof o.text_treatment !== 'string') return false;
+  if (o.mode !== undefined && o.mode !== 'style_hints' && o.mode !== 'replicate_layout') return false;
   return true;
 }
 

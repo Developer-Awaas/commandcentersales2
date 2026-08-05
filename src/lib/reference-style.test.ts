@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, type ReferenceAnalysis } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, type ReferenceAnalysis } from './reference-style';
 
 const valid: ReferenceAnalysis = {
   palette: ['#0A2540', '#F5F5F5'],
@@ -25,6 +25,23 @@ describe('isValidReferenceAnalysis', () => {
   it('rejects missing/typed-wrong layout or text_treatment', () => {
     expect(isValidReferenceAnalysis({ ...valid, layout: undefined })).toBe(false);
     expect(isValidReferenceAnalysis({ ...valid, text_treatment: 5 })).toBe(false);
+  });
+  it('accepts both valid modes and a mode-less (legacy) analysis', () => {
+    expect(isValidReferenceAnalysis({ ...valid, mode: 'style_hints' })).toBe(true);
+    expect(isValidReferenceAnalysis({ ...valid, mode: 'replicate_layout' })).toBe(true);
+    expect(isValidReferenceAnalysis(valid)).toBe(true); // no mode = legacy, still valid
+  });
+  it('rejects an unknown mode value', () => {
+    expect(isValidReferenceAnalysis({ ...valid, mode: 'freehand' })).toBe(false);
+  });
+});
+
+describe('referenceMode', () => {
+  it("defaults a mode-less analysis to 'style_hints'", () => {
+    expect(referenceMode(valid)).toBe('style_hints');
+  });
+  it('returns the explicit mode when set', () => {
+    expect(referenceMode({ ...valid, mode: 'replicate_layout' })).toBe('replicate_layout');
   });
 });
 

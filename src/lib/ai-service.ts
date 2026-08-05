@@ -472,6 +472,7 @@ export async function analyzeReferenceStyle(
       palette: ['#0A2540', '#F5F5F5', '#C9A24B'],
       layout: 'Full-bleed hero image across the top two-thirds; a solid colour band across the bottom third carries the headline and price, small logo top-left.',
       text_treatment: 'Bold uppercase sans-serif headline, oversized price in the accent colour, thin all-caps CTA; strong left-aligned size hierarchy.',
+      mode: 'style_hints',
     };
   }
 
@@ -507,7 +508,10 @@ export async function analyzeReferenceStyle(
       outputTokens: outcome.result.outputTokens,
     });
     if (!isValidReferenceAnalysis(parsed)) return null;
-    return { ...parsed, palette: sanitizePalette(parsed.palette) };
+    // Stamp the mode so both reference paths share one typed shape (RB-P0). The
+    // client CreativeGenerator flow is always style_hints; replicate_layout is
+    // set by the Strategy replicate path when its zone extraction lands (Rung 2).
+    return { ...parsed, palette: sanitizePalette(parsed.palette), mode: 'style_hints' };
   } catch (err) {
     logToLangfuse('claude-vision-reference-style', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
     return null;
