@@ -19,6 +19,21 @@ export interface ZoneLayerOptions {
    *  = TEXT_LAYER_REFERENCE_WIDTH * (imageHeight / imageWidth). */
   refHeight: number;
   colors?: AdColors;
+  /** Add a semi-opaque dark backing behind body text to hide any ghost text the
+   *  clean-template generation may have baked (see STEP 4 findings). Default true. */
+  scrim?: boolean;
+}
+
+/**
+ * Font size that fits a zone's height AND approximate width, capped so a short
+ * headline in a large box doesn't blow up. Width is estimated (no canvas here);
+ * renderTextLayers still word-wraps to the box, this only prevents gross oversizing.
+ */
+export function fitFontPx(text: string, boxWFrac: number, boxHFrac: number, refHeight: number, lines = 1, fill = 0.55): number {
+  const heightFit = (boxHFrac * refHeight * fill) / Math.max(1, lines);
+  const widthFit = (boxWFrac * TEXT_LAYER_REFERENCE_WIDTH) / Math.max(3, text.length * 0.56);
+  const cap = refHeight * 0.10;
+  return Math.max(14, Math.min(heightFit, widthFit, cap));
 }
 
 /** Roles that carry no overlaid text (handled elsewhere or left as background). */
@@ -66,7 +81,11 @@ export function buildLayersFromZones(
   opts: ZoneLayerOptions,
 ): TextLayer[] {
   const colors = opts.colors ?? DEFAULT_AD_COLORS;
+  const refH = opts.refHeight;
+  const scrim = opts.scrim !== false;
+  const SCRIM = '#0f172ab0'; // 8-digit hex (~69% alpha slate) — canvas renders it semi-opaque, hides ghost text
   const layers: TextLayer[] = [];
+  const flow: TextLayer[] = []; // vertically-stacked body text, for the non-overlap pass
   let badgeIdx = 0;
 
   for (const z of zones) {
@@ -82,7 +101,7 @@ export function buildLayersFromZones(
       layers.push({
         id: crypto.randomUUID(), text,
         xPct, yPct: (y + h * 0.28) * 100, widthPct,
-        fontSizePx: fontPxForZone(h, opts.refHeight, 1, 0.42),
+        fontSizePx: fitFontPx(text, w, h, refH, 1, 0.42),
         fontWeight: 'bold', color: '#ffffff', align: z.align,
       });
       continue;
@@ -91,12 +110,16 @@ export function buildLayersFromZones(
     if (z.role === 'checklist') {
       const items = copy.checklist ?? [];
       if (!items.length) continue;
-      const fontSizePx = fontPxForZone(h, opts.refHeight, items.length, 0.72);
+      const fontSizePx = Math.min(
+        fitFontPx(`•  ${items[0]}`, w, h, refH, items.length, 0.8),
+        (h * refH) / (items.length * 1.3),
+      );
       const stepPct = (h * 100) / items.length;
       items.forEach((item, i) => layers.push({
         id: crypto.randomUUID(), text: `•  ${item}`,
-        xPct: x * 100, yPct: (y * 100) + i * stepPct, widthPct: Math.max(4, w * 100),
-        fontSizePx, fontWeight: 'normal', color: '#ffffff', align: 'left',
+        xPct: x * 100, yPct: (y * 100) + i * stepPct, widthPct,
+        fontSizePx: Math.max(14, fontSizePx), fontWeight: 'normal', color: '#ffffff', align: 'left',
+        ...(scrim && i === 0 ? { backgroundColor: SCRIM, paddingPx: 8, borderRadiusPx: 6 } : {}),
       }));
       continue;
     }
@@ -108,21 +131,33 @@ export function buildLayersFromZones(
       layers.push({
         id: crypto.randomUUID(), text,
         xPct, yPct: (y + h * 0.22) * 100, widthPct,
-        fontSizePx: fontPxForZone(h, opts.refHeight, 1, 0.5),
+        fontSizePx: fitFontPx(text, w, h, refH, 1, 0.5),
         fontWeight: 'bold', color: colors.primary, align: z.align,
         backgroundColor: colors.accent, paddingPx: 18, borderRadiusPx: 28,
       });
       continue;
     }
 
-    layers.push({
+    const layer: TextLayer = {
       id: crypto.randomUUID(), text,
-      xPct, yPct: (y + h * 0.12) * 100, widthPct,
-      fontSizePx: fontPxForZone(h, opts.refHeight, 1, z.role === 'headline' ? 0.66 : 0.58),
+      xPct, yPct: (y + h * 0.1) * 100, widthPct,
+      fontSizePx: fitFontPx(text, w, h, refH, 1, z.role === 'headline' ? 0.5 : 0.52),
       fontWeight: z.role === 'footer' ? 'normal' : (z.weight ?? 'bold'),
       color: '#ffffff', align: z.align,
-    });
+      ...(scrim && z.role !== 'footer' ? { backgroundColor: SCRIM, paddingPx: 8, borderRadiusPx: 6 } : {}),
+    };
+    layers.push(layer);
+    if (z.role === 'headline' || z.role === 'subheadline' || z.role === 'price') flow.push(layer);
   }
+
+  // Non-overlap: nudge each stacked body-text layer below the previous one's bottom.
+  flow.sort((a, b) => a.yPct - b.yPct);
+  let lastBottom = -Infinity;
+  for (const l of flow) {
+    if (l.yPct < lastBottom + 1) l.yPct = lastBottom + 1;
+    lastBottom = l.yPct + (l.fontSizePx / refH) * 100 * 1.35;
+  }
+
   return layers;
 }
 
