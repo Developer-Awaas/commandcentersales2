@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Library, Search, Trash2, Calendar } from 'lucide-react';
+import { Library, Search, Trash2, Calendar, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getOrgId } from '../lib/constants';
+import { listToolOutputs, deleteToolOutput, type ToolOutput } from '../lib/history-service';
+import { SingleStageView, formatDate } from '../components/history/JourneyViews';
+import { filterLibraryItems, libraryCounts, type LibrarySource } from '../lib/content-library-filter';
+import { useNavigation } from '../contexts/NavigationContext';
 import { useToast } from '../contexts/ToastContext';
 
 const C = {
@@ -9,14 +14,18 @@ const C = {
   green: '#22c55e', blue: '#3b82f6', purple: '#8b5cf6', pink: '#ec4899'
 };
 
-const TYPE_COLORS: Record<string, string> = {
-  reel: C.blue, carousel: C.green, static: C.dim, story: C.yellow, video: C.purple
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  company_branding: '🏢 Company Branding', project_branding: '🏠 Project',
-  holiday: '🎉 Holiday', event: '📅 Event', engagement: '💬 Engagement',
-  awareness: '📚 Awareness', milestone: '🏆 Milestone', testimonial: '⭐ Testimonial',
+// Source filter — the prominent, primary Content Library filter (CC-P5 Step 2).
+type Source = LibrarySource;
+const SOURCE_TABS: { value: Source; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'planner', label: 'Planner' },
+  { value: 'creatives', label: 'Creatives' },
+  { value: 'calendar', label: 'Calendar' },
+];
+const SOURCE_STYLE: Record<Exclude<Source, 'all'>, { color: string; label: string }> = {
+  planner: { color: C.blue, label: 'Planner' },
+  creatives: { color: C.purple, label: 'Creatives' },
+  calendar: { color: C.green, label: 'Calendar' },
 };
 
 const STATUS_LABELS: Record<string, { color: string; label: string }> = {
@@ -26,41 +35,103 @@ const STATUS_LABELS: Record<string, { color: string; label: string }> = {
   skipped: { color: C.dim, label: 'Skipped' },
 };
 
+interface UnifiedItem {
+  key: string;
+  source: 'planner' | 'creatives' | 'calendar';
+  sortDate: number;          // epoch ms for ordering
+  dateLabel: string;
+  title: string;
+  subtitle: string;
+  thumbnailUrl?: string;
+  status?: string;
+  toolOutput?: ToolOutput;   // planner/creatives expansion (P3 renderer)
+  calRow?: any;              // calendar expansion
+}
+
+function publicUrl(bucket: string, path: string): string {
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
 export default function ContentLibrary() {
   const { showToast } = useToast();
-  const [items, setItems] = useState<any[]>([]);
+  const { navigate } = useNavigation();
+  const [items, setItems] = useState<UnifiedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [source, setSource] = useState<Source>('all'); // default: overall plan view
+  const [selected, setSelected] = useState<UnifiedItem | null>(null);
 
   useEffect(() => { fetchItems(); }, []);
 
   const fetchItems = async () => {
     setLoading(true);
-    const { data } = await supabase.from('smm_calendar')
-      .select('*')
-      .order('post_date', { ascending: false })
-      .limit(100);
-    setItems(data || []);
+    const orgId = getOrgId();
+    const out: UnifiedItem[] = [];
+
+    // 1. tool_outputs (domain='social') — the durable Planner/Creatives history.
+    try {
+      const outputs = await listToolOutputs(orgId, 'social', undefined, 100);
+      for (const o of outputs) {
+        if (o.tool === 'smm_planner') {
+          const p = o.payload as Record<string, any>;
+          out.push({
+            key: `to-${o.id}`, source: 'planner', sortDate: new Date(o.created_at).getTime(),
+            dateLabel: formatDate(o.created_at),
+            title: p.plan_type ? `${p.plan_type} plan` : 'SMM Plan',
+            subtitle: [p.goal, p.duration, p.post_count != null ? `${p.post_count} posts` : null].filter(Boolean).join(' · '),
+            toolOutput: o,
+          });
+        } else if (o.tool === 'smm_creatives') {
+          const p = o.payload as Record<string, any>;
+          const ref = (o.asset_refs && o.asset_refs[0]) || null;
+          out.push({
+            key: `to-${o.id}`, source: 'creatives', sortDate: new Date(o.created_at).getTime(),
+            dateLabel: formatDate(o.created_at),
+            title: p.creative?.concept || p.creative_type || 'Creative',
+            subtitle: p.creative?.captionEn ? String(p.creative.captionEn).slice(0, 120) : (p.creative_type || ''),
+            thumbnailUrl: ref ? publicUrl(ref.bucket, ref.path) : undefined,
+            toolOutput: o,
+          });
+        }
+        // smm_analysis intentionally excluded — it's a Monitor artifact, shown in History.
+      }
+    } catch (e) {
+      console.error('[ContentLibrary] tool_outputs fetch failed:', e);
+    }
+
+    // 2. smm_calendar (org-scoped) — the operational calendar view.
+    const { data: cal } = await supabase.from('smm_calendar')
+      .select('*').eq('org_id', orgId).order('post_date', { ascending: false }).limit(100);
+    for (const row of cal || []) {
+      out.push({
+        key: `cal-${row.id}`, source: 'calendar', sortDate: new Date(row.post_date).getTime(),
+        dateLabel: row.post_date, title: row.topic || 'Untitled',
+        subtitle: row.caption_en || '', status: row.status, calRow: row,
+      });
+    }
+
+    out.sort((a, b) => b.sortDate - a.sortDate);
+    setItems(out);
     setLoading(false);
   };
 
-  const filtered = items.filter(item => {
-    if (search && !(item.topic?.toLowerCase().includes(search.toLowerCase()) || item.caption_en?.toLowerCase().includes(search.toLowerCase()))) return false;
-    if (filterType !== 'all' && item.post_type !== filterType) return false;
-    if (filterStatus !== 'all' && item.status !== filterStatus) return false;
-    if (filterCategory !== 'all' && item.category !== filterCategory) return false;
-    return true;
-  });
+  const counts = libraryCounts(items);
+  const filtered = filterLibraryItems(items, source, search);
 
-  const deleteItem = async (id: string) => {
-    await supabase.from('smm_calendar').delete().eq('id', id);
-    setItems(prev => prev.filter(i => i.id !== id));
-    setSelectedItem(null);
-    showToast('Item deleted', 'info');
+  const removeItem = async (item: UnifiedItem) => {
+    try {
+      if (item.toolOutput) {
+        await deleteToolOutput(item.toolOutput.id);
+      } else if (item.calRow) {
+        await supabase.from('smm_calendar').delete().eq('id', item.calRow.id);
+      }
+      setItems(prev => prev.filter(i => i.key !== item.key));
+      setSelected(null);
+      showToast('Item deleted', 'info');
+    } catch (e) {
+      console.error('[ContentLibrary] delete failed:', e);
+      showToast('Failed to delete', 'error');
+    }
   };
 
   const copy = (text: string) => {
@@ -68,205 +139,153 @@ export default function ContentLibrary() {
     showToast('Copied!', 'success');
   };
 
-  const stats = {
-    total: items.length,
-    planned: items.filter(i => i.status === 'planned').length,
-    created: items.filter(i => i.status === 'created').length,
-    posted: items.filter(i => i.status === 'posted').length,
-  };
-
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: 0 }}>Content Library</h1>
-          <p style={{ fontSize: 13, color: C.dim, margin: '4px 0 0' }}>Browse all your saved social media content</p>
-        </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {[['Total', stats.total, C.text], ['Planned', stats.planned, C.yellow], ['Created', stats.created, C.blue], ['Posted', stats.posted, C.green]].map(([label, count, color]) => (
-            <div key={label as string} style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: 18, fontWeight: 700, color: color as string }}>{count}</p>
-              <p style={{ fontSize: 10, color: C.dim }}>{label}</p>
-            </div>
-          ))}
-        </div>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: 0 }}>Content Library</h1>
+        <p style={{ fontSize: 13, color: C.dim, margin: '4px 0 0' }}>Your saved plans, creatives, and scheduled calendar posts in one place</p>
       </div>
 
-      {/* Search + Filters */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        <div style={{ flex: 1, position: 'relative' }}>
+      {/* Prominent source filter bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {SOURCE_TABS.map(tab => {
+          const active = source === tab.value;
+          return (
+            <button key={tab.value} onClick={() => setSource(tab.value)} style={{
+              padding: '8px 16px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              background: active ? C.accent : C.card, color: active ? '#fff' : C.text,
+              border: '1px solid ' + (active ? C.accent : C.border),
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              {tab.label}
+              <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, background: active ? 'rgba(255,255,255,0.25)' : C.bg, color: active ? '#fff' : C.dim }}>
+                {counts[tab.value]}
+              </span>
+            </button>
+          );
+        })}
+        <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
           <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: C.dim }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by topic or caption..."
-            style={{ width: '100%', padding: '10px 10px 10px 34px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 13, outline: 'none' }}
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title or caption..."
+            style={{ width: '100%', padding: '9px 10px 9px 34px', borderRadius: 999, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 13, outline: 'none' }}
           />
         </div>
-        <select value={filterType} onChange={e => setFilterType(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 12 }}>
-          <option value="all">All Types</option>
-          {['reel', 'carousel', 'static', 'story', 'video'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-        </select>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 12 }}>
-          <option value="all">All Status</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
-          style={{ padding: '10px 12px', borderRadius: 8, background: C.card, color: C.text, border: '1px solid ' + C.border, fontSize: 12 }}>
-          <option value="all">All Categories</option>
-          {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
       </div>
 
-      {/* Content Grid */}
+      {/* Empty state */}
       {filtered.length === 0 && !loading && (
         <div style={{ textAlign: 'center', padding: 60, color: C.dim }}>
           <Library size={40} style={{ marginBottom: 12, opacity: 0.5 }} />
-          <p style={{ fontSize: 14 }}>{search || filterType !== 'all' || filterStatus !== 'all' ? 'No content matches your filters.' : 'No content saved yet.'}</p>
+          <p style={{ fontSize: 14 }}>{search || source !== 'all' ? 'Nothing matches this filter.' : 'No content saved yet.'}</p>
           <p style={{ fontSize: 12, marginTop: 4 }}>Generate content from SMM Planner or SMM Creatives to build your library.</p>
         </div>
       )}
 
+      {/* Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         {filtered.map(item => {
-          const statusInfo = STATUS_LABELS[item.status] || STATUS_LABELS.planned;
+          const badge = SOURCE_STYLE[item.source];
+          const statusInfo = item.status ? STATUS_LABELS[item.status] : null;
           return (
-            <div key={item.id} onClick={() => setSelectedItem(item)} style={{
-              background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 16, cursor: 'pointer',
-              transition: 'border-color 0.2s',
+            <div key={item.key} onClick={() => setSelected(item)} style={{
+              background: C.card, border: '1px solid ' + C.border, borderRadius: 12, overflow: 'hidden', cursor: 'pointer',
             }}
             onMouseOver={e => (e.currentTarget.style.borderColor = C.accent)}
             onMouseOut={e => (e.currentTarget.style.borderColor = C.border)}
             >
-              {/* Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: (TYPE_COLORS[item.post_type] || C.dim) + '20', color: TYPE_COLORS[item.post_type] || C.dim }}>{item.post_type}</span>
-                  <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: statusInfo.color + '20', color: statusInfo.color }}>{statusInfo.label}</span>
-                </div>
-                <span style={{ fontSize: 10, color: C.dim }}>{item.post_date}</span>
-              </div>
-
-              {/* Category */}
-              {item.category && (
-                <p style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>{CATEGORY_LABELS[item.category] || item.category}</p>
+              {item.thumbnailUrl && (
+                <img src={item.thumbnailUrl} alt={item.title} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block', borderBottom: '1px solid ' + C.border }} />
               )}
-
-              {/* Topic */}
-              <p style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {item.topic || 'Untitled'}
-              </p>
-
-              {/* Caption preview */}
-              <p style={{ fontSize: 12, color: C.dim, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as any }}>
-                {item.caption_en || 'No caption'}
-              </p>
-
-              {/* Footer */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '1px solid ' + C.border }}>
-                <span style={{ fontSize: 10, color: C.dim }}>{item.platform || 'both'} | {item.post_time || 'No time'}</span>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {item.nano_prompt && <span style={{ fontSize: 9, padding: '2px 4px', borderRadius: 3, background: C.purple + '20', color: C.purple }}>Prompt</span>}
-                  {item.reel_script && <span style={{ fontSize: 9, padding: '2px 4px', borderRadius: 3, background: C.blue + '20', color: C.blue }}>Script</span>}
+              <div style={{ padding: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: badge.color + '20', color: badge.color }}>{badge.label}</span>
+                    {statusInfo && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: statusInfo.color + '20', color: statusInfo.color }}>{statusInfo.label}</span>}
+                  </div>
+                  <span style={{ fontSize: 10, color: C.dim }}>{item.dateLabel}</span>
                 </div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</p>
+                <p style={{ fontSize: 12, color: C.dim, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{item.subtitle || '—'}</p>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Detail Modal */}
-      {selectedItem && (
-        <div onClick={() => setSelectedItem(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Detail modal */}
+      {selected && (
+        <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 16, padding: 24, maxWidth: 650, width: '90%', maxHeight: '85vh', overflow: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 8, background: (TYPE_COLORS[selectedItem.post_type] || C.dim) + '20', color: TYPE_COLORS[selectedItem.post_type] || C.dim, fontWeight: 600 }}>{selectedItem.post_type}</span>
-                {selectedItem.category && <span style={{ fontSize: 11, color: C.dim }}>{CATEGORY_LABELS[selectedItem.category]}</span>}
+                <span style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: SOURCE_STYLE[selected.source].color + '20', color: SOURCE_STYLE[selected.source].color }}>{SOURCE_STYLE[selected.source].label}</span>
+                <span style={{ fontSize: 11, color: C.dim }}><Calendar size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />{selected.dateLabel}</span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => deleteItem(selectedItem.id)} style={{ padding: '6px 10px', borderRadius: 6, background: C.red + '15', color: C.red, border: 'none', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {selected.source === 'calendar' && (
+                  <button onClick={() => { setSelected(null); navigate('smm-calendar'); }} style={{ padding: '6px 10px', borderRadius: 6, background: C.accent + '15', color: C.accent, border: 'none', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <ExternalLink size={12} /> Open in Calendar
+                  </button>
+                )}
+                <button onClick={() => removeItem(selected)} style={{ padding: '6px 10px', borderRadius: 6, background: C.red + '15', color: C.red, border: 'none', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Trash2 size={12} /> Delete
                 </button>
-                <button onClick={() => setSelectedItem(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.dim, fontSize: 18 }}>✕</button>
+                <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.dim, fontSize: 18 }}>✕</button>
               </div>
             </div>
 
-            <h3 style={{ fontSize: 18, fontWeight: 600, color: C.text, marginBottom: 4 }}>{selectedItem.topic}</h3>
-            <p style={{ fontSize: 12, color: C.dim, marginBottom: 16 }}>
-              <Calendar size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              {selectedItem.post_date} at {selectedItem.post_time || 'Not set'} | {selectedItem.platform}
-            </p>
+            <h3 style={{ fontSize: 18, fontWeight: 600, color: C.text, marginBottom: 12 }}>{selected.title}</h3>
 
-            {selectedItem.caption_en && (
-              <div style={{ background: C.bg, padding: 14, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Caption (English)</span>
-                  <button onClick={() => copy(selectedItem.caption_en)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-                </div>
-                <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedItem.caption_en}</p>
-              </div>
+            {selected.thumbnailUrl && (
+              <img src={selected.thumbnailUrl} alt={selected.title} style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid ' + C.border, marginBottom: 12, display: 'block' }} />
             )}
 
-            {selectedItem.caption_od && (
-              <div style={{ background: C.bg, padding: 14, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Caption (Odia)</span>
-                  <button onClick={() => copy(selectedItem.caption_od)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-                </div>
-                <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedItem.caption_od}</p>
-              </div>
-            )}
+            {/* Planner / Creatives → reuse the P3 single-stage renderer */}
+            {selected.toolOutput && <SingleStageView output={selected.toolOutput} />}
 
-            {selectedItem.nano_prompt && (
-              <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', padding: 14, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: '#a78bfa' }}>Image Prompt</span>
-                  <button onClick={() => copy(selectedItem.nano_prompt)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-                </div>
-                <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{selectedItem.nano_prompt}</p>
-              </div>
-            )}
-
-            {selectedItem.reel_script && (
-              <div style={{ background: C.bg, padding: 14, borderRadius: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Reel Script</span>
-                  <button onClick={() => copy(selectedItem.reel_script)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-                </div>
-                <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedItem.reel_script}</p>
-              </div>
-            )}
-
-            {selectedItem.hashtags && selectedItem.hashtags.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: C.dim }}>Hashtags</span>
-                  <button onClick={() => copy(selectedItem.hashtags.map((h: string) => '#' + h).join(' '))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {selectedItem.hashtags.map((h: string, i: number) => (
-                    <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: C.bg, color: C.dim }}>#{h}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selectedItem.actual_reach && (
-              <div style={{ background: C.bg, borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <p style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>Actual Performance</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  {[['Reach', selectedItem.actual_reach], ['Likes', selectedItem.actual_likes], ['Comments', selectedItem.actual_comments], ['Saves', selectedItem.actual_saves]].map(([l, v]) => (
-                    <div key={l as string} style={{ textAlign: 'center' }}>
-                      <p style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{v || 0}</p>
-                      <p style={{ fontSize: 10, color: C.dim }}>{l}</p>
-                    </div>
-                  ))}
-                </div>
+            {/* Calendar → the operational post detail */}
+            {selected.calRow && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 4 }}>
+                {selected.calRow.caption_en && (
+                  <DetailBlock label="Caption (English)" onCopy={() => copy(selected.calRow.caption_en)}>
+                    <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selected.calRow.caption_en}</p>
+                  </DetailBlock>
+                )}
+                {selected.calRow.nano_prompt && (
+                  <DetailBlock label="Image Prompt" onCopy={() => copy(selected.calRow.nano_prompt)}>
+                    <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{selected.calRow.nano_prompt}</p>
+                  </DetailBlock>
+                )}
+                {selected.calRow.reel_script && (
+                  <DetailBlock label="Reel Script" onCopy={() => copy(selected.calRow.reel_script)}>
+                    <p style={{ fontSize: 13, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selected.calRow.reel_script}</p>
+                  </DetailBlock>
+                )}
+                {Array.isArray(selected.calRow.hashtags) && selected.calRow.hashtags.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {selected.calRow.hashtags.map((h: string, i: number) => (
+                      <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: C.bg, color: C.dim }}>#{h}</span>
+                    ))}
+                  </div>
+                )}
+                <p style={{ fontSize: 11, color: C.dim }}>{selected.calRow.platform} · {selected.calRow.post_time || 'no time'} · {selected.calRow.post_type}</p>
               </div>
             )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DetailBlock({ label, onCopy, children }: { label: string; onCopy: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ background: C.bg, padding: 12, borderRadius: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontSize: 11, color: C.dim }}>{label}</span>
+        <button onClick={onCopy} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+      </div>
+      {children}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useGenerationLock } from './useGenerationLock';
 import type {
   AaravResponse,
   AgentRequest,
@@ -76,6 +77,7 @@ const DEFAULT_GREETING = "Let's set up a new campaign.";
 // the signed-in user's JWT automatically; org_id is resolved server-side
 // from that JWT, never sent from the client.
 export function useAgentSession(initialMessage: string = DEFAULT_GREETING): UseAgentSessionResult {
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [response, setResponse]             = useState<AaravResponse | null>(null);
   const [loading, setLoading]               = useState(false);
   const [error, setError]                   = useState<string | null>(null);
@@ -108,6 +110,19 @@ export function useAgentSession(initialMessage: string = DEFAULT_GREETING): UseA
 
   // Keep a ref to the current canvas so requestChange can inject the strategy.
   const currentCanvasRef = useRef<AaravResponse['canvas'] | null>(null);
+
+  // Drives the app-wide generation lock for every orchestrator turn
+  // (sendMessage/regenerateCreatives/requestChange all share `loading`).
+  // approveTurn is intentionally excluded — it's a fast status write, not a
+  // generation, and has its own idempotency guards (approveRef + UI disable).
+  useEffect(() => {
+    if (loading) {
+      startGeneration('Working on it…');
+    } else {
+      stopGeneration();
+    }
+    return () => stopGeneration();
+  }, [loading, startGeneration, stopGeneration]);
 
   // ── Early org_id fetch (runs in parallel with the greeting turn) ─────────
   // Resolves org_id from the signed-in user's profile before the first

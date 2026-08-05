@@ -186,7 +186,7 @@ export interface Database {
           name: string
           platform: string | null
           status: string | null
-          budget: number | null
+          budget: Json | null
           meta_campaign_id: string | null
           creative_status: 'no_creatives' | 'generating' | 'ready' | 'approved' | null
           created_at: string
@@ -198,7 +198,7 @@ export interface Database {
           name?: string
           platform?: string | null
           status?: string | null
-          budget?: number | null
+          budget?: Json | null
           meta_campaign_id?: string | null
           creative_status?: 'no_creatives' | 'generating' | 'ready' | 'approved' | null
           created_at?: string
@@ -210,7 +210,7 @@ export interface Database {
           name?: string
           platform?: string | null
           status?: string | null
-          budget?: number | null
+          budget?: Json | null
           meta_campaign_id?: string | null
           creative_status?: 'no_creatives' | 'generating' | 'ready' | 'approved' | null
           created_at?: string
@@ -638,7 +638,9 @@ export interface Database {
         Row: {
           id: string
           org_id: string
+          project_id: string | null
           campaign_id: string | null
+          strategy_output_id: string | null
           creative_id: string | null
           session_id: string | null
           funnel_stage: 'awareness' | 'consideration' | 'conversion'
@@ -660,7 +662,9 @@ export interface Database {
         Insert: {
           id?: string
           org_id: string
+          project_id?: string | null
           campaign_id?: string | null
+          strategy_output_id?: string | null
           creative_id?: string | null
           session_id?: string | null
           funnel_stage: 'awareness' | 'consideration' | 'conversion'
@@ -682,7 +686,9 @@ export interface Database {
         Update: {
           id?: string
           org_id?: string
+          project_id?: string | null
           campaign_id?: string | null
+          strategy_output_id?: string | null
           creative_id?: string | null
           session_id?: string | null
           funnel_stage?: 'awareness' | 'consideration' | 'conversion'
@@ -700,6 +706,43 @@ export interface Database {
           approved_at?: string | null
           created_at?: string
           updated_at?: string
+        }
+        Relationships: Rel[]
+      }
+
+      tool_outputs: {
+        Row: {
+          id: string
+          org_id: string
+          domain: 'ads' | 'social'
+          tool: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis'
+          campaign_id: string | null
+          payload: Json
+          asset_refs: Json
+          status: 'saved' | 'in_progress' | 'completed'
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          domain: 'ads' | 'social'
+          tool: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis'
+          campaign_id?: string | null
+          payload: Json
+          asset_refs?: Json
+          status?: 'saved' | 'in_progress' | 'completed'
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          domain?: 'ads' | 'social'
+          tool?: 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis'
+          campaign_id?: string | null
+          payload?: Json
+          asset_refs?: Json
+          status?: 'saved' | 'in_progress' | 'completed'
+          created_at?: string
         }
         Relationships: Rel[]
       }
@@ -952,6 +995,7 @@ export interface Database {
           nano_prompt: string | null
           reel_script: string | null
           status: 'planned' | 'created' | 'posted' | 'skipped'
+          project_id: string | null
           created_at: string
         }
         Insert: {
@@ -969,6 +1013,7 @@ export interface Database {
           nano_prompt?: string | null
           reel_script?: string | null
           status?: 'planned' | 'created' | 'posted' | 'skipped'
+          project_id?: string | null
           created_at?: string
         }
         Update: {
@@ -986,6 +1031,7 @@ export interface Database {
           nano_prompt?: string | null
           reel_script?: string | null
           status?: 'planned' | 'created' | 'posted' | 'skipped'
+          project_id?: string | null
           created_at?: string
         }
         Relationships: Rel[]
@@ -1209,6 +1255,7 @@ export interface Database {
           retirement_reason: string | null
           design_dna_tags: Json
           cta: string | null
+          description: string | null
           senior_designer_brief: Json
           reference_image_manifest: Json
           languages: string[] | null
@@ -1238,6 +1285,7 @@ export interface Database {
           retirement_reason?: string | null
           design_dna_tags?: Json
           cta?: string | null
+          description?: string | null
           senior_designer_brief?: Json
           reference_image_manifest?: Json
           languages?: string[] | null
@@ -1267,6 +1315,7 @@ export interface Database {
           retirement_reason?: string | null
           design_dna_tags?: Json
           cta?: string | null
+          description?: string | null
           senior_designer_brief?: Json
           reference_image_manifest?: Json
           languages?: string[] | null

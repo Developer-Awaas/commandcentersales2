@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Spinner } from '../components/ui/Spinner';
 import { useToast } from '../contexts/ToastContext';
 
@@ -310,13 +311,11 @@ export function UserManagement() {
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Role</label>
-                <select
+                <Select
                   value={role}
                   onChange={e => { setRole(e.target.value); if (e.target.value === 'admin') setAiLimit(999); else if (aiLimit === 999) setAiLimit(30); }}
-                  className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand transition-colors"
-                >
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+                  options={ROLES.map(r => ({ value: r, label: r }))}
+                />
               </div>
 
               <div className="flex flex-col gap-1.5">

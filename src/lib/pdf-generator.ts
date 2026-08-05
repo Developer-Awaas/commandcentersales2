@@ -157,7 +157,7 @@ export function generateLeadGenPDF(data: {
       html += '<div class="field-row"><span class="field-label">Format</span><span class="field-value">' + v.format + '</span></div>';
       html += '<div class="field-row"><span class="field-label">Primary Text</span><span class="field-value">' + (v.primaryText || '') + '</span></div>';
       html += '<div class="field-row"><span class="field-label">Headline</span><span class="field-value">' + (v.headline || '') + '</span></div>';
-      if (v.nanoPrompt) html += '<h3>Nanobanana Prompt</h3><div class="prompt-box">' + v.nanoPrompt + '</div>';
+      if (v.nanoPrompt) html += '<h3>Image Prompt</h3><div class="prompt-box">' + v.nanoPrompt + '</div>';
     });
   }
 

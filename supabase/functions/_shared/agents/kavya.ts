@@ -21,6 +21,7 @@
 
 import { loadAgentPrompt } from './prompts.ts'
 import { parseJsonObject } from './json-extract.ts'
+import { assertWithinTextBudget } from './text-budget.ts'
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages'
 
@@ -74,6 +75,9 @@ export interface RunKavyaInput {
   message: string
   // Optional enrichment: project name/city/USPs, brand tone, festival month, etc.
   context?: Record<string, unknown>
+  // CC-P4 Step 5 — anti-runaway ceiling for this turn (USD). When set, the call
+  // is aborted before spending if its worst-case estimated cost exceeds it.
+  costCeilingUsd?: number
 }
 
 export interface RunKavyaResult {
@@ -114,6 +118,10 @@ export async function runKavya(input: RunKavyaInput): Promise<RunKavyaResult> {
     `Request: ${input.message}`,
     input.context ? `Context: ${JSON.stringify(input.context)}` : null,
   ].filter(Boolean).join('\n')
+
+  // Anti-runaway guard (CC-P4 Step 5): abort before spending if the worst-case
+  // cost of this call would exceed the tier ceiling.
+  assertWithinTextBudget(input.costCeilingUsd, systemPrompt.length + userPrompt.length, maxTokens)
 
   // Hotfix: the 'plan' intent's 16000-token cap (raised from 4096 to stop
   // truncation-crashes) can genuinely take 150s+ to generate a full 30-entry

@@ -78,11 +78,14 @@ Deno.serve(async (_req: Request): Promise<Response> => {
         ? `⚠️ ${topAlert.message} (+${additionalCount} more alert${additionalCount > 1 ? 's' : ''})`
         : `⚠️ ${topAlert.message}`
 
+      // NOTE: the column is `message`, not `body` — see CLAUDE.md bug #47. Using
+      // `body` here silently no-op'd every alert notification since inception
+      // (the insert returned {error}, which was logged but the row never wrote).
       const { error: notifErr } = await supabase.from('notifications').insert({
         org_id,
         type: 'dhruv_alert',
         title: title.slice(0, 200),
-        body: JSON.stringify(highAlerts),
+        message: JSON.stringify(highAlerts),
         is_read: false,
       })
 

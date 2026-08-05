@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { Select } from './ui/Select';
 
 interface Asset {
   id: string;
@@ -242,13 +243,11 @@ export default function ProjectAssetsTab({ projectId, orgId }: { projectId: stri
         <div>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Uploaded Assets ({filteredAssets.length})</h3>
-            <select value={filter} onChange={e => setFilter(e.target.value)}
-              className="bg-surface-sunken border border-border rounded px-3 py-1 text-sm">
-              <option value="all">All types</option>
-              {ASSET_TYPES.flatMap(g => g.items).map(i => (
-                <option key={i.value} value={i.value}>{i.label}</option>
-              ))}
-            </select>
+            <div className="w-44">
+              <Select value={filter} onChange={e => setFilter(e.target.value)}
+                className="bg-surface-sunken px-3 py-1 text-sm"
+                options={[{ value: 'all', label: 'All types' }, ...ASSET_TYPES.flatMap(g => g.items)]} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">

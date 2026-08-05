@@ -15,6 +15,17 @@ import { Spinner } from '../components/ui/Spinner';
 // user to click "Edit in Canva" again).
 const SAFE_DEFAULT_PAGE = 'creatives';
 
+// Data-driven allowlist mirroring canva-oauth-callback's ALLOWED_RETURN_ORIGINS
+// (server-side) — kept as an explicit second check rather than relying only
+// on the implicit same-origin comparison below, so both sides validate
+// against the same canonical list instead of two different trust
+// mechanisms. FAIL CLOSED: unset/empty env var → empty array → the
+// allowlist check below never passes, never a wildcard fallback.
+const ALLOWED_RETURN_ORIGINS = (import.meta.env.VITE_ALLOWED_RETURN_ORIGINS as string | undefined ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 export function CanvaReturn() {
   const { navigate } = useNavigation();
   // Set only when this landing IS the popup (returnUrl carries `via=popup`,
@@ -39,7 +50,7 @@ export function CanvaReturn() {
     if (rawReturnUrl) {
       try {
         const parsed = new URL(rawReturnUrl);
-        if (parsed.origin === window.location.origin) {
+        if (parsed.origin === window.location.origin && ALLOWED_RETURN_ORIGINS.includes(parsed.origin)) {
           const page = parsed.searchParams.get('page');
           if (page) targetPage = page;
           isPopupReturn = parsed.searchParams.get('via') === 'popup';

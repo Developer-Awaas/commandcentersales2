@@ -24,6 +24,28 @@ jobs:
 
       - run: npm run build
 
+  client-unit-tests:
+    name: Client unit tests (Vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 (not 20 like the build job) specifically because the Vitest
+      # jsdom environment loads undici@8.9.0 (jsdom@30's transitive dep),
+      # which declares engines.node ">=22.19.0" and hard-crashes on Node 20
+      # with "webidl.util.markAsUncloneable is not a function" before any
+      # test runs. Only this job needs the bump — the build job doesn't load
+      # jsdom, so it stays on 20. (This is the same undici engine mismatch
+      # first spotted as a warning during the PR #17 lockfile investigation.)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm test
+
   edge-typecheck:
     name: Edge Function type check (Deno)
     runs-on: ubuntu-latest
@@ -68,12 +90,13 @@ jobs:
             supabase/functions/canva-connect-init/index.ts \
             supabase/functions/canva-sync-design/index.ts \
             supabase/functions/canva-verify-return-nav/index.ts \
-            supabase/functions/generate-creatives/index.ts \
             supabase/functions/generate-image/index.ts \
             supabase/functions/langfuse-ingest/index.ts \
             supabase/functions/meta-insights-sync/index.ts \
             supabase/functions/claude-proxy/index.ts \
-            supabase/functions/dhruv-anomaly-check/index.ts
+            supabase/functions/dhruv-anomaly-check/index.ts \
+            supabase/functions/history-retention-sweep/index.ts \
+            supabase/functions/dhruv-weekly-report/index.ts
 
   edge-unit-tests:
     name: Edge Function unit tests (no credentials)
@@ -169,3 +192,71 @@ jobs:
       - name: cleanup isolation probes
         if: always()
         run: bash supabase/tests/isolation/cleanup-isolation-probes.sh
+
+  playwright-e2e:
+    name: Playwright e2e (mock AI, ZZ-INTERNAL-TEST)
+    runs-on: ubuntu-latest
+    # Advisory, NOT a required check (see branch protection): this touches
+    # PROD (writes scoped to ZZ-INTERNAL-TEST) and can flake on network — a
+    # red run here should inform, not block a merge, until it's proven
+    # stable. Secrets are job-level only (never workflow-level), mirroring
+    # ws1-6-isolation, so the other jobs never see the service-role key.
+    #
+    # INTERNAL_TEST_USER_* are the ZZ-INTERNAL-TEST org's dedicated login
+    # (P0 Step 6). VITE_SUPABASE_URL/ANON_KEY are baked into the preview
+    # build so the app can reach PROD; every write the test makes is scoped
+    # to ZZ-INTERNAL-TEST by that login. SUPABASE_SERVICE_ROLE_KEY is used
+    # ONLY by the seed/cleanup scripts (bypass RLS to prepare + tear down
+    # the dedicated ZZ-E2E project's data), never by the app under test.
+    #
+    # The spec self-skips when INTERNAL_TEST_USER_* are absent (see the
+    # file header) — so if those secrets aren't set this job passes green
+    # with "1 skipped" rather than failing.
+    env:
+      SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.ANON_KEY }}
+      INTERNAL_TEST_USER_EMAIL: ${{ secrets.INTERNAL_TEST_USER_EMAIL }}
+      INTERNAL_TEST_USER_PASSWORD: ${{ secrets.INTERNAL_TEST_USER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      # Idempotent — ensures the dedicated ZZ-E2E project exists before the
+      # wizard needs to select it.
+      - name: seed e2e project (ZZ-INTERNAL-TEST)
+        run: node e2e/seed-e2e.mjs
+
+      - run: npm run test:e2e
+
+      # Always runs, even on test failure, so a mid-flow crash never leaves
+      # campaigns / tool_outputs / creative_assets behind on prod.
+      - name: cleanup e2e data
+        if: always()
+        run: node e2e/cleanup-e2e.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      # Full-page Monitor screenshots (populated when ZZ-INTERNAL-TEST demo
+      # metrics are seeded) — downloadable from the run's Artifacts.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monitor-screenshots
+          path: screenshots/
+          retention-days: 14
+          if-no-files-found: ignore

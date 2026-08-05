@@ -3,6 +3,8 @@ import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
+import { useGenerationLock } from '../hooks/useGenerationLock';
+import { Select } from './ui/Select';
 import { Spinner } from './ui/Spinner';
 import { CopyButton } from './ui/CopyButton';
 
@@ -46,15 +48,12 @@ function KeywordRow({
   return (
     <div className="flex items-center justify-between gap-4 py-2.5 border-b border-border last:border-0">
       <span className="text-sm text-text-primary flex-1">{item.keyword}</span>
-      <select
+      <Select
         value={item.status}
         onChange={(e) => onChange(e.target.value as KeywordStatus)}
-        className="bg-surface-sunken border border-border rounded-lg text-xs text-text-primary px-2 py-1.5 focus:outline-none focus:border-brand transition-colors"
-      >
-        {STATUS_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+        options={STATUS_OPTIONS}
+        className="bg-surface-sunken text-xs px-2 py-1.5"
+      />
     </div>
   );
 }
@@ -72,6 +71,7 @@ export function TargetingVerifier({ interests, demographics, behaviors, platform
   const [replacements, setReplacements] = useState<Replacement[]>([]);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
 
   const notFoundItems = items.filter((i) => i.status === 'not_found');
   const availableItems = items.filter((i) => i.status === 'available');
@@ -95,11 +95,13 @@ export function TargetingVerifier({ interests, demographics, behaviors, platform
   async function handleGenerateReplacements() {
     if (!isAiEnabled()) return;
     setLoading(true);
+    startGeneration('Verifying targeting keywords…');
 
-    const notFoundList = notFoundItems.map((i) => `${i.keyword} (${i.category})`).join(', ');
-    const availableList = availableItems.map((i) => i.keyword).join(', ');
+    try {
+      const notFoundList = notFoundItems.map((i) => `${i.keyword} (${i.category})`).join(', ');
+      const availableList = availableItems.map((i) => i.keyword).join(', ');
 
-    const prompt = `These targeting keywords were NOT FOUND in ${platform}: ${notFoundList}.
+      const prompt = `These targeting keywords were NOT FOUND in ${platform}: ${notFoundList}.
 Suggest ALTERNATIVE keywords that are commonly available in Meta's targeting system. Only suggest well-known, widely available options.
 For each not-found keyword, suggest 2-3 alternatives.
 
@@ -108,18 +110,21 @@ Verified AVAILABLE keywords (prefer suggesting similar ones): ${availableList ||
 Return JSON:
 {"replacements":[{"original":"not found keyword","alternatives":["alternative 1","alternative 2","alternative 3"],"reason":"why these alternatives work"}]}`;
 
-    const res = await aiCall(prompt);
-    const reps = (res.replacements as Array<{ original: string; alternatives: string[]; reason: string }> | undefined) ?? [];
-    setReplacements(reps.map((r) => ({ ...r, altStatuses: {} })));
+      const res = await aiCall(prompt);
+      const reps = (res.replacements as Array<{ original: string; alternatives: string[]; reason: string }> | undefined) ?? [];
+      setReplacements(reps.map((r) => ({ ...r, altStatuses: {} })));
 
-    await saveToDb(items, reps);
-    setSaved(true);
-    setLoading(false);
+      await saveToDb(items, reps);
+      setSaved(true);
+      setLoading(false);
 
-    if (onRegenerate) {
-      const verified = availableItems.map((i) => i.keyword);
-      const unavailable = notFoundItems.map((i) => i.keyword);
-      onRegenerate(verified, unavailable);
+      if (onRegenerate) {
+        const verified = availableItems.map((i) => i.keyword);
+        const unavailable = notFoundItems.map((i) => i.keyword);
+        onRegenerate(verified, unavailable);
+      }
+    } finally {
+      stopGeneration();
     }
   }
 
@@ -248,15 +253,12 @@ Return JSON:
                   <div key={altIdx} className="flex items-center justify-between gap-4 py-2 border-b border-border last:border-0">
                     <span className="text-sm text-text-primary flex-1">{alt}</span>
                     <CopyButton text={alt} />
-                    <select
+                    <Select
                       value={rep.altStatuses[altIdx] ?? 'available'}
                       onChange={(e) => updateAltStatus(repIdx, altIdx, e.target.value as KeywordStatus)}
-                      className="bg-surface-sunken border border-border rounded-lg text-xs text-text-primary px-2 py-1.5 focus:outline-none focus:border-brand transition-colors"
-                    >
-                      {STATUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
+                      options={STATUS_OPTIONS}
+                      className="bg-surface-sunken text-xs px-2 py-1.5"
+                    />
                   </div>
                 ))}
               </div>

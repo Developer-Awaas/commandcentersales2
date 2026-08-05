@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { AlertCircle, Check, ChevronDown, ChevronUp, Eye, Sparkles, Upload, X } from 'lucide-react';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 import { supabase } from '../lib/supabase';
 import { buildRevisedCreativeBrief } from '../lib/senior-designer-prompts';
 import type { SeniorDesignerResult } from '../pages/strategy/types';
@@ -94,6 +95,7 @@ export function InlineCreativeReview({ project, context, label = 'Review Your Cr
   const [regenerating, setRegenerating] = useState(false);
   const [revisionResult, setRevisionResult] = useState<SeniorDesignerResult | null>(null);
   const [revisionError, setRevisionError] = useState<string | null>(null);
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
 
   function handleFile(file: File) {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
@@ -123,12 +125,13 @@ export function InlineCreativeReview({ project, context, label = 'Review Your Cr
 
   async function analyze() {
     if (!image || !isAiEnabled()) {
-      setError(!image ? 'Upload an image first.' : 'Add Claude API key in Settings to enable AI.');
+      setError(!image ? 'Upload an image first.' : 'AI features are currently unavailable.');
       return;
     }
 
     setAnalyzing(true);
     setError(null);
+    startGeneration('Reviewing creative…');
 
     try {
       const projDetails = project
@@ -202,6 +205,8 @@ Return ONLY valid JSON:
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      stopGeneration();
     }
 
     setAnalyzing(false);
@@ -213,6 +218,7 @@ Return ONLY valid JSON:
     if (!creativeId || !latest || regenerating) return;
     setRegenerating(true);
     setRevisionError(null);
+    startGeneration('Regenerating creative…');
 
     try {
       console.log('🎨 [AANYA-REVISION] Looking up original brief for creative', creativeId);
@@ -289,6 +295,8 @@ Return ONLY valid JSON:
     } catch (err: unknown) {
       console.error('❌ [AANYA-REVISION] failed:', err);
       setRevisionError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      stopGeneration();
     }
 
     setRegenerating(false);
@@ -448,14 +456,14 @@ Return ONLY valid JSON:
                     </div>
                   )}
                   {revisionResult && (
-                    <AanyaCreativePromptCard brief={revisionResult} sectionLabel="Aanya Revised Brief — Nanobanana (Gemini)" />
+                    <AanyaCreativePromptCard brief={revisionResult} sectionLabel="Aanya Revised Brief" />
                   )}
                 </div>
               )}
 
               {!creativeId && latest.score < 8 && (
                 <p className="text-xs text-text-tertiary px-1">
-                  Copy the revised prompt above, regenerate in {context.platform}, then upload the new image here.
+                  Copy the revised prompt above, regenerate the image, then upload it here.
                 </p>
               )}
             </div>

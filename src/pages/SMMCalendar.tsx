@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, X, Calendar, Plus, Pencil, Trash2, RefreshCw
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
+import { Select } from '../components/ui/Select';
 import {
   dayFromIso,
   normalizePlatform, normalizePostType,
@@ -357,19 +358,17 @@ export default function SMMCalendar() {
                     </div>
                     <div>
                       <label className="text-xs text-text-tertiary">Platform</label>
-                      <select value={editingDraft.platform}
+                      <Select value={editingDraft.platform}
                         onChange={(e) => updateDraft('platform', e.target.value)}
-                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
-                        {PLATFORM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
+                        options={PLATFORM_OPTIONS}
+                        className="mt-1 py-1.5 text-sm" />
                     </div>
                     <div>
                       <label className="text-xs text-text-tertiary">Type</label>
-                      <select value={editingDraft.type}
+                      <Select value={editingDraft.type}
                         onChange={(e) => updateDraft('type', e.target.value)}
-                        className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
-                        {POST_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
+                        options={POST_TYPE_OPTIONS}
+                        className="mt-1 py-1.5 text-sm" />
                     </div>
                   </div>
                   <div>

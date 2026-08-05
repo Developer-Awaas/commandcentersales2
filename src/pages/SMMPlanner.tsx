@@ -2,10 +2,14 @@ import { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
+import { getSocialMetricsProvider } from '../lib/providers';
+import { saveToolOutput } from '../lib/history-service';
 import { aiCall, aiVision, isAiEnabled } from '../lib/ai-service';
 import { buildSMMPlannerPrompt, buildScreenshotExtractionPrompt } from '../lib/smm-prompts';
 import { generateSMMPlanPDF } from '../lib/pdf-generator';
 import { useToast } from '../contexts/ToastContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
+import { Select } from '../components/ui/Select';
 import {
   toIsoDate, toIsoTime, prettifyTime, dayFromIso,
   normalizePlatform, normalizePostType,
@@ -50,6 +54,7 @@ const DURATIONS = ['1 week', '2 weeks', '1 month', '2 months', '3 months', 'Cust
 
 export default function SMMPlanner() {
   const { showToast } = useToast();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState<any[]>([]);
@@ -88,7 +93,27 @@ export default function SMMPlanner() {
   useEffect(() => {
     fetchProjects();
     fetchHolidays();
+    prefillSocialMetrics();
   }, []);
+
+  // CC-P4 Step 4: pre-fill the manual social fields from SocialMetricsProvider
+  // (latest smm_metrics snapshot + org targets) — still fully editable as
+  // target overrides. Only fills blanks so a user's typed values win.
+  const prefillSocialMetrics = async () => {
+    try {
+      const orgId = getOrgId();
+      const [ig] = await getSocialMetricsProvider().getMetrics(orgId, { platform: 'instagram' });
+      const targets = await getSocialMetricsProvider().getTargets(orgId);
+      if (!ig && targets.ig_follower_target == null) return;
+      setMetrics((prev) => ({
+        ...prev,
+        ig_followers: prev.ig_followers || (ig?.followers ?? targets.ig_follower_target)?.toString() || '',
+        ig_avg_reach: prev.ig_avg_reach || (ig?.avg_reach ?? targets.ig_reach_target)?.toString() || '',
+        ig_avg_likes: prev.ig_avg_likes || ig?.avg_likes?.toString() || '',
+        ig_engagement_rate: prev.ig_engagement_rate || ig?.engagement_rate?.toString() || '',
+      }));
+    } catch { /* pre-fill is best-effort — manual entry still works */ }
+  };
 
   const fetchProjects = async () => {
     const { data } = await supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId());
@@ -120,13 +145,15 @@ export default function SMMPlanner() {
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
     if (!file || !isAiEnabled()) {
-      showToast('Add Claude API key in Settings to use screenshot reading', 'info');
+      showToast('Screenshot reading is currently unavailable', 'info');
       return;
     }
     setSSLoading(true);
+    startGeneration('Reading screenshot…');
     try {
       const reader = new FileReader();
       reader.onload = async (ev) => {
+        try {
         const base64 = (ev.target?.result as string).split(',')[1];
         const mimeType = file.type || 'image/png';
         const prompt = buildScreenshotExtractionPrompt(type);
@@ -157,20 +184,25 @@ export default function SMMPlanner() {
           showToast('Could not read screenshot. Enter metrics manually.', 'error');
         }
         setSSLoading(false);
+        } finally {
+          stopGeneration();
+        }
       };
       reader.readAsDataURL(file);
     } catch (err) {
       showToast('Screenshot processing failed', 'error');
       setSSLoading(false);
+      stopGeneration();
     }
   };
 
   const generatePlan = async () => {
     if (!isAiEnabled()) {
-      showToast('Add Claude API key in Settings to enable AI', 'info');
+      showToast('AI features are currently unavailable', 'info');
       return;
     }
     setLoading(true);
+    startGeneration('Generating content plan…');
     try {
       const selProjects = projects.filter(p => selectedProjects.includes(p.name || p['Project Name']));
       const includedHolidays = holidays.filter(h => h.include_in_plan).map(h => ({ name: h.name, date: h.date }));
@@ -230,6 +262,8 @@ export default function SMMPlanner() {
       }
     } catch (err) {
       showToast('Generation failed', 'error');
+    } finally {
+      stopGeneration();
     }
     setLoading(false);
   };
@@ -306,8 +340,14 @@ export default function SMMPlanner() {
     if (pendingPosts.length === 0) return;
     setSaving(true);
     try {
+      // Resolve the selected project → its id (selectedProjects holds NAMES).
+      // Only when exactly one project is selected is the association unambiguous.
+      const selProjectRows = projects.filter(p => selectedProjects.includes(p.name || p['Project Name']));
+      const projectId = selProjectRows.length === 1 ? selProjectRows[0].id : null;
+
       const entries = pendingPosts.map(p => ({
         org_id: getOrgId(),
+        project_id: projectId,
         post_date: p.date,
         post_time: p.time || null,
         platform: normalizePlatform(p.platform),
@@ -328,6 +368,33 @@ export default function SMMPlanner() {
         setSaving(false);
         return;
       }
+
+      // History: also record the plan as a tool_outputs row (calendar stays the
+      // operational store; tool_outputs is the durable history/journey record).
+      // Best-effort — a history failure must never fail the calendar save.
+      try {
+        await saveToolOutput({
+          orgId: getOrgId(),
+          domain: 'social',
+          tool: 'smm_planner',
+          campaignId: null,
+          payload: {
+            plan: result ?? null,
+            plan_type: planType,
+            goal,
+            duration,
+            start_date: startDate,
+            end_date: endDate,
+            projects: selectedProjects,
+            project_id: projectId,
+            post_count: entries.length,
+          },
+          status: 'saved',
+        });
+      } catch (histErr) {
+        console.error('[SMM] tool_outputs (smm_planner) save failed (non-fatal):', histErr);
+      }
+
       setSaved(true);
       showToast(`Saved ${entries.length} post${entries.length === 1 ? '' : 's'} to calendar`, 'success');
     } catch (err) {
@@ -393,20 +460,14 @@ export default function SMMPlanner() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 20 }}>
               <label style={{ fontSize: 12, color: C.dim, display: 'block', marginBottom: 6 }}>Content Type</label>
-              <select value={planType} onChange={e => setPlanType(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, background: C.bg, color: C.text, border: '1px solid ' + C.border, fontSize: 13 }}>
-                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <Select value={planType} onChange={e => setPlanType(e.target.value)} options={TYPES.map(t => ({ value: t, label: t }))} />
               <label style={{ fontSize: 12, color: C.dim, display: 'block', marginBottom: 6, marginTop: 12 }}>Goal</label>
-              <select value={goal} onChange={e => setGoal(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, background: C.bg, color: C.text, border: '1px solid ' + C.border, fontSize: 13 }}>
-                {GOALS.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
+              <Select value={goal} onChange={e => setGoal(e.target.value)} options={GOALS.map(g => ({ value: g, label: g }))} />
             </div>
 
             <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 20 }}>
               <label style={{ fontSize: 12, color: C.dim, display: 'block', marginBottom: 6 }}>Duration</label>
-              <select value={duration} onChange={e => setDuration(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, background: C.bg, color: C.text, border: '1px solid ' + C.border, fontSize: 13 }}>
-                {DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              <Select value={duration} onChange={e => setDuration(e.target.value)} options={DURATIONS.map(d => ({ value: d, label: d }))} />
               <label style={{ fontSize: 12, color: C.dim, display: 'block', marginBottom: 6, marginTop: 12 }}>Start Date</label>
               <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 8, background: C.bg, color: C.text, border: '1px solid ' + C.border, fontSize: 13 }} />
               {duration === 'Custom' && (
@@ -671,19 +732,17 @@ export default function SMMPlanner() {
                           </div>
                           <div>
                             <label className="text-xs text-text-tertiary">Platform</label>
-                            <select value={editDraft.platform}
+                            <Select value={editDraft.platform}
                               onChange={(e) => updateDraft('platform', e.target.value)}
-                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
-                              {PLATFORM_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
+                              options={PLATFORM_OPTIONS}
+                              className="mt-1 py-1.5 text-sm" />
                           </div>
                           <div>
                             <label className="text-xs text-text-tertiary">Type</label>
-                            <select value={editDraft.type}
+                            <Select value={editDraft.type}
                               onChange={(e) => updateDraft('type', e.target.value)}
-                              className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface">
-                              {POST_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
+                              options={POST_TYPE_OPTIONS}
+                              className="mt-1 py-1.5 text-sm" />
                           </div>
                         </div>
                         <div>

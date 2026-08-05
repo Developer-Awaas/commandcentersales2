@@ -21,6 +21,7 @@ import { Button } from '../components/ui/Button';
 import { Spinner } from '../components/ui/Spinner';
 import { useNavigation } from '../contexts/NavigationContext';
 import { AiSessionDetail } from '../components/AiSessionDetail';
+import { DashboardCalendar } from '../components/dashboard/DashboardCalendar';
 import { useChatbot } from '../contexts/ChatbotContext';
 
 interface Project {
@@ -140,6 +141,47 @@ function KpiCard({ label, value, icon: Icon, iconColor = '#2563EB', loading }: K
   );
 }
 
+// CC-P4 Step 6: renders the latest Dhruv weekly performance report
+// (tool_outputs, tool='performance', payload.kind='weekly_report'). Empty-state
+// aware — most orgs have no report yet (the cron only writes for orgs with
+// live Meta metrics).
+function WeeklyPerformanceCard() {
+  const [report, setReport] = useState<{ title?: string; executive_summary?: string } | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from('tool_outputs')
+      .select('payload, created_at')
+      .eq('org_id', getOrgId())
+      .eq('tool', 'performance')
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        const weekly = (data ?? []).find((r) => (r.payload as { kind?: string })?.kind === 'weekly_report');
+        const rep = weekly ? (weekly.payload as { report?: { title?: string; executive_summary?: string } }).report : null;
+        setReport(rep ?? null);
+        setLoaded(true);
+      });
+  }, []);
+
+  if (!loaded) return null;
+
+  return (
+    <Card className="p-5 mb-6">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">This week's performance</p>
+      {report ? (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-sm font-semibold text-text-primary">{report.title ?? 'Weekly report'}</p>
+          {report.executive_summary && <p className="text-xs text-text-tertiary leading-relaxed">{report.executive_summary}</p>}
+        </div>
+      ) : (
+        <p className="text-xs text-text-tertiary">No weekly report yet — one is generated automatically once your Meta ads have live metrics.</p>
+      )}
+    </Card>
+  );
+}
+
 export function Dashboard() {
   const { navigate, setSection } = useNavigation();
   const { setCurrentData } = useChatbot();
@@ -248,6 +290,10 @@ export function Dashboard() {
           />
         ))}
       </div>
+
+      <WeeklyPerformanceCard />
+
+      <DashboardCalendar />
 
       {/* Section summary cards */}
       <div className="grid grid-cols-2 gap-4 mb-6">

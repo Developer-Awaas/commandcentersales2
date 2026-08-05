@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckSquare, FolderKanban, RefreshCw, Settings, Square } from 'lucide-react';
+import { AlertCircle, CheckSquare, FolderKanban, RefreshCw, Settings, Square, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
-import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
-import { buildContext } from '../lib/context-builder';
+import { generateAdConfig, type AiConfigResult } from '../lib/ad-config-generator';
+import { saveToolOutput, listToolOutputs, markStatus, deleteToolOutput, type ToolOutput } from '../lib/history-service';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
@@ -12,6 +12,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { Spinner } from '../components/ui/Spinner';
 import { TargetingVerifier } from '../components/TargetingVerifier';
 import { useNavigation } from '../contexts/NavigationContext';
+import { useGenerationLock } from '../hooks/useGenerationLock';
 
 interface Project {
   id: string;
@@ -24,49 +25,11 @@ interface Project {
   notes?: string;
 }
 
-interface AiLocation {
-  city: string;
-  radius: string;
-  why: string;
-}
-
-interface AiIcebreaker {
-  text: string;
-  purpose: string;
-}
-
-interface AiConfigResult {
-  platformTip?: string;
-  campaignName?: string;
-  adType?: string;
-  objective?: string;
-  goal?: string;
-  locations?: AiLocation[];
-  ageMin?: number;
-  ageMax?: number;
-  ageWhy?: string;
-  gender?: string;
-  interests?: string[];
-  demographics?: string[];
-  occupations?: string[];
-  educationLevel?: string;
-  lifeEvents?: string;
-  behaviors?: string[];
-  audienceExpansion?: string;
-  dailyBudget?: number;
-  days?: number;
-  totalBudget?: number;
-  bidStrategy?: string;
-  icebreakers?: AiIcebreaker[];
-  pixelEvents?: string[];
-  checklist?: string[];
-}
-
 type ResultState =
   | { status: 'idle' }
   | { status: 'error'; message: string }
   | { status: 'raw'; text: string }
-  | { status: 'ok'; data: AiConfigResult };
+  | { status: 'ok'; data: AiConfigResult; savedOutputId?: string };
 
 const FUNNEL_OPTIONS = [
   { value: 'TOFU', label: 'TOFU — Top of Funnel' },
@@ -307,6 +270,7 @@ function AiConfigOutput({ data, onRetry, platform }: { data: AiConfigResult; onR
 
 export function AdConfig() {
   const { navigate } = useNavigation();
+  const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectId, setProjectId] = useState('');
@@ -333,53 +297,35 @@ export function AdConfig() {
     load();
   }, []);
 
+  const [savedConfigs, setSavedConfigs] = useState<ToolOutput[]>([]);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  async function loadSavedConfigs() {
+    const outputs = await listToolOutputs(getOrgId(), 'ads', 'ad_config', 20);
+    setSavedConfigs(outputs);
+  }
+  useEffect(() => { loadSavedConfigs(); }, []);
+
   async function handleGenerate() {
     setSubmitting(true);
     setResult({ status: 'idle' });
+    startGeneration('Generating ad configuration…');
 
     try {
-      if (!isAiEnabled()) {
-        setResult({ status: 'error', message: 'Add your Claude API key in Settings to generate an AI configuration.' });
-        setSubmitting(false);
-        return;
-      }
-
-      const [context, verifiedKwRes] = await Promise.all([
-        buildContext({ projectId }),
-        supabase.from('targeting_keywords').select('keyword,status').eq('platform', platform).in('status', ['available', 'not_found']),
-      ]);
-      const verifiedKws = (verifiedKwRes.data ?? []) as { keyword: string; status: string }[];
-      const verifiedAvailable = verifiedKws.filter((k) => k.status === 'available').map((k) => k.keyword);
-      const verifiedNotFound = verifiedKws.filter((k) => k.status === 'not_found').map((k) => k.keyword);
-      const kwSection = [
-        verifiedAvailable.length > 0 ? `VERIFIED TARGETING (available in ${platform}): ${verifiedAvailable.join(', ')}` : '',
-        verifiedNotFound.length > 0 ? `NOT AVAILABLE (do NOT suggest): ${verifiedNotFound.join(', ')}` : '',
-      ].filter(Boolean).join('\n');
-
       const project = projects.find((p) => p.id === projectId);
-      const basePrompt = `Generate EXACT field-by-field ad configuration. Write REAL specific values, not placeholders.
-PROJECT: ${project?.name ?? 'Unknown'} | ${project?.locality ?? ''}, ${project?.city ?? ''} | Price: ${project?.price_range_lacs ?? 'N/A'} Lacs | Units remaining: ${project?.units_remaining ?? 'N/A'} | USPs: ${project?.usps ?? 'N/A'} | Notes: ${project?.notes ?? 'None'}
-FUNNEL: ${funnelStage}
-PLATFORM: ${platform}
-${kwSection ? '\n' + kwSection : ''}
+      const genResult = await generateAdConfig({ projectId, project, funnelStage, platform });
 
-Return ONLY a JSON object:
-{"platformTip":"recommendation","campaignName":"REAL name","adType":"REAL type","objective":"REAL","goal":"REAL","locations":[{"city":"REAL","radius":"REAL","why":"REAL"}],"ageMin":30,"ageMax":50,"ageWhy":"reason","gender":"All","interests":["REAL interest 1","REAL interest 2"],"demographics":["REAL demographic 1","REAL demographic 2"],"occupations":["job title 1","job title 2"],"educationLevel":"College Graduate, Postgraduate","lifeEvents":"Recently married, Recently moved","behaviors":["REAL"],"audienceExpansion":"OFF - reason","dailyBudget":350,"days":14,"totalBudget":4900,"bidStrategy":"Lowest cost","icebreakers":[{"text":"REAL with emoji","purpose":"purpose"}],"pixelEvents":["REAL event"],"checklist":["REAL step 1","REAL step 2"]}`;
-      const prompt = context ? basePrompt + '\n\n' + context : basePrompt;
-
-      const res = await aiCall(prompt);
-      if (res.error) {
-        setResult({ status: 'error', message: String(res.error) });
-      } else if (res.raw) {
-        setResult({ status: 'raw', text: String(res.raw) });
+      if (genResult.status === 'error') {
+        setResult({ status: 'error', message: genResult.message });
+      } else if (genResult.status === 'raw') {
+        setResult({ status: 'raw', text: genResult.text });
       } else {
-        setResult({ status: 'ok', data: res as AiConfigResult });
-        const project = projects.find((p) => p.id === projectId);
+        setResult({ status: 'ok', data: genResult.data });
         logAiSession(supabase, {
           sessionType: 'ad_config',
           projectIds: [projectId],
           inputSummary: `Ad config for ${project?.name ?? ''} ${funnelStage} on ${platform}`,
-          outputData: res,
+          outputData: genResult.raw,
         });
         logActivity(supabase, {
           action: 'generated_ad_config',
@@ -392,7 +338,32 @@ Return ONLY a JSON object:
     }
 
     setSubmitting(false);
+    stopGeneration();
     setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+  }
+
+  async function handleSaveConfig() {
+    if (result.status !== 'ok') return;
+    const output = await saveToolOutput({
+      orgId: getOrgId(),
+      domain: 'ads',
+      tool: 'ad_config',
+      payload: result.data as unknown as Record<string, unknown>,
+      status: 'saved',
+    });
+    setResult({ ...result, savedOutputId: output.id });
+    await loadSavedConfigs();
+  }
+
+  async function handleMarkComplete(id: string) {
+    await markStatus(id, 'completed');
+    await loadSavedConfigs();
+  }
+
+  async function handleDeleteConfig(id: string) {
+    await deleteToolOutput(id);
+    setDeleteConfirmId(null);
+    await loadSavedConfigs();
   }
 
   const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }));
@@ -443,8 +414,51 @@ Return ONLY a JSON object:
         <div ref={resultRef} className="flex flex-col gap-5">
           {result.status === 'error' && <ErrorBanner message={result.message} onRetry={handleGenerate} />}
           {result.status === 'raw' && <RawFallback text={result.text} onRetry={handleGenerate} />}
-          {result.status === 'ok' && <AiConfigOutput data={result.data} onRetry={handleGenerate} platform={platform} />}
+          {result.status === 'ok' && (
+            <>
+              <AiConfigOutput data={result.data} onRetry={handleGenerate} platform={platform} />
+              <Button onClick={handleSaveConfig} disabled={!!result.savedOutputId} className="w-full">
+                {result.savedOutputId ? 'Config Saved' : 'Save Config'}
+              </Button>
+            </>
+          )}
         </div>
+      )}
+
+      {savedConfigs.length > 0 && (
+        <Card className="p-5 mt-6">
+          <div className="mb-3"><SectionLabel>Saved Configs</SectionLabel></div>
+          <div className="flex flex-col gap-2">
+            {savedConfigs.map((cfg) => (
+              <div key={cfg.id} className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${cfg.status === 'completed' ? 'bg-green-500/10 text-green-400' : 'bg-brand-subtle text-brand'}`}>
+                    {cfg.status}
+                  </span>
+                  <span className="text-xs text-text-tertiary">{new Date(cfg.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  <span className="text-xs text-text-primary">{String((cfg.payload as { campaignName?: string }).campaignName ?? 'Untitled config')}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {cfg.status !== 'completed' && (
+                    <button onClick={() => handleMarkComplete(cfg.id)} className="text-[11px] text-brand hover:text-brand-hover transition-colors">Mark Complete</button>
+                  )}
+                  {cfg.status === 'completed' && deleteConfirmId !== cfg.id && (
+                    <button onClick={() => setDeleteConfirmId(cfg.id)} className="text-text-tertiary hover:text-red-400 transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                  {deleteConfirmId === cfg.id && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-text-tertiary">Delete this config?</span>
+                      <button onClick={() => handleDeleteConfig(cfg.id)} className="text-[11px] text-red-400 hover:text-red-300 font-medium">Yes</button>
+                      <button onClick={() => setDeleteConfirmId(null)} className="text-[11px] text-text-tertiary">Cancel</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
     </div>
   );

@@ -8,6 +8,7 @@
 import { supabase } from './supabase';
 import { getOrgId } from './constants';
 import { aiCall } from './ai-service';
+import { getBrandProvider, getMediaProvider } from './providers';
 
 // ============================================================
 // TYPES
@@ -454,17 +455,13 @@ export async function buildSeniorDesignerCreativePrompt(input: CreativeBriefInpu
   let projectData = input.project_data;
 
   if (!brandKit && supabase) {
-    const { data } = await supabase.from('brand_kits').select('*').eq('org_id', getOrgId()).maybeSingle();
-    brandKit = data || undefined;
+    // Provider returns a backend-agnostic open shape; cast to this module's
+    // concrete BrandKit at the boundary.
+    brandKit = (await getBrandProvider().getBrandKit(getOrgId()) as BrandKit | null) || undefined;
   }
 
   if (input.project_id && !projectAssets && supabase) {
-    const { data } = await supabase.from('project_assets')
-      .select('*')
-      .eq('project_id', input.project_id)
-      .eq('org_id', getOrgId())
-      .order('display_order');
-    projectAssets = data || [];
+    projectAssets = (await getMediaProvider().listProjectMedia(getOrgId(), input.project_id)) as unknown as ProjectAsset[];
   }
 
   if (input.project_id && !designDNA && supabase) {

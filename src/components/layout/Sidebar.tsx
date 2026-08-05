@@ -22,11 +22,13 @@ import {
   Smartphone,
   Wand2,
   ChevronDown,
+  History,
 } from 'lucide-react';
 
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../lib/supabase';
 import { useNavigation, type AppSection } from '../../contexts/NavigationContext';
+import { useGenerationLock } from '../../hooks/useGenerationLock';
 import { hasModuleAccess } from '../../lib/access';
 
 interface SidebarProps {
@@ -55,18 +57,20 @@ const LEAD_GEN_NAV: NavItem[] = [
   { id: 'ad-config', label: 'Ad Config', icon: Target },
   { id: 'creatives', label: 'Ad Creatives', icon: Palette },
   { id: 'ad-review', label: 'Ad Review', icon: Eye },
-  { id: 'analyzer', label: 'Performance Analyzer', icon: TrendingUp },
+  { id: 'analyzer', label: 'Performance Monitor', icon: TrendingUp },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
   // Aarav Agent (LeadGen V2) hidden from review-build's nav — not yet
   // functional enough for reviewer testing, regardless of the feature flag.
+  { id: 'history-ads', label: 'History', icon: History },
 ];
 
 const SMM_NAV: NavItem[] = [
   { id: 'smm-planner', label: 'SMM Planner', icon: Calendar },
   { id: 'smm-calendar', label: 'Content Calendar', icon: CalendarDays },
   { id: 'smm-creatives', label: 'SMM Creatives', icon: Image },
-  { id: 'smm-analyzer', label: 'SMM Analyzer', icon: BarChart3 },
+  { id: 'smm-analyzer', label: 'SMM Monitor', icon: BarChart3 },
   { id: 'content-library', label: 'Content Library', icon: Library },
+  { id: 'history-social', label: 'History', icon: History },
 ];
 
 const BOTTOM_NAV: NavItem[] = [
@@ -91,6 +95,7 @@ export function Sidebar({
   wizardActive: _wizardActive,
 }: SidebarProps) {
   const { generatingPage, generationProgress } = useNavigation();
+  const { isGenerating: generationLockActive } = useGenerationLock();
   const [learningMode, setLearningMode] = useState<boolean>(() => {
     return localStorage.getItem('learning_mode') !== 'false';
   });
@@ -153,14 +158,16 @@ export function Sidebar({
     const Icon = item.icon;
     const isActive = activePage === item.id;
     const isGenerating = generatingPage === item.id;
-    // Lock all items that aren't the currently generating page
-    const isLocked = !!generatingPage && item.id !== generatingPage;
+    // Lock all items that aren't the currently generating page, plus every
+    // item (including the active page) while the global generation lock is held.
+    const isLocked = generationLockActive || (!!generatingPage && item.id !== generatingPage);
 
     return (
       <div key={item.id + '-' + activeSection}>
         <button
           onClick={() => !isLocked && onNavigate(item.id)}
           disabled={isLocked}
+          aria-disabled={isLocked}
           title={isLocked ? 'Generation in progress — please wait' : undefined}
           className={[
             'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150',
@@ -233,18 +240,21 @@ export function Sidebar({
           const items = (isWizardMode && sec.id === 'lead_gen' ? WIZARD_NAV : rawItems)
             .filter(item => hasModuleAccess(profile, item.id));
 
+          const sectionLocked = generationLockActive || (!!generatingPage && sec.id !== activeSection);
+
           return (
             <div key={sec.id} className="mb-1">
               {/* Section header */}
               <button
-                onClick={() => !generatingPage && toggleSection(sec.id)}
-                disabled={!!generatingPage && sec.id !== activeSection}
-                title={generatingPage && sec.id !== activeSection ? 'Generation in progress — please wait' : undefined}
+                onClick={() => !sectionLocked && toggleSection(sec.id)}
+                disabled={sectionLocked}
+                aria-disabled={sectionLocked}
+                title={sectionLocked ? 'Generation in progress — please wait' : undefined}
                 className={[
                   'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150',
                   isActive
                     ? 'text-brand-text bg-brand-subtle'
-                    : generatingPage && sec.id !== activeSection
+                    : sectionLocked
                     ? 'text-text-tertiary opacity-40 cursor-not-allowed'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-sidebar-hover',
                 ].join(' ')}

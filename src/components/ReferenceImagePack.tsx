@@ -3,6 +3,7 @@ import { Download, ExternalLink, Package, ChevronDown, ChevronUp, RefreshCw, Upl
 import JSZip from 'jszip';
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
+import { getBrandProvider, getMediaProvider } from '../lib/providers';
 
 export interface ReferenceManifestItem {
   role: string;
@@ -78,17 +79,11 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
   async function resolveManifest() {
     setLoading(true);
 
-    const [{ data: brandKit }, { data: projectAssetsRaw }] = await Promise.all([
-      supabase.from('brand_kits').select('*').eq('org_id', orgId).maybeSingle(),
+    const [brandKit, projectAssetsRaw] = await Promise.all([
+      getBrandProvider().getBrandKit(orgId),
       projectId
-        ? supabase
-            .from('project_assets')
-            .select('*')
-            .eq('project_id', projectId)
-            .eq('org_id', orgId)
-            .order('is_primary', { ascending: false })
-            .order('display_order')
-        : Promise.resolve({ data: [] }),
+        ? getMediaProvider().listProjectMedia(orgId, projectId, { primaryFirst: true })
+        : Promise.resolve([]),
     ]);
 
     const projectAssets = (projectAssetsRaw ?? []) as Record<string, unknown>[];
@@ -171,12 +166,12 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
       folder.file(
         'README.txt',
         [
-          `REFERENCE IMAGES FOR GEMINI / NANOBANANA`,
+          `REFERENCE IMAGES FOR GEMINI`,
           `Prompt type: ${promptLabel}`,
           `Generated: ${new Date().toLocaleString()}`,
           ``,
           `HOW TO USE:`,
-          `1. Open Gemini (gemini.google.com) or your Nanobanana access point`,
+          `1. Open Gemini (gemini.google.com)`,
           `2. Paste the creative prompt from NH Command Center`,
           `3. Drag the numbered images below into the chat IN ORDER (1 first, 2 next, etc.)`,
           `4. The prompt references "Image 1", "Image 2" — they correspond to file numbers below`,
@@ -326,7 +321,7 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
           {howToOpen && (
             <div className="px-4 py-3 bg-brand-subtle border-b border-border flex flex-col gap-1">
               {[
-                <>1. Open <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-brand underline">Gemini</a> (or your Nanobanana access point)</>,
+                <>1. Open <a href="https://gemini.google.com" target="_blank" rel="noreferrer" className="text-brand underline">Gemini</a></>,
                 '2. Paste the creative prompt shown above',
                 <>3. Drag images <strong className="text-text-primary">1, 2, 3…</strong> into the chat <strong className="text-text-primary">in order</strong> — the prompt references "Image 1", "Image 2"</>,
                 '4. For any image marked "needs upload" below, upload your own file and use the Replace button',

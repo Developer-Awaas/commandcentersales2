@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
     // documented example exactly (standard Base64 with padding, not
     // base64url — their example output contains `==` padding).
     // https://www.canva.dev/docs/connect/api-reference/assets/create-asset-upload-job/
-    const assetName = `CC2-${asset.campaign_id ?? 'creative'}-${asset.angle}`.slice(0, 50)
+    const assetName = `CC2-${asset.project_id ?? 'creative'}-${asset.angle}`.slice(0, 50)
     const uploadRes = await fetch(`${CANVA_API_BASE}/asset-uploads`, {
       method: 'POST',
       headers: {

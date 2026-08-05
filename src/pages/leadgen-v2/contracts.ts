@@ -71,6 +71,13 @@ export interface CreativeCopy {
   cta: string;
 }
 
+// Diya's per-creative brand verdict (CC-P4 Step 2). 'flag' is advisory — the
+// grid keeps flagged tiles selectable.
+export interface CreativeBrandCheck {
+  status: 'pass' | 'flag';
+  note?: string;
+}
+
 export interface CreativeVariant {
   id: string;
   label: string;
@@ -79,6 +86,7 @@ export interface CreativeVariant {
   image_url?: string;
   copy?: CreativeCopy;
   rationale?: string;
+  brand_check?: CreativeBrandCheck;
 }
 
 export interface AaravCanvas {

@@ -4,6 +4,7 @@
 //   2. LanguageSelector — multi-select language picker with primary/secondary ordering
 
 import { useState, useEffect, useRef } from 'react';
+import { Select } from './ui/Select';
 
 // ============================================================
 // 1. QUICK REFERENCE UPLOADER
@@ -164,7 +165,7 @@ export function QuickReferenceUploader({
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
             <p className="text-xs text-emerald-400">
-              {refs.length === 1 ? '1 reference uploaded' : `${refs.length} references uploaded`} — Aanya will run Claude Vision analysis on {refs.length === 1 ? 'it' : 'each'} before generating
+              {refs.length === 1 ? '1 reference uploaded' : `${refs.length} references uploaded`} — Aanya will analyze {refs.length === 1 ? 'it' : 'each'} before generating
             </p>
           </div>
 
@@ -191,10 +192,9 @@ export function QuickReferenceUploader({
                     {ref.filename ?? 'image'} · uploaded
                   </span>
                 </div>
-                <select value={ref.role_hint} onChange={e => updateRef(i, { role_hint: e.target.value })}
-                  className="w-full bg-surface-sunken border border-border rounded px-2 py-1 text-xs">
-                  {QUICK_REF_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </select>
+                <Select value={ref.role_hint} onChange={e => updateRef(i, { role_hint: e.target.value })}
+                  className="bg-surface-sunken px-2 py-1 text-xs"
+                  options={QUICK_REF_ROLES} />
                 <input type="text" value={ref.user_intent}
                   placeholder="What is this for? e.g. 'Use as the project building hero'"
                   onChange={e => updateRef(i, { user_intent: e.target.value })}

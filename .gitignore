@@ -32,3 +32,10 @@ _secrets.json
 
 # A/B test scratch artifacts (GPT-Image-1 currency-symbol investigation)
 .ab-test-tmp/
+
+# Playwright output — regenerate via `npm run test:e2e`, don't commit run artifacts.
+test-results/
+playwright-report/
+
+# Playwright monitor screenshots (regenerated in CI, uploaded as an artifact)
+screenshots/
