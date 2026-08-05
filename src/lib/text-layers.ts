@@ -151,6 +151,7 @@ export async function renderTextLayers(
   canvasW: number,
   canvasH: number,
   logo?: { src: string; bbox: [number, number, number, number] },
+  cleanPlates?: [number, number, number, number][],
 ): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = canvasW;
@@ -180,6 +181,26 @@ export async function renderTextLayers(
       const dw = limg.naturalWidth * s, dh = limg.naturalHeight * s;
       ctx.drawImage(limg, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
     } catch { /* logo optional — skip on failure */ }
+  }
+
+  // Clean-plates — erase any ghost text the generation baked into a text zone by
+  // filling the zone with the template's own local background colour (sampled just
+  // outside the box, median-averaged), so overlay text sits on a clean surface.
+  // The client-side equivalent of masking the text zones at generation time.
+  if (cleanPlates?.length) {
+    for (const [px, py, pw, ph] of cleanPlates) {
+      const bx = px * canvasW, by = py * canvasH, bw = pw * canvasW, bh = ph * canvasH;
+      const probes: [number, number][] = [[bx - 6, by + bh / 2], [bx + bw + 6, by + bh / 2], [bx + bw / 2, by - 6], [bx + bw / 2, by + bh + 6]];
+      let r = 0, g = 0, b = 0, n = 0;
+      for (const [sx, sy] of probes) {
+        if (sx < 0 || sy < 0 || sx >= canvasW || sy >= canvasH) continue;
+        const d = ctx.getImageData(Math.round(sx), Math.round(sy), 1, 1).data;
+        r += d[0]; g += d[1]; b += d[2]; n++;
+      }
+      if (!n) { const d = ctx.getImageData(Math.min(canvasW - 1, Math.round(bx + 2)), Math.min(canvasH - 1, Math.round(by + 2)), 1, 1).data; r = d[0]; g = d[1]; b = d[2]; n = 1; }
+      ctx.fillStyle = `rgb(${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`;
+      ctx.fillRect(bx, by, bw, bh);
+    }
   }
 
   const scale = canvasW / TEXT_LAYER_REFERENCE_WIDTH;

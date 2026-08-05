@@ -166,6 +166,14 @@ export function logoZone(zones: ReferenceZone[]): ReferenceZone | null {
   return zones.find((z) => z.role === 'logo') ?? null;
 }
 
+const PLATE_ROLES = new Set(['headline', 'subheadline', 'price', 'cta', 'badge', 'checklist', 'footer']);
+
+/** Bboxes of the text-bearing zones — filled with the local background at composite
+ *  time (renderTextLayers `cleanPlates`) to erase any ghost text the generation baked. */
+export function textZonePlates(zones: ReferenceZone[]): [number, number, number, number][] {
+  return zones.filter((z) => PLATE_ROLES.has(z.role)).map((z) => z.bbox);
+}
+
 /** Reference canvas height for a given output aspect (width fixed at 1080-ref). */
 export function refHeightFor(imageWidth: number, imageHeight: number): number {
   return Math.round(TEXT_LAYER_REFERENCE_WIDTH * (imageHeight / imageWidth));

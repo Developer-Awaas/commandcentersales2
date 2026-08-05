@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anchorXPct, fontPxForZone, refHeightFor, buildLayersFromZones, logoZone } from './zone-layers';
+import { anchorXPct, fontPxForZone, refHeightFor, buildLayersFromZones, logoZone, textZonePlates } from './zone-layers';
 import type { ReferenceZone } from './reference-style';
 
 const z = (role: ReferenceZone['role'], bbox: [number, number, number, number], align: ReferenceZone['align'] = 'left', fontScale = 0.05): ReferenceZone =>
@@ -74,5 +74,14 @@ describe('logoZone', () => {
   it('returns the first logo zone or null', () => {
     expect(logoZone([z('headline', [0, 0, 1, 0.1]), z('logo', [0.4, 0.02, 0.2, 0.06])])?.role).toBe('logo');
     expect(logoZone([z('headline', [0, 0, 1, 0.1])])).toBeNull();
+  });
+});
+
+describe('textZonePlates', () => {
+  it('returns bboxes for text zones and excludes logo/photo/other', () => {
+    const zones = [z('headline', [0, 0.1, 1, 0.1]), z('badge', [0, 0.5, 0.3, 0.06]), z('logo', [0.4, 0.02, 0.2, 0.06]), z('photo', [0, 0.4, 1, 0.5]), z('other', [0.8, 0.9, 0.1, 0.05])];
+    const plates = textZonePlates(zones);
+    expect(plates).toHaveLength(2);
+    expect(plates[0]).toEqual([0, 0.1, 1, 0.1]);
   });
 });
