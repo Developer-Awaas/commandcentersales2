@@ -1509,20 +1509,31 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
   return `${preamble}\n\n${layoutPrompt}\n\n${override}`;
 }
 
-// Replicate-an-ad-creative feature: the user marks an uploaded ad creative as
-// the layout to replicate. Two images are attached to the same edit call as
-// the hero feature — the reference creative (FIRST: layout to copy) and the
-// real project hero (SECOND: the building subject). This wraps the layout
-// prompt with a replicate-mode preamble. Unlike buildHeroEditPrompt it does
-// NOT suppress on-image text — replicating an ad's format includes reproducing
-// its typography layout (headline/price/CTA), which is the whole point.
-export function buildReplicatePrompt(layoutPrompt: string): string {
-  const preamble = [
-    'You are EDITING using two attached images — you are not creating from scratch.',
-    'The FIRST attached image is a REFERENCE AD CREATIVE: replicate its LAYOUT exactly — zone structure, photo-card placement and proportions, headline/badge/checklist/CTA/footer positions, and overall color-block composition.',
-    'The SECOND attached image is the REAL PROJECT BUILDING (hero): it is the ONLY building/subject. Render THIS building inside the replicated photo area(s).',
-    "Do NOT use, copy, or keep the building shown in the FIRST image — its purpose is layout only. Populate the first image's layout with the second image's building, this project's brand colors, and the copy specified below.",
-  ].join(' ');
+// Replicate-an-ad-creative feature (Rung 1 — copy-creative prompt-path surgery).
+// The user marks an uploaded ad creative as the layout to replicate. Two images
+// are attached to the same /images/edits call: the reference creative (IMAGE 1 —
+// layout to copy) and the real project hero (IMAGE 2 — the building subject).
+//
+// This is a SHORT EDIT DIRECTIVE ONLY. It deliberately contains NO 9-section
+// senior-designer content: in replicate mode Stage 2 (the 9-section layout
+// assembly) is never run (Strategy.tsx passes `layouts: []`), so there is no
+// `nanobanana_prompt_main` to leak in here. The model preserves the reference's
+// exact layout instead of re-imagining a scene from a 9-section brief. The only
+// project-specific text injected is the ad copy ({headline, price, cta}).
+export function buildReplicatePrompt(copy: { headline?: string; price?: string; cta?: string }): string {
+  const textLines = [
+    copy.headline?.trim() ? `- Headline text: "${copy.headline.trim()}"` : '',
+    copy.price?.trim()    ? `- Price text: "${copy.price.trim()}"`       : '',
+    copy.cta?.trim()      ? `- Call-to-action text: "${copy.cta.trim()}"` : '',
+  ].filter(Boolean).join('\n');
 
-  return `${preamble}\n\n${layoutPrompt}`;
+  return [
+    'You are EDITING using two attached images — do not create from scratch.',
+    'IMAGE 1 is a REFERENCE AD CREATIVE. Preserve its LAYOUT EXACTLY: zone structure, photo-card placement and proportions, headline/badge/checklist/CTA/footer positions, and the overall color-block composition. Do not move, resize, add, or remove any zone.',
+    "IMAGE 2 is the REAL PROJECT BUILDING (hero) — the ONLY building/subject. Render THIS building inside image 1's photo area(s). Do NOT keep, copy, or reference the building shown in image 1; image 1 is layout only.",
+    textLines
+      ? `Replace ONLY the text inside the existing text zones with this project's copy (keep each zone's position and styling):\n${textLines}`
+      : 'Keep the existing text zones in place.',
+    'Change nothing else: keep every zone, proportion, and color block from image 1. Do not invent new elements, extra text, or building details not present in the attached images.',
+  ].join('\n\n');
 }

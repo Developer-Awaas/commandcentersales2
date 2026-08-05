@@ -502,7 +502,12 @@ export function Strategy() {
           quick_references: allRefs,
           ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
         }, replicateAspect
-          ? { traceNamePrefix: 'strategy-quick-generate', layouts: ['main'] }
+          // Rung 1 hard branch: in replicate mode the 9-section assembly (Stage 2)
+          // MUST NOT run — `layouts: []` runs Stage 1 (concept + ad_copy) only and
+          // skips every Stage 2 layout call, so no `nanobanana_prompt_main` is
+          // produced to contaminate the edit directive. The replicate prompt is
+          // built from ad_copy alone in StrategyResult (buildReplicatePrompt).
+          ? { traceNamePrefix: 'strategy-quick-generate', layouts: [] }
           : { traceNamePrefix: 'strategy-quick-generate' });
 
         console.log('🎨 [DIAGNOSTIC] AI raw response type:', typeof rawResponse);
