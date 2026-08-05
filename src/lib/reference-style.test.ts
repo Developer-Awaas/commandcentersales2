@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, type ReferenceAnalysis } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, type ReferenceAnalysis, type ReferenceZone } from './reference-style';
 
 const valid: ReferenceAnalysis = {
   palette: ['#0A2540', '#F5F5F5'],
@@ -42,6 +42,41 @@ describe('referenceMode', () => {
   });
   it('returns the explicit mode when set', () => {
     expect(referenceMode({ ...valid, mode: 'replicate_layout' })).toBe('replicate_layout');
+  });
+});
+
+const zone = (role: ReferenceZone['role'], bbox: [number, number, number, number]): ReferenceZone =>
+  ({ role, bbox, align: 'left', fontScale: 0.05, weight: 'bold', color: '#fff' });
+
+describe('isValidReferenceZone', () => {
+  it('accepts a well-formed zone', () => {
+    expect(isValidReferenceZone(zone('headline', [0.1, 0.1, 0.8, 0.1]))).toBe(true);
+  });
+  it('rejects unknown roles, malformed bbox, bad align', () => {
+    expect(isValidReferenceZone({ ...zone('headline', [0, 0, 1, 0.1]), role: 'nope' })).toBe(false);
+    expect(isValidReferenceZone({ ...zone('headline', [0, 0, 1] as never) })).toBe(false);
+    expect(isValidReferenceZone({ ...zone('headline', [0, 0, 1, 0.1]), align: 'middle' })).toBe(false);
+  });
+});
+
+describe('clampBbox', () => {
+  it('clamps into the unit square and shrinks overflow', () => {
+    expect(clampBbox([-0.1, 0.2, 1.5, 0.3])).toEqual([0, 0.2, 1, 0.3]);
+    const r = clampBbox([0.8, 0.9, 0.5, 0.5]);
+    expect(r[0]).toBeCloseTo(0.8); expect(r[1]).toBeCloseTo(0.9);
+    expect(r[2]).toBeCloseTo(0.2); expect(r[3]).toBeCloseTo(0.1);
+  });
+});
+
+describe('dedupeZones', () => {
+  it('merges two vertically-adjacent headline fragments into one spanning box', () => {
+    const merged = dedupeZones([zone('headline', [0.1, 0.10, 0.8, 0.06]), zone('headline', [0.1, 0.16, 0.8, 0.08])]);
+    expect(merged.filter((z) => z.role === 'headline')).toHaveLength(1);
+    expect(merged[0].bbox[3]).toBeCloseTo(0.14); // 0.10 -> 0.24
+  });
+  it('keeps distinct badge cells and a checklist separate (not merged)', () => {
+    const zones = [zone('badge', [0.05, 0.5, 0.25, 0.06]), zone('badge', [0.375, 0.5, 0.25, 0.06]), zone('checklist', [0.05, 0.6, 0.4, 0.2])];
+    expect(dedupeZones(zones)).toHaveLength(3);
   });
 });
 

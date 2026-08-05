@@ -1538,3 +1538,19 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
     'Change nothing else: keep every zone, proportion, and color block from image 1. Do not invent new elements, extra text, or building details not present in the attached images.',
   ].join('\n\n');
 }
+
+// Overlay-pipeline variant: the model produces a clean TEMPLATE (layout + building
+// only) and renders NO text — the app composites real, legible copy per the
+// vision-located zones afterwards (buildLayersFromZones + renderTextLayers). This
+// sidesteps GPT-Image-1's text-rendering unreliability entirely: text no longer
+// costs the model anything, so dense stat-rows/checklists stay perfectly legible.
+export function buildReplicateLayoutPrompt(): string {
+  return [
+    'You are EDITING using two attached images — do not create from scratch.',
+    'IMAGE 1 is a REFERENCE AD CREATIVE. Preserve its LAYOUT EXACTLY: zone structure, photo-card placement and proportions, and the color-block composition of every zone (headline bar, badge/stat cells, checklist panel, CTA button, footer strip). Do not move, resize, add, or remove any zone.',
+    "IMAGE 2 is the REAL PROJECT BUILDING (hero) — the ONLY building/subject. Render THIS building inside image 1's photo area(s). Do NOT keep, copy, or reference the building shown in image 1; image 1 is layout only.",
+    'LEAVE EVERY TEXT ZONE EMPTY: render each headline, subheadline, price, badge, checklist, CTA and footer zone as a CLEAN, FLAT design block — same background colour and shape as the reference — containing NO letters, numbers, words, or legible text of any kind. Do not attempt to write any copy; the app adds all text afterwards.',
+    'Do NOT reproduce any logos, brand marks, emblems, QR codes, phone numbers, watermarks, or company names from image 1 — leave those zones as clean, empty background. This project adds its own logo separately.',
+    'Change nothing else: keep every zone, proportion, and colour block from image 1. Do not invent new elements or building details not present in the attached images.',
+  ].join('\n\n');
+}

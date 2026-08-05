@@ -24,6 +24,8 @@ export default defineConfig({
       'src/lib/reference-style.test.ts',
       'src/lib/calendar-agenda.test.ts',
       'src/lib/content-library-filter.test.ts',
+      'src/lib/text-layers.test.ts',
+      'src/lib/zone-layers.test.ts',
     ],
   },
 });

@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { ADMIN_EMAIL } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
-import { isValidReferenceAnalysis, sanitizePalette, type ReferenceAnalysis } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, isValidReferenceZone, dedupeZones, clampBbox, type ReferenceAnalysis, type ReferenceZone } from './reference-style';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_SYSTEM =
@@ -514,6 +514,71 @@ export async function analyzeReferenceStyle(
     return { ...parsed, palette: sanitizePalette(parsed.palette), mode: 'style_hints' };
   } catch (err) {
     logToLangfuse('claude-vision-reference-style', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
+    return null;
+  }
+}
+
+const ZONE_VISION_MODEL = 'claude-sonnet-4-6';
+const ZONE_PROMPT =
+  'You are a layout-analysis tool. Analyze this real-estate ad and return the position of every distinct ZONE as STRICT JSON. ' +
+  'Output ONLY: {"zones":[{"role":"headline|subheadline|price|cta|badge|checklist|logo|photo|footer|other","bbox":[x,y,w,h],"align":"left|center|right","font_scale":number,"weight":"normal|bold","color":"#rrggbb"}]}. ' +
+  'bbox is NORMALIZED 0..1 with x,y = top-left corner and w,h = width,height as fractions of the full image. ' +
+  'font_scale = approximate text cap-height as a fraction of image height (0 for photo/logo). ' +
+  'Include EVERY text block, each badge/stat cell as a SEPARATE zone, each bullet/checklist group as ONE zone, the logo zone(s), and the main photo zone. ' +
+  'Do NOT name the building, company, or location. Output only the JSON object.';
+
+/**
+ * Vision pass for replicate_layout mode: locates the reference ad's zones as
+ * normalized bounding boxes + font hints (Sonnet — better spatial reasoning than
+ * Haiku). Deduped (fragmented headings merged) and bbox-clamped. Returns null on
+ * failure so the caller can fall back to generic default layers.
+ */
+export async function analyzeReferenceZones(
+  image: string | { base64: string; mimeType: string },
+): Promise<ReferenceZone[] | null> {
+  if (MOCK_AI_ENABLED) {
+    return [
+      { role: 'logo', bbox: [0.40, 0.03, 0.20, 0.08], align: 'center', fontScale: 0, weight: 'normal', color: '#c9a961' },
+      { role: 'headline', bbox: [0.08, 0.12, 0.84, 0.12], align: 'center', fontScale: 0.09, weight: 'bold', color: '#ffffff' },
+      { role: 'price', bbox: [0.08, 0.28, 0.5, 0.06], align: 'left', fontScale: 0.04, weight: 'bold', color: '#f59e0b' },
+      { role: 'photo', bbox: [0.0, 0.38, 1.0, 0.5], align: 'center', fontScale: 0, weight: 'normal', color: '#000000' },
+      { role: 'cta', bbox: [0.08, 0.9, 0.4, 0.06], align: 'left', fontScale: 0.035, weight: 'bold', color: '#ffffff' },
+    ];
+  }
+
+  const imageSource = typeof image === 'string'
+    ? { type: 'url' as const, url: image }
+    : { type: 'base64' as const, media_type: image.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif', data: image.base64 };
+
+  try {
+    const outcome = await callClaudeProxyStream({
+      model: ZONE_VISION_MODEL,
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: imageSource },
+        { type: 'text', text: ZONE_PROMPT },
+      ] }],
+    });
+    if (!outcome.ok) {
+      logToLangfuse('claude-vision-reference-zones', { model: ZONE_VISION_MODEL, level: 'ERROR', statusMessage: outcome.error });
+      return null;
+    }
+    const parsed = extractJson(outcome.result.text) as { zones?: unknown[] } | null;
+    logToLangfuse('claude-vision-reference-zones', {
+      output: JSON.stringify(parsed), model: ZONE_VISION_MODEL,
+      inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens,
+    });
+    if (!parsed || !Array.isArray(parsed.zones)) return null;
+    // Normalize the vision's snake_case font_scale -> fontScale, then validate.
+    const normalized = parsed.zones.map((z) => {
+      const o = z as Record<string, unknown>;
+      return { ...o, fontScale: typeof o.fontScale === 'number' ? o.fontScale : (typeof o.font_scale === 'number' ? o.font_scale : 0) };
+    });
+    const valid = normalized.filter(isValidReferenceZone).map((z) => ({ ...z, bbox: clampBbox(z.bbox) }));
+    if (!valid.length) return null;
+    return dedupeZones(valid);
+  } catch (err) {
+    logToLangfuse('claude-vision-reference-zones', { model: ZONE_VISION_MODEL, level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
     return null;
   }
 }
