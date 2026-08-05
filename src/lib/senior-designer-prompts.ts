@@ -1534,6 +1534,7 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
     textLines
       ? `Replace ONLY the text inside the existing text zones with this project's copy (keep each zone's position and styling):\n${textLines}`
       : 'Keep the existing text zones in place.',
+    'Do NOT reproduce any logos, brand marks, emblems, QR codes, phone numbers, watermarks, or company names from image 1 — leave those specific zones as clean, empty background that matches the surrounding design. This project supplies its own logo and contact details separately; never copy them from image 1.',
     'Change nothing else: keep every zone, proportion, and color block from image 1. Do not invent new elements, extra text, or building details not present in the attached images.',
   ].join('\n\n');
 }
