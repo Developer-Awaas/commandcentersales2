@@ -28,6 +28,10 @@ const DEFAULT_INPUTS: QuickGenerateInputs = {
   campaignGoal: 'lead_generation',
   languages: ['English'],
   quickRefs: [],
+  // review-build hero/media-picker feature fields (required by QuickGenerateInputs).
+  // StrategyGenerator doesn't expose those pickers, so it supplies empty defaults.
+  projectMediaIds: [],
+  heroRefKey: null,
 };
 
 function funnelStageFromGoal(goal: string): 'TOFU' | 'MOFU' | 'BOFU' {

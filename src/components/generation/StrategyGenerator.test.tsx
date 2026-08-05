@@ -46,6 +46,7 @@ vi.mock('../../pages/strategy/QuickGenerateForm', () => ({
         objective: 'Lead Generation', creativePlatform: 'Nanobanana (Gemini)', adPlatform: 'Meta Ads Manager',
         competitorAnalysis: '', includePerSqft: false, perSqftRate: '',
         campaignGoal: 'lead_generation', languages: ['English'], quickRefs: [],
+        projectMediaIds: [], heroRefKey: null,
       })}
     >
       Fill form
