@@ -60,6 +60,8 @@ export function QuickGenerateForm({
 
   const isCustom = inputs.projectId === 'custom';
   const isMeta = inputs.adPlatform.toLowerCase().includes('meta');
+  // Replicate mode is active when a reference carries the Style-reference role.
+  const replicateActive = inputs.quickRefs.some((r) => r.role_hint === 'replicate_creative');
 
   return (
     <div className="flex flex-col gap-5">
@@ -202,14 +204,18 @@ export function QuickGenerateForm({
             onChange={(refs) => set('quickRefs', refs)}
             heroId={inputs.heroRefKey}
             onSetHero={(id) => set('heroRefKey', id)}
+            allowStyleReference
           />
         </div>
-        {inputs.heroRefKey && (
+        {/* Mode-aware captions: the "exact photo, enhanced" promise is only true
+            in hero-edit mode; in replicate mode the hero is placed INTO the
+            copied layout, so show the replicate caption instead (Fix 2). */}
+        {inputs.heroRefKey && !replicateActive && (
           <p className="text-xs text-amber-400 -mt-2">★ Hero image marked — the generated creative will be this exact photo, enhanced (quality/mood only), not a reimagined scene.</p>
         )}
-        {inputs.quickRefs.some((r) => r.role_hint === 'replicate_creative') && (
+        {replicateActive && (
           <>
-            <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — Aanya copies the uploaded ad's layout &amp; typography, swapping in this project's hero image as the building. Produces one image at the reference's aspect ratio. Needs a hero image on the project.</p>
+            <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — layout copied from the style reference; this hero appears as the building. Produces one image at the reference's aspect ratio. Assign a project photo the ★ Hero role above.</p>
             <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer -mt-1">
               <input
                 type="checkbox"

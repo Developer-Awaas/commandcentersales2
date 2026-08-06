@@ -42,6 +42,7 @@ function toForm(p: Project): FormData {
     unit_types: p.unit_types ?? '',
     carpet_area_range: p.carpet_area_range ?? '',
     price_range_lacs: p.price_range_lacs ?? '',
+    price_display: p.price_display ?? '',
     per_sqft_rate: p.per_sqft_rate,
     usps: p.usps ?? '',
     amenities: p.amenities ?? '',
@@ -404,6 +405,15 @@ export function ProjectForm({ project, onCancel, onSaved }: ProjectFormProps) {
             onChange={(e) => set('amenities', e.target.value)}
             placeholder="e.g. Swimming Pool, Gym, Parking"
             rows={3}
+          />
+        </div>
+
+        <div className="grid grid-cols-1">
+          <Input
+            label="Display price (for ad creatives)"
+            value={form.price_display ?? ''}
+            onChange={(e) => set('price_display', e.target.value)}
+            placeholder='e.g. "₹1.14 Cr onwards" — shown in the price callout when the ad copy has no price'
           />
         </div>
 

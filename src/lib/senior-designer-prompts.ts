@@ -1534,7 +1534,9 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
     textLines
       ? `Replace ONLY the text inside the existing text zones with this project's copy (keep each zone's position and styling):\n${textLines}`
       : 'Keep the existing text zones in place.',
-    'Do NOT reproduce any logos, brand marks, emblems, QR codes, phone numbers, watermarks, or company names from image 1 — leave those specific zones as clean, empty background that matches the surrounding design. This project supplies its own logo and contact details separately; never copy them from image 1.',
+    // Strip the reference\'s BRAND IDENTITY only — never erase the structural
+    // price/contact/CTA zones themselves; those are repopulated with our values.
+    'Erase the reference\'s brand IDENTITY: its logo, brand marks, emblems, QR codes, watermarks, company names, and its specific phone-number digits — paint those over with clean background matching the surrounding design. BUT KEEP the structural zones intact — the price callout, the contact/footer strip, and the CTA band stay in their original position, shape and colour block (just cleared of the competitor\'s specific values). This project supplies its own logo, price and contact details separately; never copy them from image 1.',
     'Change nothing else: keep every zone, proportion, and color block from image 1. Do not invent new elements, extra text, or building details not present in the attached images.',
   ].join('\n\n');
 }
@@ -1549,8 +1551,8 @@ export function buildReplicateLayoutPrompt(): string {
     'You are EDITING using two attached images — do not create from scratch.',
     'IMAGE 1 is a REFERENCE AD CREATIVE. Preserve its LAYOUT EXACTLY: zone structure, photo-card placement and proportions, and the color-block composition of every zone (headline bar, badge/stat cells, checklist panel, CTA button, footer strip). Do not move, resize, add, or remove any zone.',
     "IMAGE 2 is the REAL PROJECT BUILDING (hero) — the ONLY building/subject. Render THIS building inside image 1's photo area(s). Do NOT keep, copy, or reference the building shown in image 1; image 1 is layout only.",
-    'LEAVE EVERY TEXT ZONE EMPTY: render each headline, subheadline, price, badge, checklist, CTA and footer zone as a CLEAN, FLAT design block — same background colour and shape as the reference — containing NO letters, numbers, words, or legible text of any kind. Do not attempt to write any copy; the app adds all text afterwards.',
-    'Do NOT reproduce any logos, brand marks, emblems, QR codes, phone numbers, watermarks, or company names from image 1 — leave those zones as clean, empty background. This project adds its own logo separately.',
+    'LEAVE EVERY TEXT ZONE EMPTY: render each headline, subheadline, price, badge, checklist, CTA and footer/contact zone as a CLEAN, FLAT design block — same background colour and shape as the reference — containing NO letters, numbers, words, or legible text of any kind. Keep the zone blocks themselves (including the price callout and the contact/footer strip); do not delete them. The app composites all text — headline, price, contact and CTA — afterwards.',
+    'Erase only the reference\'s brand IDENTITY: its logo, brand marks, emblems, QR codes, watermarks and company names — paint those over with clean background. This project adds its own logo separately. Do not copy the reference\'s phone number or company name anywhere.',
     'Change nothing else: keep every zone, proportion, and colour block from image 1. Do not invent new elements or building details not present in the attached images.',
   ].join('\n\n');
 }

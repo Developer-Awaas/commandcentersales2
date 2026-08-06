@@ -28,6 +28,10 @@ export interface TextLayer {
   backgroundColor?: string;
   paddingPx?: number;
   borderRadiusPx?: number;
+  /** Set by the zone-fit routine when copy had to be shortened to fit its box —
+   *  surfaced to the user as an "edit this" flag (Fix 4). Purely advisory; the
+   *  renderer ignores it. */
+  overflow?: boolean;
 }
 
 export interface AdColors {

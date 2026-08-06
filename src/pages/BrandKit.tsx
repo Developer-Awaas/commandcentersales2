@@ -22,6 +22,9 @@ interface BrandKitData {
   logo_color_url: string;
   logo_white_url: string;
   logo_dark_url: string;
+  // Contact strip values composited into replicate creatives (Fix 3).
+  whatsapp_number: string;
+  phone_display: string;
   design_aesthetic: string;
   cultural_motifs: string[];
   reference_brands: string[];
@@ -69,6 +72,8 @@ export default function BrandKit() {
     logo_color_url: '',
     logo_white_url: '',
     logo_dark_url: '',
+    whatsapp_number: '',
+    phone_display: '',
     design_aesthetic: 'premium_minimal',
     cultural_motifs: [],
     reference_brands: [],
@@ -104,6 +109,8 @@ export default function BrandKit() {
     if (existingKit) {
       setKit({
         ...existingKit,
+        whatsapp_number: existingKit.whatsapp_number || '',
+        phone_display: existingKit.phone_display || '',
         cultural_motifs: existingKit.cultural_motifs || [],
         reference_brands: existingKit.reference_brands || [],
         default_languages: existingKit.default_languages || ['English'],
@@ -172,6 +179,26 @@ export default function BrandKit() {
           <LogoUpload label="Color Logo" url={kit.logo_color_url} onUpload={(f) => uploadLogo(f, 'logo_color_url')} bg="#FAFAF7" />
           <LogoUpload label="White Logo" url={kit.logo_white_url} onUpload={(f) => uploadLogo(f, 'logo_white_url')} bg="#1A1A1A" />
           <LogoUpload label="Dark/Black Logo" url={kit.logo_dark_url} onUpload={(f) => uploadLogo(f, 'logo_dark_url')} bg="#FAFAF7" />
+        </div>
+      </section>
+
+      {/* SECTION 1b: CONTACT (composited into replicate creatives' contact strip — Fix 3) */}
+      <section className="bg-surface-elevated/50 rounded-lg p-6 border border-border">
+        <h2 className="text-xl font-semibold mb-1">Contact</h2>
+        <p className="text-xs text-text-tertiary mb-4">Shown in the contact strip of generated ads (replicate mode). Leave blank to omit the strip.</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-text-tertiary mb-1">Phone (display)</label>
+            <input type="text" value={kit.phone_display} onChange={e => setKit({...kit, phone_display: e.target.value})}
+              placeholder="e.g. +91 98765 43210"
+              className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm text-text-tertiary mb-1">WhatsApp</label>
+            <input type="text" value={kit.whatsapp_number} onChange={e => setKit({...kit, whatsapp_number: e.target.value})}
+              placeholder="e.g. WhatsApp 98765 43210"
+              className="w-full bg-surface-sunken border border-border rounded px-3 py-2 text-sm" />
+          </div>
         </div>
       </section>
 

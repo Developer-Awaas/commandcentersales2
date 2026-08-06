@@ -39,6 +39,64 @@ export function fitFontPx(text: string, boxWFrac: number, boxHFrac: number, refH
 /** Roles that carry no overlaid text (handled elsewhere or left as background). */
 const NON_TEXT_ROLES = new Set(['logo', 'photo', 'other']);
 
+const CHAR_W = 0.56;        // avg glyph advance as a fraction of font px (matches fitFontPx)
+const LINE_SPACING = 1.25;  // matches renderTextLayers' lineHeight
+
+/** Greedy word-wrap line count for `text` at `fontPx` within `boxWPx` (heuristic,
+ *  no canvas — mirrors renderTextLayers' wrap closely enough for fit decisions). */
+export function estimateLines(text: string, fontPx: number, boxWPx: number): number {
+  const charsPerLine = Math.max(1, Math.floor(boxWPx / (fontPx * CHAR_W)));
+  let lines = 1, len = 0;
+  for (const w of text.split(/\s+/).filter(Boolean)) {
+    const add = (len ? 1 : 0) + w.length;
+    if (len && len + add > charsPerLine) { lines++; len = w.length; }
+    else len += add;
+  }
+  return lines;
+}
+
+/** Trim `text` to fit `budget` chars, cutting at a clause (`, ; :`) or word
+ *  boundary — NEVER mid-word — and append an ellipsis. */
+export function ellipsizeAtBoundary(text: string, budget: number): string {
+  if (budget <= 1 || text.length <= budget) return text.length <= budget ? text : '…';
+  const slice = text.slice(0, budget);
+  const clause = Math.max(slice.lastIndexOf(', '), slice.lastIndexOf('; '), slice.lastIndexOf(': '));
+  const word = slice.lastIndexOf(' ');
+  // Prefer a clause boundary if it keeps at least half the budget, else last word.
+  const cut = clause >= budget * 0.5 ? clause : (word > 0 ? word : slice.length);
+  return text.slice(0, cut).replace(/[\s,;:.–—-]+$/, '') + '…';
+}
+
+/**
+ * Fit body text into a zone box WITHOUT ever cutting mid-phrase (Fix 4):
+ *  1. step the font size down from `startFont` until the wrapped text fits the
+ *     box height; then
+ *  2. if it still overflows at the minimum font, ellipsize at a clause/word
+ *     boundary and flag `overflow` so the user is prompted to edit.
+ * Pure/heuristic (no canvas) so it's unit-testable with real copy.
+ */
+export function fitBodyText(
+  text: string,
+  boxWFrac: number,
+  boxHFrac: number,
+  refHeight: number,
+  startFont: number,
+  minFont = 14,
+): { text: string; fontSizePx: number; overflow: boolean } {
+  const boxWPx = Math.max(1, boxWFrac * TEXT_LAYER_REFERENCE_WIDTH);
+  const boxHPx = Math.max(1, boxHFrac * refHeight) * 0.94; // small safety margin
+  for (let f = Math.max(minFont, Math.round(startFont)); f >= minFont; f -= 1) {
+    if (estimateLines(text, f, boxWPx) * f * LINE_SPACING <= boxHPx) {
+      return { text, fontSizePx: f, overflow: false };
+    }
+  }
+  // Doesn't fit even at minFont — shorten to what the box can hold, at a boundary.
+  const maxLines = Math.max(1, Math.floor(boxHPx / (minFont * LINE_SPACING)));
+  const charsPerLine = Math.max(1, Math.floor(boxWPx / (minFont * CHAR_W)));
+  const budget = Math.max(1, maxLines * charsPerLine - 1); // leave room for '…'
+  return { text: ellipsizeAtBoundary(text, budget), fontSizePx: minFont, overflow: true };
+}
+
 /**
  * Font size (authored against the 1080-ref width) that fits a zone's box height.
  * renderTextLayers scales fontSizePx by canvasW/1080 at draw time, so authoring
@@ -138,12 +196,17 @@ export function buildLayersFromZones(
       continue;
     }
 
+    // Fit to the zone box without mid-phrase truncation: step font down, then
+    // ellipsize at a boundary and flag for the user to edit (Fix 4).
+    const startFont = fitFontPx(text, w, h, refH, 1, z.role === 'headline' ? 0.5 : 0.52);
+    const fit = fitBodyText(text, w, h, refH, startFont);
     const layer: TextLayer = {
-      id: crypto.randomUUID(), text,
+      id: crypto.randomUUID(), text: fit.text,
       xPct, yPct: (y + h * 0.1) * 100, widthPct,
-      fontSizePx: fitFontPx(text, w, h, refH, 1, z.role === 'headline' ? 0.5 : 0.52),
+      fontSizePx: fit.fontSizePx,
       fontWeight: z.role === 'footer' ? 'normal' : (z.weight ?? 'bold'),
       color: '#ffffff', align: z.align,
+      ...(fit.overflow ? { overflow: true } : {}),
       ...(scrim && z.role !== 'footer' ? { backgroundColor: SCRIM, paddingPx: 8, borderRadiusPx: 6 } : {}),
     };
     layers.push(layer);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anchorXPct, fontPxForZone, refHeightFor, buildLayersFromZones, logoZone, textZonePlates } from './zone-layers';
+import { anchorXPct, fontPxForZone, refHeightFor, buildLayersFromZones, logoZone, textZonePlates, fitBodyText, ellipsizeAtBoundary, estimateLines } from './zone-layers';
 import type { ReferenceZone } from './reference-style';
 
 const z = (role: ReferenceZone['role'], bbox: [number, number, number, number], align: ReferenceZone['align'] = 'left', fontScale = 0.05): ReferenceZone =>
@@ -11,6 +11,49 @@ describe('anchorXPct', () => {
     expect(anchorXPct(b, 'left')).toBeCloseTo(10);
     expect(anchorXPct(b, 'center')).toBeCloseTo(40);
     expect(anchorXPct(b, 'right')).toBeCloseTo(70);
+  });
+});
+
+describe('Fix 4 — copy fits without mid-phrase truncation', () => {
+  // The exact failing class from live review: body copy overflowing a small zone.
+  const copy = '62 homes with 3-bedroom and 4-bedroom configurations across two towers';
+
+  it('ellipsizeAtBoundary never cuts mid-word and ends with …', () => {
+    const out = ellipsizeAtBoundary(copy, 24);
+    expect(out.endsWith('…')).toBe(true);
+    const body = out.slice(0, -1).trimEnd();
+    // The kept text must be a whole-word prefix of the original (no partial word).
+    expect(copy.startsWith(body)).toBe(true);
+    expect(copy[body.length] === undefined || copy[body.length] === ' ').toBe(true);
+    expect(out).not.toMatch(/3-bedroo…|bedroo…|configuratio…/); // no mid-word cut
+  });
+
+  it('step-down keeps full copy when the box can hold it (no overflow flag)', () => {
+    // Generous box: 90% width, 30% of a tall canvas → font steps down, text intact.
+    const fit = fitBodyText(copy, 0.9, 0.3, 1920, 60);
+    expect(fit.overflow).toBe(false);
+    expect(fit.text).toBe(copy);
+    expect(fit.fontSizePx).toBeGreaterThanOrEqual(14);
+  });
+
+  it('tiny box → shortens at a boundary and flags overflow', () => {
+    const fit = fitBodyText(copy, 0.2, 0.03, 1080, 40);
+    expect(fit.overflow).toBe(true);
+    expect(fit.text.endsWith('…')).toBe(true);
+    expect(copy.startsWith(fit.text.slice(0, -1).trimEnd())).toBe(true); // whole-word prefix
+    expect(fit.fontSizePx).toBe(14);
+  });
+
+  it('buildLayersFromZones flags the overflowing subheadline layer', () => {
+    const zones: ReferenceZone[] = [z('subheadline', [0.05, 0.85, 0.2, 0.03], 'left')];
+    const layers = buildLayersFromZones(zones, { subheadline: copy }, { refHeight: refHeightFor(1080, 1080) });
+    expect(layers).toHaveLength(1);
+    expect(layers[0].overflow).toBe(true);
+    expect(layers[0].text.endsWith('…')).toBe(true);
+  });
+
+  it('estimateLines grows as the box narrows', () => {
+    expect(estimateLines(copy, 40, 200)).toBeGreaterThan(estimateLines(copy, 40, 1000));
   });
 });
 

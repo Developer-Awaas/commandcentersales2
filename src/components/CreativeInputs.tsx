@@ -21,22 +21,31 @@ export interface QuickReferenceUpload {
   visual_description?: string;  // filled by Strategy.tsx after Claude Vision analysis
 }
 
-const QUICK_REF_ROLES = [
-  { value: 'replicate_creative', label: 'Replicate this creative’s layout', hint: 'Copy this ad’s layout & typography, using the project’s hero image as the building' },
-  { value: 'logo', label: 'Logo (use exactly)', hint: 'Place this logo in the creative as-is' },
-  { value: 'project_image', label: 'Project image', hint: 'Use as the building/project hero' },
-  { value: 'lifestyle_mood', label: 'Lifestyle/mood reference', hint: 'Inspiration only — use mood and palette, not exact elements' },
-  { value: 'competitor', label: 'Competitor for differentiation', hint: 'Differentiate FROM this — note its style and produce something distinct' },
-  { value: 'amenity', label: 'Amenity image', hint: 'Specific amenity to feature' },
-  { value: 'reference_design', label: 'Reference design', hint: 'Design direction inspiration' },
-  { value: 'other', label: 'Other (describe below)', hint: '' },
+// One role per image, mutually exclusive per generation (Fix 2). Underlying
+// storage: Hero → heroRefKey (a singleton form field, set via onSetHero);
+// Style reference → role_hint='replicate_creative' (the replicate source, one
+// only); Additional → role_hint='reference_design' (grounding). 'Style
+// reference' is only offered when the flow supports replicate (allowStyleReference).
+export type ImageRole = 'hero' | 'style_reference' | 'additional';
+
+const IMAGE_ROLE_OPTIONS: { value: ImageRole; label: string; hint: string }[] = [
+  { value: 'hero', label: '★ Hero (the building subject)', hint: 'This exact photo is the building — kept as-is, only enhanced. Exactly one per generation.' },
+  { value: 'style_reference', label: '⧉ Style reference (layout only)', hint: 'Copy THIS ad’s layout & typography; your hero appears as the building. The replicate source.' },
+  { value: 'additional', label: 'Additional media (grounding)', hint: 'Extra reference Aanya grounds the creative in — described, not copied.' },
 ];
+
+function roleOfRef(ref: QuickReferenceUpload, heroId: string | null | undefined): ImageRole {
+  if (heroId && heroId === ref.id) return 'hero';
+  if (ref.role_hint === 'replicate_creative') return 'style_reference';
+  return 'additional';
+}
 
 export function QuickReferenceUploader({
   onChange,
   maxFiles = 5,
   heroId,
   onSetHero,
+  allowStyleReference = false,
 }: {
   onChange: (refs: QuickReferenceUpload[]) => void;
   maxFiles?: number;
@@ -46,6 +55,10 @@ export function QuickReferenceUploader({
   // don't need to change.
   heroId?: string | null;
   onSetHero?: (id: string | null) => void;
+  // Whether the 'Style reference' (replicate source) role is offered — only the
+  // Strategy quick-generate flow replicates a creative's layout, so Creatives
+  // and other callers get a clean Hero | Additional selector (Fix 2).
+  allowStyleReference?: boolean;
 }) {
   const [refs, setRefs] = useState<QuickReferenceUpload[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -110,6 +123,26 @@ export function QuickReferenceUploader({
     const updated = refs.map((r, i) => i === index ? { ...r, ...updates } : r);
     setRefs(updated);
     onChange(updated);
+  }
+
+  // Assign one of the 3 mutually-exclusive roles to a reference (Fix 2). Style
+  // reference is a singleton across refs; hero is a singleton form field.
+  function setRole(index: number, role: ImageRole) {
+    const id = refs[index].id;
+    const updated = refs.map((r, i) => {
+      if (role === 'style_reference') {
+        // this ref becomes the sole replicate source; demote any other one
+        return { ...r, role_hint: i === index ? 'replicate_creative' : (r.role_hint === 'replicate_creative' ? 'reference_design' : r.role_hint) };
+      }
+      // hero/additional: this ref must not remain the replicate source
+      return i === index && r.role_hint === 'replicate_creative' ? { ...r, role_hint: 'reference_design' } : r;
+    });
+    setRefs(updated);
+    onChange(updated);
+    if (onSetHero) {
+      if (role === 'hero') onSetHero(id);
+      else if (heroId === id) onSetHero(null); // moved off hero
+    }
   }
 
   function removeRef(index: number) {
@@ -192,22 +225,22 @@ export function QuickReferenceUploader({
                     {ref.filename ?? 'image'} · uploaded
                   </span>
                 </div>
-                <Select value={ref.role_hint} onChange={e => updateRef(i, { role_hint: e.target.value })}
-                  className="bg-surface-sunken px-2 py-1 text-xs"
-                  options={QUICK_REF_ROLES} />
+                {onSetHero ? (
+                  <Select
+                    value={roleOfRef(ref, heroId)}
+                    onChange={e => setRole(i, e.target.value as ImageRole)}
+                    className="bg-surface-sunken px-2 py-1 text-xs"
+                    options={allowStyleReference ? IMAGE_ROLE_OPTIONS : IMAGE_ROLE_OPTIONS.filter(o => o.value !== 'style_reference')}
+                  />
+                ) : (
+                  <Select value={ref.role_hint} onChange={e => updateRef(i, { role_hint: e.target.value })}
+                    className="bg-surface-sunken px-2 py-1 text-xs"
+                    options={IMAGE_ROLE_OPTIONS.filter(o => o.value !== 'hero').map(o => ({ value: o.value === 'style_reference' ? 'replicate_creative' : 'reference_design', label: o.label }))} />
+                )}
                 <input type="text" value={ref.user_intent}
                   placeholder="What is this for? e.g. 'Use as the project building hero'"
                   onChange={e => updateRef(i, { user_intent: e.target.value })}
                   className="w-full bg-surface-sunken border border-border rounded px-2 py-1 text-xs" />
-                {onSetHero && (
-                  <button
-                    type="button"
-                    onClick={() => onSetHero(isHero ? null : ref.id)}
-                    className={`text-[10px] font-medium ${isHero ? 'text-amber-400' : 'text-text-tertiary hover:text-amber-400'}`}
-                  >
-                    {isHero ? '★ Hero image (keep as-is, only enhance)' : '☆ Set as hero image'}
-                  </button>
-                )}
               </div>
               <button onClick={() => removeRef(i)} className="text-red-400 hover:text-red-300 text-xs flex-shrink-0 self-start pt-0.5">✕</button>
             </div>

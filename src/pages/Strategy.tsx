@@ -11,6 +11,7 @@ import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
 import { buildQuickGenerateBrief, runTwoStageQuickGenerate } from '../lib/senior-designer-prompts';
 import { aspectFromBase64, type RefAspect } from '../lib/reference-edit';
+import { resolveHeroRef, toHeroImageRef, type HeroImageRef } from '../lib/gemini-service';
 import { projectAssetRoleHint } from '../components/ProjectMediaPicker';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
@@ -275,7 +276,7 @@ export function Strategy() {
         const fp = data as FullProject;
         setFullProject(fp);
         // Build config selection state
-        const configs = autoCreateConfigFromProject({ ...fp, is_active: true, created_at: '', updated_at: '', id: fp.id, org_id: null, code: null, per_sqft_rate: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null, meta_ad_account_id: null });
+        const configs = autoCreateConfigFromProject({ ...fp, is_active: true, created_at: '', updated_at: '', id: fp.id, org_id: null, code: null, per_sqft_rate: null, price_display: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null, meta_ad_account_id: null });
         setSelectedConfigs(
           configs.map((cfg) => ({
             config: cfg,
@@ -328,7 +329,7 @@ export function Strategy() {
     if (changed.length === 0) return;
 
     // Build updated configs array
-    const updatedConfigs = (autoCreateConfigFromProject({ ...fullProject, is_active: true, created_at: '', updated_at: '', id: fullProject.id, org_id: null, code: null, per_sqft_rate: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null, meta_ad_account_id: null })).map((cfg) => {
+    const updatedConfigs = (autoCreateConfigFromProject({ ...fullProject, is_active: true, created_at: '', updated_at: '', id: fullProject.id, org_id: null, code: null, per_sqft_rate: null, price_display: null, target_buyer: null, priority: null, budget_segment: null, landing_page_url: null, brochure_url: null, whatsapp_flow: null, notes: null, meta_ad_account_id: null })).map((cfg) => {
       const match = changed.find((sc) => sc.config.type === cfg.type);
       return match ? { ...cfg, price_lacs: match.currentPrice } : cfg;
     });
@@ -370,6 +371,15 @@ export function Strategy() {
         projectName,
         error: 'AI generation is currently unavailable.',
       });
+      return;
+    }
+
+    // Fix 2 validation: replicate mode places the hero INTO the copied layout,
+    // so it needs an explicit Hero role. Block early (before any API cost) with
+    // a clear message rather than silently picking an arbitrary building.
+    const replicateActive = quickInputs.quickRefs.some((r) => r.role_hint === 'replicate_creative');
+    if (replicateActive && !quickInputs.heroRefKey) {
+      showToast('Replicate mode needs a hero: give one project photo the ★ Hero role — it becomes the building in the copied layout.', 'error');
       return;
     }
 
@@ -436,17 +446,13 @@ export function Strategy() {
         // Refs with real base64 (quick uploads) go through as bytes; project-
         // asset-sourced refs (base64 === '') go through as a URL — the
         // generate-image edge function fetches those server-side.
-        let heroImages: import('../lib/gemini-service').HeroImageRef[] | undefined;
-        if (quickInputs.heroRefKey) {
-          const heroEntry = allRefs.find((r) => r.id === quickInputs.heroRefKey);
-          if (heroEntry) {
-            const supportingEntries = allRefs.filter(
-              (r) => r.id !== quickInputs.heroRefKey && r.role_hint === 'amenity'
-            );
-            const toHeroRef = (r: typeof heroEntry): import('../lib/gemini-service').HeroImageRef =>
-              r.base64 ? { base64: r.base64, mimeType: r.mimeType } : { url: r.preview_url };
-            heroImages = [toHeroRef(heroEntry), ...supportingEntries.map(toHeroRef)];
-          }
+        let heroImages: HeroImageRef[] | undefined;
+        const heroPrimary = resolveHeroRef(allRefs, quickInputs.heroRefKey);
+        if (heroPrimary) {
+          const supportingEntries = allRefs.filter(
+            (r) => r.id !== quickInputs.heroRefKey && r.role_hint === 'amenity'
+          );
+          heroImages = [heroPrimary, ...supportingEntries.map(toHeroImageRef)];
         }
 
         // Replicate-an-ad-creative mode: an uploaded quick-ref marked with the
@@ -459,20 +465,29 @@ export function Strategy() {
         let overlayZones: import('../lib/reference-style').ReferenceZone[] | undefined;
         const replicateRef = quickInputs.quickRefs.find((r) => r.role_hint === 'replicate_creative');
         if (replicateRef && quickInputs.projectId && quickInputs.projectId !== 'custom') {
-          const { data: heroRow } = await supabase
-            .from('project_assets')
-            .select('asset_url')
-            .eq('project_id', quickInputs.projectId)
-            .eq('asset_type', 'hero_exterior')
-            .order('is_primary', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          const heroUrl = (heroRow as { asset_url?: string } | null)?.asset_url;
-          if (heroUrl) {
+          // Building subject = the asset the user flagged ★ Hero at generate-click
+          // time (heroRefKey), resolved from the same ref pool as the normal hero
+          // path. Fall back to the project's hero_exterior asset ONLY when nothing
+          // was flagged — previously this branch always used hero_exterior and
+          // silently ignored the ★ flag (Fix 1 / H3).
+          let heroSubject = resolveHeroRef(allRefs, quickInputs.heroRefKey);
+          if (!heroSubject) {
+            const { data: heroRow } = await supabase
+              .from('project_assets')
+              .select('asset_url')
+              .eq('project_id', quickInputs.projectId)
+              .eq('asset_type', 'hero_exterior')
+              .order('is_primary', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            const heroUrl = (heroRow as { asset_url?: string } | null)?.asset_url;
+            if (heroUrl) heroSubject = { url: heroUrl };
+          }
+          if (heroSubject) {
             replicateAspect = await aspectFromBase64(replicateRef.base64, replicateRef.mimeType);
             heroImages = [
               { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
-              { url: heroUrl },
+              heroSubject,
             ];
             // Text-overlay mode (beta): locate the reference's zones now so
             // StrategyResult can composite crisp copy per zone onto a clean template.
@@ -481,7 +496,7 @@ export function Strategy() {
               if (!overlayZones) showToast('Could not locate the reference layout zones — generating the standard replicate instead.', 'info');
             }
           } else {
-            showToast('No hero image on this project — generating normally. Add a hero image in Projects → Media to replicate the uploaded creative.', 'info');
+            showToast('No hero selected and no hero image on this project — generating normally. Flag a project photo as ★ Hero, or add a hero image in Projects → Media, to replicate the uploaded creative.', 'info');
           }
         }
 

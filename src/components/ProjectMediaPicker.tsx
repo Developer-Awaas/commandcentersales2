@@ -195,13 +195,15 @@ export function ProjectMediaPicker({
                   )}
                 </button>
                 {selected && onSetHero && (
-                  <button
-                    type="button"
-                    onClick={() => onSetHero(isHero ? null : a.id)}
-                    className={`mt-0.5 w-full text-[9px] font-medium ${isHero ? 'text-amber-400' : 'text-text-tertiary hover:text-amber-400'}`}
+                  <select
+                    value={isHero ? 'hero' : 'additional'}
+                    onChange={(e) => onSetHero(e.target.value === 'hero' ? a.id : (heroId === a.id ? null : heroId ?? null))}
+                    className={`mt-0.5 w-full text-[9px] font-medium rounded bg-surface-sunken border border-border px-1 py-0.5 ${isHero ? 'text-amber-400' : 'text-text-tertiary'}`}
+                    title="Role for this generation"
                   >
-                    {isHero ? '★ Hero (keep as-is)' : '☆ Set as hero'}
-                  </button>
+                    <option value="hero">★ Hero (the building)</option>
+                    <option value="additional">Additional media</option>
+                  </select>
                 )}
               </div>
             );

@@ -41,6 +41,26 @@ const FUNNEL_MAP: Record<string, string> = {
 // bytes the client would have to download+re-upload for no reason.
 export type HeroImageRef = { base64: string; mimeType: string } | { url: string };
 
+// A ref carries real bytes (fresh upload) or only a URL (project-asset). The
+// generate-image edge function fetches URL-based refs server-side.
+export function toHeroImageRef(r: { base64: string; mimeType: string; preview_url: string }): HeroImageRef {
+  return r.base64 ? { base64: r.base64, mimeType: r.mimeType } : { url: r.preview_url };
+}
+
+// Single source of truth for "which asset is the hero" — both the normal hero
+// path and replicate mode resolve it from the id the user flagged (heroRefKey)
+// against the same ref pool, so the payload's building subject is EXACTLY the
+// ★-flagged asset at generate-click time (bug: replicate used to ignore this
+// and hardcode the first hero_exterior asset instead).
+export function resolveHeroRef(
+  refs: { id: string; base64: string; mimeType: string; preview_url: string }[],
+  heroRefKey: string | null | undefined,
+): HeroImageRef | undefined {
+  if (!heroRefKey) return undefined;
+  const entry = refs.find((r) => r.id === heroRefKey);
+  return entry ? toHeroImageRef(entry) : undefined;
+}
+
 export async function generateImageWithGemini(
   prompt: string,
   aspectRatio: '1:1' | '9:16' | '4:5' = '1:1',

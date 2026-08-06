@@ -1346,6 +1346,8 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [geminiGenerating, setGeminiGenerating] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
+  // Fix 4: set when zone-fit had to shorten copy — prompts the user to Edit Text.
+  const [copyTrimmed, setCopyTrimmed] = useState(false);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>(() => resumedGalleryImages ?? []);
   // Resumed images carry their real DB status via `approved` — if every one
   // was already approved before the Canva round-trip wiped this component,
@@ -1428,6 +1430,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     setGeminiGenerating(true);
     onGeminiStateChange?.(true);
     setGeminiError(null);
+    setCopyTrimmed(false);
     setGalleryImages([]);
     setCreativesSaved(false);
     // New regeneration gets a fresh session ID so storage paths don't collide
@@ -1467,27 +1470,37 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         price:    data.ad_copy?.[`price_${primaryLang}`] ?? data.ad_copy?.price,
         cta:      data.ad_copy?.cta,
       };
-      // Text-overlay mode: fuller copy for zone-composited text (subheadline/footer
-      // added; badges/checklist only fill zones when a copy source exists).
-      const overlayCopy = {
-        ...replicateCopy,
-        subheadline: data.ad_copy?.[`primary_text_${primaryLang}`] ?? data.ad_copy?.subheadline,
-        footer: data.ad_copy?.footer,
-      };
       const overlayOn = !!(textOverlayMode && zones && replicateAspect);
-      // Brand-kit logo + colours (org-scoped) — logo placed programmatically, never
-      // model-rendered; colours drive the CTA badge. Columns per brand_kits schema.
+      // Brand-kit logo + colours + contact, and a project price fallback — used to
+      // REPOPULATE the reference's competitor-stripped price/contact zones with OUR
+      // values (Fix 3). Logo placed programmatically; colours drive the CTA badge.
       let brandLogoUrl: string | undefined;
       let brandColors: { primary: string; accent: string } | undefined;
+      let contactStrip: string | undefined;   // brand-kit phone/WhatsApp → contact zone
+      let priceFallback: string | undefined;   // projects.price_display when ad_copy has no price
       if (overlayOn) {
         const { data: bk } = await supabase
           .from('brand_kits')
-          .select('logo_white_url, logo_color_url, logo_dark_url, primary_color, accent_color')
+          .select('logo_white_url, logo_color_url, logo_dark_url, primary_color, accent_color, whatsapp_number, phone_display')
           .maybeSingle();
-        const kit = bk as { logo_white_url?: string; logo_color_url?: string; logo_dark_url?: string; primary_color?: string; accent_color?: string } | null;
+        const kit = bk as { logo_white_url?: string; logo_color_url?: string; logo_dark_url?: string; primary_color?: string; accent_color?: string; whatsapp_number?: string; phone_display?: string } | null;
         brandLogoUrl = kit?.logo_white_url ?? kit?.logo_color_url ?? kit?.logo_dark_url ?? undefined;
         if (kit?.primary_color && kit?.accent_color) brandColors = { primary: kit.primary_color, accent: kit.accent_color };
+        contactStrip = [kit?.phone_display, kit?.whatsapp_number].map((s) => s?.trim()).filter(Boolean).join('   ·   ') || undefined;
+        if (projectId) {
+          const { data: proj } = await supabase.from('projects').select('price_display').eq('id', projectId).maybeSingle();
+          priceFallback = (proj as { price_display?: string } | null)?.price_display?.trim() || undefined;
+        }
       }
+      // Text-overlay copy: price falls back to projects.price_display; the contact
+      // strip (footer zone) comes from the brand kit. A zone with no value is
+      // skipped by buildLayersFromZones — never rendered as a blank block (Fix 3).
+      const overlayCopy = {
+        ...replicateCopy,
+        price: replicateCopy.price?.trim() || priceFallback,
+        subheadline: data.ad_copy?.[`primary_text_${primaryLang}`] ?? data.ad_copy?.subheadline,
+        footer: data.ad_copy?.footer?.trim() || contactStrip,
+      };
       const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = replicateAspect
         ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt() : buildReplicatePrompt(replicateCopy)]]
         : [
@@ -1541,6 +1554,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               const deduped = dedupeZones(zones);
               overlayDeduped = deduped;
               const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
+              if (layers.some((l) => l.overflow)) setCopyTrimmed(true);
               const lz = logoZone(deduped);
               const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlates(deduped));
               uploadBase64 = composed.split(',')[1];
@@ -1742,6 +1756,11 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Generated Creatives</span>
             <div className="h-px flex-1 bg-surface-elevated" />
           </div>
+          {copyTrimmed && (
+            <div className="mb-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-300">
+              ✂️ Some copy was shortened to fit its zone (at a word boundary, never mid-word). Click <span className="font-semibold">✨ Edit Text</span> on a creative to reword or resize it.
+            </div>
+          )}
           <ImageGalleryViewer
             images={galleryImages}
             onImagesChanged={(imageId) => {

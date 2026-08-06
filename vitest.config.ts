@@ -17,6 +17,7 @@ export default defineConfig({
       'src/lib/smm-prompts.separation.test.ts',
       'src/lib/history-service.test.ts',
       'src/lib/gemini-service.test.ts',
+      'src/lib/gemini-service.hero.test.ts',
       'src/components/generation/StrategyGenerator.test.tsx',
       'src/pages/CampaignWizard.test.tsx',
       'src/lib/providers.test.ts',

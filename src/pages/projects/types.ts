@@ -32,6 +32,9 @@ export interface Project {
   unit_types: string | null;
   carpet_area_range: string | null;
   price_range_lacs: string | null;
+  // Free-text price shown on generated creatives (e.g. "₹1.14 Cr onwards") when
+  // the strategy ad_copy carries no price — repopulates the price zone (Fix 3).
+  price_display: string | null;
   per_sqft_rate: number | null;
   usps: string | null;
   amenities: string | null;
@@ -67,6 +70,7 @@ export const EMPTY_FORM: Omit<Project, 'id' | 'org_id' | 'is_active' | 'created_
   unit_types: '',
   carpet_area_range: '',
   price_range_lacs: '',
+  price_display: '',
   per_sqft_rate: null,
   usps: '',
   amenities: '',
