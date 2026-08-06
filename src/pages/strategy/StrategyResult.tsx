@@ -19,6 +19,8 @@ import { buildHeroEditPrompt, buildReplicatePrompt, buildReplicateLayoutPrompt }
 import { dedupeZones } from '../../lib/reference-style';
 import { buildLayersFromZones, refHeightFor, logoZone, textZonePlates } from '../../lib/zone-layers';
 import { renderTextLayers, type TextLayer } from '../../lib/text-layers';
+import { TextLayerEditor } from '../../components/TextLayerEditor';
+import type { ReferenceZone } from '../../lib/reference-style';
 import { supabase } from '../../lib/supabase';
 import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../../lib/constants';
 import { enforceCreativeHistoryLimit } from '../../lib/creative-history';
@@ -1350,6 +1352,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   // start in the "saved" state instead of falsely flagging them unsaved.
   const [creativesSaved, setCreativesSaved] = useState(() => !!resumedGalleryImages?.length && resumedGalleryImages.every((img) => img.approved));
   const [savingCreatives, setSavingCreatives] = useState(false);
+  // Text-overlay editing (RB-P0 STEP 3 slice 2): the composite inputs per image
+  // (clean template, zones, logo, dims) so "Edit Text" can re-composite on save.
+  const [editingTextImg, setEditingTextImg] = useState<GalleryImage | null>(null);
+  const overlayMetaRef = useRef<Record<string, { templateSrc: string; layers: TextLayer[]; zones: ReferenceZone[]; logoUrl?: string; w: number; h: number; storagePath?: string }>>({});
   // Which image ids actually need a Save — freshly generated ones, and any
   // synced/edited since the last save. Save should only touch these, never
   // blanket-approve the whole gallery (an untouched image from three
@@ -1526,10 +1532,14 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           let uploadBase64 = img.base64;
           let uploadMime = img.mimeType;
           let composedLayers: TextLayer[] | undefined;
+          let overlayDims: [number, number] | undefined;
+          let overlayDeduped: ReferenceZone[] | undefined;
           if (overlayOn && zones && replicateAspect) {
             try {
               const [cw, ch] = ({ '1:1': [1080, 1080], '4:5': [1080, 1350], '9:16': [1080, 1920] } as const)[replicateAspect];
+              overlayDims = [cw, ch];
               const deduped = dedupeZones(zones);
+              overlayDeduped = deduped;
               const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
               const lz = logoZone(deduped);
               const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlates(deduped));
@@ -1557,6 +1567,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             // Persist composited layers so the creative stays re-editable later.
             if (composedLayers && uploaded.id) {
               await supabase.from('creative_assets').update({ text_layers: composedLayers }).eq('id', uploaded.id);
+              // Keep the re-composite inputs in memory so "Edit Text" can re-render.
+              if (overlayDims && overlayDeduped) {
+                overlayMetaRef.current[uploaded.id] = { templateSrc: dataUrl, layers: composedLayers, zones: overlayDeduped, logoUrl: brandLogoUrl, w: overlayDims[0], h: overlayDims[1], storagePath: uploaded.storagePath };
+              }
             }
           } catch (uploadErr) {
             // Non-fatal — image still displays via the base64 data URL — but
@@ -1567,6 +1581,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           collected.push({
             id, url, label, storagePath,
             promptUsed: promptUsedForThisSlot,
+            editableText: !!composedLayers,
             adCopy: {
               headline: data.ad_copy?.headline_english,
               cta: data.ad_copy?.cta,
@@ -1587,6 +1602,34 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     } finally {
       setGeminiGenerating(false);
       onGeminiStateChange?.(false);
+    }
+  }
+
+  // Text-overlay "Edit Text" save: re-composite the clean template with the user's
+  // edited layers (+ clean-plates + logo), overwrite the stored image in place, and
+  // refresh the gallery. TextLayerEditor already persisted text_layers itself.
+  async function handleOverlayTextSave(img: GalleryImage, newLayers: TextLayer[]) {
+    const meta = img.id ? overlayMetaRef.current[img.id] : undefined;
+    setEditingTextImg(null);
+    if (!meta || !meta.storagePath) return;
+    try {
+      const lz = logoZone(meta.zones);
+      const composed = await renderTextLayers(
+        meta.templateSrc, newLayers, meta.w, meta.h,
+        (lz && meta.logoUrl) ? { src: meta.logoUrl, bbox: lz.bbox } : undefined,
+        textZonePlates(meta.zones),
+      );
+      const blob = await (await fetch(composed)).blob();
+      const { error: upErr } = await supabase.storage.from('brand-assets').upload(meta.storagePath, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from('brand-assets').getPublicUrl(meta.storagePath);
+      const bustedUrl = `${pub.publicUrl}?t=${Date.now()}`; // cache-bust the overwritten path
+      meta.layers = newLayers;
+      setGalleryImages((prev) => prev.map((g) => (g.id === img.id ? { ...g, url: bustedUrl } : g)));
+      setCreativesSaved(false);
+      if (img.id) setPendingSaveIds((prev) => new Set(prev).add(img.id!));
+    } catch (e) {
+      console.error('[overlay] Edit Text re-composite/save failed:', e);
     }
   }
 
@@ -1706,7 +1749,17 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               setPendingSaveIds((prev) => new Set(prev).add(imageId));
             }}
             onBeforeCanvaNavigate={() => { suppressBeforeUnloadRef.current = true; }}
+            onEditText={setEditingTextImg}
           />
+          {editingTextImg?.id && overlayMetaRef.current[editingTextImg.id] && (
+            <TextLayerEditor
+              assetId={editingTextImg.id}
+              imageUrl={overlayMetaRef.current[editingTextImg.id].templateSrc}
+              layers={overlayMetaRef.current[editingTextImg.id].layers}
+              onSave={(newLayers) => { void handleOverlayTextSave(editingTextImg, newLayers); }}
+              onClose={() => setEditingTextImg(null)}
+            />
+          )}
           {/* Save Creative — marks only images pending a save (freshly
               generated or changed since the last save) as approved */}
           <div className={`flex items-center justify-between px-4 py-3 rounded-xl border ${creativesSaved ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>

@@ -28,6 +28,10 @@ export interface GalleryImage {
   // page's Canva-return resume) — mirrors creative_assets.status === 'approved'
   // so callers can infer whether a resumed set was already saved.
   approved?: boolean;
+  // Set for text-overlay creatives (RB-P0 STEP 3) — the app composited the copy
+  // as editable layers, so this image can be re-edited via the "Edit Text" action
+  // (handled by the parent via onEditText, which owns the template + zones + logo).
+  editableText?: boolean;
 }
 
 interface ImageGalleryViewerProps {
@@ -46,6 +50,9 @@ interface ImageGalleryViewerProps {
   // one known-recoverable navigation instead of surfacing a native "Leave
   // site?" prompt that silently swallows the redirect if dismissed.
   onBeforeCanvaNavigate?: () => void;
+  // Fires when the user clicks "Edit Text" on a text-overlay creative — the
+  // parent owns the template/zones/logo and re-composites, so the editor lives there.
+  onEditText?: (img: GalleryImage) => void;
 }
 
 interface LightboxState {
@@ -53,7 +60,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
@@ -355,6 +362,16 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 <Download size={11} />
                 Download
               </button>
+
+              {img.editableText && onEditText && (
+                <button
+                  onClick={() => onEditText(img)}
+                  disabled={isBusy}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/20 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  ✨ Edit Text
+                </button>
+              )}
             </div>
           );})}
         </div>

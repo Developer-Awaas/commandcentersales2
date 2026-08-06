@@ -26,6 +26,7 @@ export default defineConfig({
       'src/lib/content-library-filter.test.ts',
       'src/lib/text-layers.test.ts',
       'src/lib/zone-layers.test.ts',
+      'src/components/TextLayerEditor.test.tsx',
     ],
   },
 });
