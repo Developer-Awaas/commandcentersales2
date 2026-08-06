@@ -37,6 +37,7 @@ import AanyaMemory from './pages/AanyaMemory';
 import LeadGenV2 from './pages/leadgen-v2';
 import { CanvaReturn } from './pages/CanvaReturn';
 import { CanvaEditorReturn } from './pages/CanvaEditorReturn';
+import { BuildStamp } from './components/BuildStamp';
 import type { Profile } from './lib/supabase';
 import { hasModuleAccess } from './lib/access';
 import { LEADGEN_V2_ENABLED } from './lib/feature-flags';
@@ -215,6 +216,7 @@ export default function App() {
       <ToastProvider>
         <LoginPage />
         <ToastContainer />
+        <BuildStamp />
       </ToastProvider>
     );
   }
@@ -236,6 +238,7 @@ export default function App() {
               onWizardStart={() => setWizardActive(true)}
             />
             <ToastContainer />
+            <BuildStamp />
           </NavigationContext.Provider>
         </ChatbotProvider>
       </GenerationLockProvider>

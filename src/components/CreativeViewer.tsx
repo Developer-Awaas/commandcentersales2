@@ -15,9 +15,11 @@ import {
 } from 'lucide-react';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { CanvaConnectButton } from './CanvaConnectButton';
+import { TextLayerEditor } from './TextLayerEditor';
+import { saveOverlayEdit, fetchBrandLogoUrl } from '../lib/overlay-recompose';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
-import { SINGLE_IMAGE_TESTING_MODE } from '../lib/feature-flags';
+import { SINGLE_IMAGE_TESTING_MODE, DEBUG_SHOW_PROMPTS } from '../lib/feature-flags';
 
 export interface CreativeAsset {
   id: string;
@@ -33,6 +35,11 @@ export interface CreativeAsset {
   canva_edit_url: string | null;
   editor_used: string | null;
   created_at: string;
+  // Text-overlay re-composite inputs (RB-P2 Step 1) — present only for overlay
+  // creatives; when set, this asset is editable via "Edit Text" here too.
+  text_layers?: import('../lib/text-layers').TextLayer[] | null;
+  clean_template_url?: string | null;
+  overlay_zones?: import('../lib/reference-style').ReferenceZone[] | null;
 }
 
 interface CreativeViewerProps {
@@ -145,8 +152,22 @@ interface CreativeCardProps {
 }
 
 function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction }: CreativeCardProps) {
-  const displayUrl = asset.edited_image_url ?? asset.image_url;
+  const [editingText, setEditingText] = useState(false);
+  const [bustUrl, setBustUrl] = useState<string | null>(null);
+  const displayUrl = bustUrl ?? asset.edited_image_url ?? asset.image_url;
   const isLoading = (action: string) => loadingAction === `${asset.id}-${action}`;
+  // Overlay-editable only when the persisted re-composite inputs are present.
+  const overlayEditable = !!(asset.clean_template_url && asset.text_layers?.length && asset.storage_path);
+
+  async function handleTextSave(layers: import('../lib/text-layers').TextLayer[]) {
+    const logoUrl = await fetchBrandLogoUrl();
+    const newUrl = await saveOverlayEdit({
+      assetId: asset.id, storagePath: asset.storage_path, cleanTemplateUrl: asset.clean_template_url!,
+      layers, zones: asset.overlay_zones ?? undefined, logoUrl,
+    });
+    setBustUrl(newUrl);
+    setEditingText(false);
+  }
 
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -231,7 +252,26 @@ function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction }: Creati
             Download
           </button>
         </div>
+
+        {overlayEditable && (
+          <button
+            onClick={() => setEditingText(true)}
+            className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/20 transition-all"
+          >
+            ✨ Edit Text
+          </button>
+        )}
       </div>
+
+      {editingText && overlayEditable && (
+        <TextLayerEditor
+          assetId={asset.id}
+          imageUrl={asset.clean_template_url!}
+          layers={asset.text_layers!}
+          onSave={(layers) => { void handleTextSave(layers); }}
+          onClose={() => setEditingText(false)}
+        />
+      )}
     </Card>
   );
 }
@@ -306,8 +346,9 @@ function CreativeLightbox({ assets, initialIndex, onClose, onAction }: LightboxP
           )}
         </div>
 
-        {/* Prompt (collapsible) */}
-        {asset.prompt_used && (
+        {/* Prompt (collapsible) — internal artifact, hidden from users (Rahul req 4);
+            shown only behind the DEBUG_SHOW_PROMPTS flag for our own evidence needs. */}
+        {DEBUG_SHOW_PROMPTS && asset.prompt_used && (
           <div className="px-5 py-3 border-t border-border flex-shrink-0">
             <button
               onClick={() => setShowPrompt((v) => !v)}

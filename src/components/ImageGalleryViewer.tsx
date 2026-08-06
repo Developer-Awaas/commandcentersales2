@@ -6,7 +6,16 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
 import { openCanvaOAuthPopup, listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
 import { AdobeExpressModal } from './AdobeExpressModal';
+import { TextLayerEditor } from './TextLayerEditor';
+import { saveOverlayEdit } from '../lib/overlay-recompose';
+import type { TextLayer } from '../lib/text-layers';
 import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2 } from 'lucide-react';
+
+// A gallery image is self-editable (no parent handler needed) when it carries the
+// persisted re-composite inputs — the reload-safe path (RB-P2 Step 1).
+function canSelfEdit(img: GalleryImage): boolean {
+  return !!(img.id && img.storagePath && img.cleanTemplateUrl && img.textLayers?.length);
+}
 
 // Mirrors _shared/vision-analysis.ts's EditSummary shape (server-only file,
 // not imported client-side) — just the 4 boolean flags this UI displays.
@@ -29,9 +38,16 @@ export interface GalleryImage {
   // so callers can infer whether a resumed set was already saved.
   approved?: boolean;
   // Set for text-overlay creatives (RB-P0 STEP 3) — the app composited the copy
-  // as editable layers, so this image can be re-edited via the "Edit Text" action
-  // (handled by the parent via onEditText, which owns the template + zones + logo).
+  // as editable layers, so this image can be re-edited via the "Edit Text" action.
   editableText?: boolean;
+  // Persisted re-composite inputs (RB-P2 Step 1) — when present the gallery
+  // self-mounts the TextLayerEditor and re-composites over the clean template,
+  // so Edit Text works from any viewer and survives a reload. When absent, the
+  // gallery falls back to the parent's onEditText handler.
+  cleanTemplateUrl?: string;
+  overlayZones?: import('../lib/reference-style').ReferenceZone[];
+  textLayers?: import('../lib/text-layers').TextLayer[];
+  logoUrl?: string;
 }
 
 interface ImageGalleryViewerProps {
@@ -69,6 +85,20 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [canvaLoading, setCanvaLoading] = useState<string | null>(null);
   const [adobeImage, setAdobeImage] = useState<GalleryImage | null>(null);
+  // Self-mounted text editor (RB-P2 Step 1) — used when the image carries the
+  // persisted re-composite inputs, so Edit Text works here without a parent.
+  const [editingImg, setEditingImg] = useState<GalleryImage | null>(null);
+
+  async function handleTextSave(img: GalleryImage, layers: TextLayer[]) {
+    const newUrl = await saveOverlayEdit({
+      assetId: img.id!, storagePath: img.storagePath!, cleanTemplateUrl: img.cleanTemplateUrl!,
+      layers, zones: img.overlayZones, logoUrl: img.logoUrl,
+    });
+    setLocalImages((prev) => prev.map((x) => x.id === img.id ? { ...x, url: newUrl, textLayers: layers } : x));
+    if (img.id) onImagesChanged?.(img.id);
+    setEditingImg(null);
+    showToast('Text updated.', 'success');
+  }
   // Tracks which image id is currently being synced from Canva (null = none)
   // — auto-triggered by Return Navigation, no manual sync trigger exists.
   const [canvaSyncing, setCanvaSyncing] = useState<string | null>(null);
@@ -363,9 +393,9 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 Download
               </button>
 
-              {img.editableText && onEditText && (
+              {img.editableText && (canSelfEdit(img) || onEditText) && (
                 <button
-                  onClick={() => onEditText(img)}
+                  onClick={() => canSelfEdit(img) ? setEditingImg(img) : onEditText?.(img)}
                   disabled={isBusy}
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
@@ -476,6 +506,16 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           storageBucket="brand-assets"
           onSave={handleAdobeSave}
           onClose={() => setAdobeImage(null)}
+        />
+      )}
+
+      {editingImg && canSelfEdit(editingImg) && (
+        <TextLayerEditor
+          assetId={editingImg.id!}
+          imageUrl={editingImg.cleanTemplateUrl!}
+          layers={editingImg.textLayers!}
+          onSave={(layers) => { void handleTextSave(editingImg, layers); }}
+          onClose={() => setEditingImg(null)}
         />
       )}
     </>

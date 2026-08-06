@@ -47,6 +47,15 @@ export function toHeroImageRef(r: { base64: string; mimeType: string; preview_ur
   return r.base64 ? { base64: r.base64, mimeType: r.mimeType } : { url: r.preview_url };
 }
 
+// Single source of truth for "which reference is the replicate style source".
+// The role model (CreativeInputs.setRole) writes role_hint='replicate_creative'
+// on the ref given the "Style reference" role; the replicate/generation path
+// resolves it here. Kept as one function so a future role-model refactor can't
+// silently disconnect the style reference (RB-P2 Step 3 / H1 regression guard).
+export function findStyleReference<T extends { role_hint?: string }>(refs: T[]): T | undefined {
+  return refs.find((r) => r.role_hint === 'replicate_creative');
+}
+
 // Single source of truth for "which asset is the hero" — both the normal hero
 // path and replicate mode resolve it from the id the user flagged (heroRefKey)
 // against the same ref pool, so the payload's building subject is EXACTLY the

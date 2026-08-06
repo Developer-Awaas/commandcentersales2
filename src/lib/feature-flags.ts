@@ -20,3 +20,12 @@ export const MOCK_AI_ENABLED =
 // any of this ships to main/production, where all 3 images are the actual
 // product behavior.
 export const SINGLE_IMAGE_TESTING_MODE = true;
+
+// Aanya's image-generation prompts (the 9-section senior-designer text, the
+// per-creative prompt_used, etc.) are an INTERNAL artifact — never shown to end
+// users (Rahul req 4). Hidden by default. Flip on for our own evidence needs
+// without a rebuild: `localStorage.setItem('debug_prompts','1')` then reload,
+// or set VITE_DEBUG_PROMPTS=true at build. Evaluated once at module load.
+export const DEBUG_SHOW_PROMPTS =
+  (import.meta.env.VITE_DEBUG_PROMPTS as string | undefined) === 'true' ||
+  (typeof localStorage !== 'undefined' && localStorage.getItem('debug_prompts') === '1');

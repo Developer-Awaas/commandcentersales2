@@ -223,7 +223,7 @@ export function QuickGenerateForm({
                 onChange={(e) => set('textOverlayMode', e.target.checked)}
                 className="rounded border-border"
               />
-              <span>✨ Text-overlay mode (beta) — clean template + app-composited crisp, editable copy per zone (no garbled baked text).</span>
+              <span>✨ Text-overlay mode <strong>(on by default)</strong> — clean template + app-composited crisp, editable copy per zone, with price &amp; contact from your Brand Kit. Uncheck to let the model bake text (less reliable).</span>
             </label>
           </>
         )}

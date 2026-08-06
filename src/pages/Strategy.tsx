@@ -11,7 +11,7 @@ import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
 import { buildQuickGenerateBrief, runTwoStageQuickGenerate } from '../lib/senior-designer-prompts';
 import { aspectFromBase64, type RefAspect } from '../lib/reference-edit';
-import { resolveHeroRef, toHeroImageRef, type HeroImageRef } from '../lib/gemini-service';
+import { resolveHeroRef, toHeroImageRef, findStyleReference, type HeroImageRef } from '../lib/gemini-service';
 import { projectAssetRoleHint } from '../components/ProjectMediaPicker';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { QuickGenerateForm } from './strategy/QuickGenerateForm';
@@ -87,6 +87,11 @@ const DEFAULT_QUICK: QuickGenerateInputs = {
   quickRefs: [],
   projectMediaIds: [],
   heroRefKey: null,
+  // Overlay text is ON by default for replicate: baked model text is unreliable
+  // (garble, ₹→$, duplicated rows). Replicate now defaults to a clean template +
+  // app-composited crisp copy with price/contact repopulated. Opt-out via the
+  // checkbox in QuickGenerateForm (RB-P2 Step 3 — kills the garbled-text reports).
+  textOverlayMode: true,
 };
 
 const DEFAULT_FULL: FullStrategyInputs = {
@@ -463,7 +468,7 @@ export function Strategy() {
         // differ (handled in StrategyResult). Overrides any hero selection.
         let replicateAspect: RefAspect | undefined;
         let overlayZones: import('../lib/reference-style').ReferenceZone[] | undefined;
-        const replicateRef = quickInputs.quickRefs.find((r) => r.role_hint === 'replicate_creative');
+        const replicateRef = findStyleReference(quickInputs.quickRefs);
         if (replicateRef && quickInputs.projectId && quickInputs.projectId !== 'custom') {
           // Building subject = the asset the user flagged ★ Hero at generate-click
           // time (heroRefKey), resolved from the same ref pool as the normal hero
@@ -489,6 +494,18 @@ export function Strategy() {
               { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
               heroSubject,
             ];
+            // Evidence log (RB-P2 Step 3 / H1): prove the style-reference asset
+            // actually reaches the generation payload — if this shows styleRef:true
+            // the reference IS wired; a "model free-composes" report then means the
+            // Style-reference role was never selected, not a code disconnect.
+            console.log('🎯 [REPLICATE PAYLOAD]', {
+              styleRefId: replicateRef.id,
+              styleRefBytes: replicateRef.base64.length,
+              heroRefKey: quickInputs.heroRefKey,
+              heroSubject: 'url' in heroSubject ? heroSubject.url : `bytes:${heroSubject.base64.length}`,
+              overlayMode: !!quickInputs.textOverlayMode,
+              imageCount: heroImages.length,
+            });
             // Text-overlay mode (beta): locate the reference's zones now so
             // StrategyResult can composite crisp copy per zone onto a clean template.
             if (quickInputs.textOverlayMode) {

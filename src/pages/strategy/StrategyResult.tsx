@@ -19,7 +19,6 @@ import { buildHeroEditPrompt, buildReplicatePrompt, buildReplicateLayoutPrompt }
 import { dedupeZones } from '../../lib/reference-style';
 import { buildLayersFromZones, refHeightFor, logoZone, textZonePlates } from '../../lib/zone-layers';
 import { renderTextLayers, type TextLayer } from '../../lib/text-layers';
-import { TextLayerEditor } from '../../components/TextLayerEditor';
 import type { ReferenceZone } from '../../lib/reference-style';
 import { supabase } from '../../lib/supabase';
 import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../../lib/constants';
@@ -31,7 +30,7 @@ import { TargetingVerifier } from '../../components/TargetingVerifier';
 import { InlineCreativeReview, type InlineReviewProject } from '../../components/InlineCreativeReview';
 import ReferenceImagePack from '../../components/ReferenceImagePack';
 import { ImageGalleryViewer, type GalleryImage } from '../../components/ImageGalleryViewer';
-import { SINGLE_IMAGE_TESTING_MODE } from '../../lib/feature-flags';
+import { SINGLE_IMAGE_TESTING_MODE, DEBUG_SHOW_PROMPTS } from '../../lib/feature-flags';
 import {
   type StrategyResult as StrategyResultType,
   type QuickGenerateInputs,
@@ -547,7 +546,7 @@ function QuickAiOutput({ data, inputs, onSave, project }: { data: QuickAiResult;
         </Card>
       )}
 
-      {(data.creativePrompt || data.creativePromptStory) && (
+      {DEBUG_SHOW_PROMPTS && (data.creativePrompt || data.creativePromptStory) && (
         <Card>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <SectionLabel>Creative Prompts — {inputs.creativePlatform}</SectionLabel>
@@ -947,7 +946,7 @@ function MetaAiOutput({ data, inputs, onSave, project }: { data: MetaAiResult; i
       )}
 
       {/* Creative Prompts */}
-      {(data.creativePrompt || data.creativePromptStory) && (
+      {DEBUG_SHOW_PROMPTS && (data.creativePrompt || data.creativePromptStory) && (
         <Card>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <SectionLabel>Creative Prompts — {inputs.creativePlatform}</SectionLabel>
@@ -1218,7 +1217,7 @@ function FullAiOutput({ data, inputs, projects, onSave }: { data: FullAiResult; 
         ))
       )}
 
-      {data._aanyaBrief && (data.creativePrompt || data.creativePromptStory) && (
+      {DEBUG_SHOW_PROMPTS && data._aanyaBrief && (data.creativePrompt || data.creativePromptStory) && (
         <Card>
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <SectionLabel>Creative Prompts</SectionLabel>
@@ -1354,10 +1353,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   // start in the "saved" state instead of falsely flagging them unsaved.
   const [creativesSaved, setCreativesSaved] = useState(() => !!resumedGalleryImages?.length && resumedGalleryImages.every((img) => img.approved));
   const [savingCreatives, setSavingCreatives] = useState(false);
-  // Text-overlay editing (RB-P0 STEP 3 slice 2): the composite inputs per image
-  // (clean template, zones, logo, dims) so "Edit Text" can re-composite on save.
-  const [editingTextImg, setEditingTextImg] = useState<GalleryImage | null>(null);
-  const overlayMetaRef = useRef<Record<string, { templateSrc: string; layers: TextLayer[]; zones: ReferenceZone[]; logoUrl?: string; w: number; h: number; storagePath?: string }>>({});
+  // Text-overlay "Edit Text" is now owned by ImageGalleryViewer, which self-mounts
+  // the editor from the persisted re-composite inputs (clean_template_url +
+  // overlay_zones + text_layers) — reload-safe and shared with CreativeViewer
+  // (RB-P2 Step 1). StrategyResult only enriches each GalleryImage with them.
   // Which image ids actually need a Save — freshly generated ones, and any
   // synced/edited since the last save. Save should only touch these, never
   // blanket-approve the whole gallery (an untouched image from three
@@ -1545,12 +1544,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           let uploadBase64 = img.base64;
           let uploadMime = img.mimeType;
           let composedLayers: TextLayer[] | undefined;
-          let overlayDims: [number, number] | undefined;
           let overlayDeduped: ReferenceZone[] | undefined;
           if (overlayOn && zones && replicateAspect) {
             try {
               const [cw, ch] = ({ '1:1': [1080, 1080], '4:5': [1080, 1350], '9:16': [1080, 1920] } as const)[replicateAspect];
-              overlayDims = [cw, ch];
               const deduped = dedupeZones(zones);
               overlayDeduped = deduped;
               const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
@@ -1567,6 +1564,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
           let url = `data:${uploadMime};base64,${uploadBase64}`;
           let id: string | undefined;
           let storagePath: string | undefined;
+          let cleanTemplateUrl: string | undefined;
           try {
             const uploaded = await uploadGeminiImageToSupabase(uploadBase64, uploadMime, {
               sessionId: sessionIdRef.current,
@@ -1578,13 +1576,22 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             url = uploaded.url;
             id = uploaded.id;
             storagePath = uploaded.storagePath;
-            // Persist composited layers so the creative stays re-editable later.
-            if (composedLayers && uploaded.id) {
-              await supabase.from('creative_assets').update({ text_layers: composedLayers }).eq('id', uploaded.id);
-              // Keep the re-composite inputs in memory so "Edit Text" can re-render.
-              if (overlayDims && overlayDeduped) {
-                overlayMetaRef.current[uploaded.id] = { templateSrc: dataUrl, layers: composedLayers, zones: overlayDeduped, logoUrl: brandLogoUrl, w: overlayDims[0], h: overlayDims[1], storagePath: uploaded.storagePath };
-              }
+            // Persist the re-composite inputs so "Edit Text" survives a reload and
+            // works from any viewer (RB-P2 Step 1): upload the CLEAN template to a
+            // sibling path + store clean_template_url + overlay_zones + text_layers.
+            if (composedLayers && uploaded.id && uploaded.storagePath) {
+              cleanTemplateUrl = uploaded.url; // fallback if the clean upload fails
+              try {
+                const cleanPath = uploaded.storagePath.replace(/(\.[^.]+)$/, '.clean$1');
+                const cleanBlob = await (await fetch(dataUrl)).blob();
+                const { error: cErr } = await supabase.storage.from('brand-assets').upload(cleanPath, cleanBlob, { upsert: true, contentType: img.mimeType });
+                if (!cErr) cleanTemplateUrl = supabase.storage.from('brand-assets').getPublicUrl(cleanPath).data.publicUrl;
+              } catch (ce) { console.error('[overlay] clean-template upload failed — re-edit will fall back to the composited image:', ce); }
+              await supabase.from('creative_assets').update({
+                text_layers: composedLayers,
+                clean_template_url: cleanTemplateUrl,
+                overlay_zones: overlayDeduped ?? null,
+              }).eq('id', uploaded.id);
             }
           } catch (uploadErr) {
             // Non-fatal — image still displays via the base64 data URL — but
@@ -1596,6 +1603,11 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             id, url, label, storagePath,
             promptUsed: promptUsedForThisSlot,
             editableText: !!composedLayers,
+            // Re-composite inputs so the gallery's own "Edit Text" is reload-safe.
+            cleanTemplateUrl: composedLayers ? cleanTemplateUrl : undefined,
+            overlayZones: composedLayers ? overlayDeduped : undefined,
+            textLayers: composedLayers,
+            logoUrl: composedLayers ? brandLogoUrl : undefined,
             adCopy: {
               headline: data.ad_copy?.headline_english,
               cta: data.ad_copy?.cta,
@@ -1616,34 +1628,6 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     } finally {
       setGeminiGenerating(false);
       onGeminiStateChange?.(false);
-    }
-  }
-
-  // Text-overlay "Edit Text" save: re-composite the clean template with the user's
-  // edited layers (+ clean-plates + logo), overwrite the stored image in place, and
-  // refresh the gallery. TextLayerEditor already persisted text_layers itself.
-  async function handleOverlayTextSave(img: GalleryImage, newLayers: TextLayer[]) {
-    const meta = img.id ? overlayMetaRef.current[img.id] : undefined;
-    setEditingTextImg(null);
-    if (!meta || !meta.storagePath) return;
-    try {
-      const lz = logoZone(meta.zones);
-      const composed = await renderTextLayers(
-        meta.templateSrc, newLayers, meta.w, meta.h,
-        (lz && meta.logoUrl) ? { src: meta.logoUrl, bbox: lz.bbox } : undefined,
-        textZonePlates(meta.zones),
-      );
-      const blob = await (await fetch(composed)).blob();
-      const { error: upErr } = await supabase.storage.from('brand-assets').upload(meta.storagePath, blob, { upsert: true, contentType: 'image/jpeg' });
-      if (upErr) throw upErr;
-      const { data: pub } = supabase.storage.from('brand-assets').getPublicUrl(meta.storagePath);
-      const bustedUrl = `${pub.publicUrl}?t=${Date.now()}`; // cache-bust the overwritten path
-      meta.layers = newLayers;
-      setGalleryImages((prev) => prev.map((g) => (g.id === img.id ? { ...g, url: bustedUrl } : g)));
-      setCreativesSaved(false);
-      if (img.id) setPendingSaveIds((prev) => new Set(prev).add(img.id!));
-    } catch (e) {
-      console.error('[overlay] Edit Text re-composite/save failed:', e);
     }
   }
 
@@ -1768,17 +1752,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               setPendingSaveIds((prev) => new Set(prev).add(imageId));
             }}
             onBeforeCanvaNavigate={() => { suppressBeforeUnloadRef.current = true; }}
-            onEditText={setEditingTextImg}
           />
-          {editingTextImg?.id && overlayMetaRef.current[editingTextImg.id] && (
-            <TextLayerEditor
-              assetId={editingTextImg.id}
-              imageUrl={overlayMetaRef.current[editingTextImg.id].templateSrc}
-              layers={overlayMetaRef.current[editingTextImg.id].layers}
-              onSave={(newLayers) => { void handleOverlayTextSave(editingTextImg, newLayers); }}
-              onClose={() => setEditingTextImg(null)}
-            />
-          )}
           {/* Save Creative — marks only images pending a save (freshly
               generated or changed since the last save) as approved */}
           <div className={`flex items-center justify-between px-4 py-3 rounded-xl border ${creativesSaved ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
