@@ -10,6 +10,7 @@
  * Supersedes the old, unused ad-compositor.ts — this is now the only
  * text-compositing path in the app.
  */
+import { planPatch, rgbCss, type Rgb, type RingSamples } from './zone-patch';
 
 export interface TextLayer {
   id: string;
@@ -32,7 +33,14 @@ export interface TextLayer {
    *  surfaced to the user as an "edit this" flag (Fix 4). Purely advisory; the
    *  renderer ignores it. */
   overflow?: boolean;
+  /** FIX 3 (minimal-text placement): `false` = a SUGGESTED but not-yet-placed layer
+   *  — shown in the Edit Text panel as a tap-to-place chip, NOT baked into the image
+   *  or shown in the read-only preview. Undefined/true = placed (rendered). */
+  placed?: boolean;
 }
+
+/** A layer is baked/previewed unless it's an explicit unplaced suggestion (FIX 3). */
+export const isPlaced = (l: TextLayer): boolean => l.placed !== false;
 
 export interface AdColors {
   primary: string;
@@ -144,6 +152,62 @@ function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: nu
   return lines;
 }
 
+function rgbAt(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): Rgb | null {
+  if (x < 0 || y < 0 || x >= w || y >= h) return null;
+  const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+  return { r: d[0], g: d[1], b: d[2] };
+}
+
+/** Sample a ring just OUTSIDE a pixel box (per edge) + a grid INSIDE it (FIX 2). */
+function sampleRing(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number, W: number, H: number, off: number): RingSamples {
+  const push = (arr: Rgb[], p: Rgb | null) => { if (p) arr.push(p); };
+  const s: RingSamples = { top: [], bottom: [], left: [], right: [], inside: [] };
+  for (let i = 1; i <= 5; i++) {
+    const fx = bx + (bw * i) / 6, fy = by + (bh * i) / 6;
+    push(s.top, rgbAt(ctx, fx, by - off, W, H));
+    push(s.bottom, rgbAt(ctx, fx, by + bh + off, W, H));
+    push(s.left, rgbAt(ctx, bx - off, fy, W, H));
+    push(s.right, rgbAt(ctx, bx + bw + off, fy, W, H));
+  }
+  for (let iy = 1; iy <= 3; iy++) for (let ix = 1; ix <= 3; ix++) {
+    push(s.inside, rgbAt(ctx, bx + (bw * ix) / 4, by + (bh * iy) / 4, W, H));
+  }
+  return s;
+}
+
+/** Feathered vertical-gradient patch: an offscreen buffer filled top→bottom, masked
+ *  to fade its outer `feather`-px ring to transparent so there's no hard rectangle. */
+function drawFeatheredGradient(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number, W: number, H: number, top: Rgb, bottom: Rgb, feather: number) {
+  const f = Math.max(1, Math.round(feather));
+  const ex = Math.max(0, bx - f), ey = Math.max(0, by - f);
+  const ew = Math.min(W - ex, bw + 2 * f), eh = Math.min(H - ey, bh + 2 * f);
+  if (ew <= 0 || eh <= 0) return;
+  const buf = document.createElement('canvas'); buf.width = ew; buf.height = eh;
+  const bctx = buf.getContext('2d'); if (!bctx) return;
+  const grad = bctx.createLinearGradient(0, 0, 0, eh);
+  grad.addColorStop(0, rgbCss(top)); grad.addColorStop(1, rgbCss(bottom));
+  bctx.fillStyle = grad; bctx.fillRect(0, 0, ew, eh);
+
+  // Alpha mask: opaque core (the original zone) fading to 0 over the f-px margin.
+  const mask = document.createElement('canvas'); mask.width = ew; mask.height = eh;
+  const mctx = mask.getContext('2d'); if (!mctx) return;
+  mctx.fillStyle = '#fff'; mctx.fillRect(f, f, Math.max(0, ew - 2 * f), Math.max(0, eh - 2 * f));
+  mctx.globalCompositeOperation = 'lighter';
+  const band = (x0: number, y0: number, x1: number, y1: number, w: number, h: number, from0: boolean) => {
+    const g = mctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, from0 ? 'rgba(255,255,255,0)' : '#fff');
+    g.addColorStop(1, from0 ? '#fff' : 'rgba(255,255,255,0)');
+    mctx.fillStyle = g; mctx.fillRect(x0, y0, w, h);
+  };
+  band(0, 0, 0, f, ew, f, true);            // top edge
+  band(0, eh - f, 0, eh, ew, f, false);     // bottom edge
+  band(0, 0, f, 0, f, eh, true);            // left edge
+  band(ew - f, 0, ew, 0, f, eh, false);     // right edge
+  bctx.globalCompositeOperation = 'destination-in';
+  bctx.drawImage(mask, 0, 0);
+  ctx.drawImage(buf, ex, ey);
+}
+
 /**
  * Loads `imageSrc`, draws each layer at its scaled position/size, and returns
  * a flat base64 JPEG data URL — used for the "Download" action once a
@@ -156,6 +220,7 @@ export async function renderTextLayers(
   canvasH: number,
   logo?: { src: string; bbox: [number, number, number, number] },
   cleanPlates?: [number, number, number, number][],
+  chipColor = '#0f172a',
 ): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = canvasW;
@@ -187,23 +252,32 @@ export async function renderTextLayers(
     } catch { /* logo optional — skip on failure */ }
   }
 
-  // Clean-plates — erase any ghost text the generation baked into a text zone by
-  // filling the zone with the template's own local background colour (sampled just
-  // outside the box, median-averaged), so overlay text sits on a clean surface.
-  // The client-side equivalent of masking the text zones at generation time.
+  // Clean-plates — background-aware ghost-text erasure (FIX 2). Instead of stamping
+  // one flat colour over every zone (which left dark opaque patches on skies/photos),
+  // sample the ring around each zone, decide per zone (planPatch), and either:
+  //   skip     — zone already clean, leave the pixels alone;
+  //   gradient — feathered top→bottom fill matched to the local background;
+  //   chip     — background too busy to fake: don't erase; if overlay text lands here,
+  //              back it with a design chip (~85% opacity) so the text stays legible.
+  const feather = Math.max(8, Math.min(12, Math.round(canvasW / 100))); // 8–12px falloff
   if (cleanPlates?.length) {
     for (const [px, py, pw, ph] of cleanPlates) {
       const bx = px * canvasW, by = py * canvasH, bw = pw * canvasW, bh = ph * canvasH;
-      const probes: [number, number][] = [[bx - 6, by + bh / 2], [bx + bw + 6, by + bh / 2], [bx + bw / 2, by - 6], [bx + bw / 2, by + bh + 6]];
-      let r = 0, g = 0, b = 0, n = 0;
-      for (const [sx, sy] of probes) {
-        if (sx < 0 || sy < 0 || sx >= canvasW || sy >= canvasH) continue;
-        const d = ctx.getImageData(Math.round(sx), Math.round(sy), 1, 1).data;
-        r += d[0]; g += d[1]; b += d[2]; n++;
+      const plan = planPatch(sampleRing(ctx, bx, by, bw, bh, canvasW, canvasH, feather));
+      if (plan.mode === 'gradient') {
+        drawFeatheredGradient(ctx, bx, by, bw, bh, canvasW, canvasH, plan.topColor, plan.bottomColor, feather);
+      } else if (plan.mode === 'chip') {
+        // Only chip a zone that a PLACED layer actually sits on (avoid floating chips).
+        const occupied = layers.some((l) => l.placed !== false && l.text.trim()
+          && (l.xPct / 100) * canvasW >= bx - bw * 0.15 && (l.xPct / 100) * canvasW <= bx + bw * 1.15
+          && (l.yPct / 100) * canvasH >= by - bh * 0.5 && (l.yPct / 100) * canvasH <= by + bh * 1.5);
+        if (occupied) {
+          ctx.fillStyle = hexToRgba(chipColor, 0.85);
+          roundRect(ctx, bx, by, bw, bh, Math.min(bw, bh) * 0.18);
+          ctx.fill();
+        }
       }
-      if (!n) { const d = ctx.getImageData(Math.min(canvasW - 1, Math.round(bx + 2)), Math.min(canvasH - 1, Math.round(by + 2)), 1, 1).data; r = d[0]; g = d[1]; b = d[2]; n = 1; }
-      ctx.fillStyle = `rgb(${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`;
-      ctx.fillRect(bx, by, bw, bh);
+      // plan.mode === 'skip' → intentionally leave the zone untouched.
     }
   }
 
@@ -211,6 +285,7 @@ export async function renderTextLayers(
   const FONT = `system-ui, -apple-system, 'Segoe UI', Arial, sans-serif`;
 
   for (const layer of layers) {
+    if (layer.placed === false) continue; // unplaced suggestion — not baked (FIX 3)
     if (!layer.text.trim()) continue;
 
     const x = (layer.xPct / 100) * canvasW;

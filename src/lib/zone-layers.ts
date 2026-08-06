@@ -19,10 +19,13 @@ export interface ZoneLayerOptions {
    *  = TEXT_LAYER_REFERENCE_WIDTH * (imageHeight / imageWidth). */
   refHeight: number;
   colors?: AdColors;
-  /** Add a semi-opaque dark backing behind body text to hide any ghost text the
-   *  clean-template generation may have baked (see STEP 4 findings). Default true. */
-  scrim?: boolean;
 }
+
+// FIX 3 — minimal-text placement policy. Only these roles are auto-composited by
+// default; everything else (subheadline/body, badge stat-cells, amenity checklist)
+// is emitted UNPLACED (placed:false) — a suggested chip the user taps to place.
+// The logo is composited separately from the brand kit (never a text layer).
+const UNPLACED_ROLES = new Set<ReferenceZone['role']>(['subheadline', 'badge', 'checklist']);
 
 /**
  * Font size that fits a zone's height AND approximate width, capped so a short
@@ -140,8 +143,6 @@ export function buildLayersFromZones(
 ): TextLayer[] {
   const colors = opts.colors ?? DEFAULT_AD_COLORS;
   const refH = opts.refHeight;
-  const scrim = opts.scrim !== false;
-  const SCRIM = '#0f172ab0'; // 8-digit hex (~69% alpha slate) — canvas renders it semi-opaque, hides ghost text
   const layers: TextLayer[] = [];
   const flow: TextLayer[] = []; // vertically-stacked body text, for the non-overlap pass
   let badgeIdx = 0;
@@ -161,6 +162,7 @@ export function buildLayersFromZones(
         xPct, yPct: (y + h * 0.28) * 100, widthPct,
         fontSizePx: fitFontPx(text, w, h, refH, 1, 0.42),
         fontWeight: 'bold', color: '#ffffff', align: z.align,
+        placed: false, // badge/stat-cell — suggested, tap to place (FIX 3)
       });
       continue;
     }
@@ -177,7 +179,7 @@ export function buildLayersFromZones(
         id: crypto.randomUUID(), text: `•  ${item}`,
         xPct: x * 100, yPct: (y * 100) + i * stepPct, widthPct,
         fontSizePx: Math.max(14, fontSizePx), fontWeight: 'normal', color: '#ffffff', align: 'left',
-        ...(scrim && i === 0 ? { backgroundColor: SCRIM, paddingPx: 8, borderRadiusPx: 6 } : {}),
+        placed: false, // amenity checklist — suggested, tap to place (FIX 3)
       }));
       continue;
     }
@@ -207,7 +209,7 @@ export function buildLayersFromZones(
       fontWeight: z.role === 'footer' ? 'normal' : (z.weight ?? 'bold'),
       color: '#ffffff', align: z.align,
       ...(fit.overflow ? { overflow: true } : {}),
-      ...(scrim && z.role !== 'footer' ? { backgroundColor: SCRIM, paddingPx: 8, borderRadiusPx: 6 } : {}),
+      ...(UNPLACED_ROLES.has(z.role) ? { placed: false } : {}), // subheadline/body → suggested (FIX 3)
     };
     layers.push(layer);
     if (z.role === 'headline' || z.role === 'subheadline' || z.role === 'price') flow.push(layer);

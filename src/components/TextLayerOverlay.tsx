@@ -1,6 +1,6 @@
 import { type CSSProperties } from 'react';
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth';
-import { TEXT_LAYER_REFERENCE_WIDTH, type TextLayer } from '../lib/text-layers';
+import { TEXT_LAYER_REFERENCE_WIDTH, isPlaced, type TextLayer } from '../lib/text-layers';
 
 interface TextLayerOverlayProps {
   layers: TextLayer[];
@@ -25,7 +25,7 @@ export function TextLayerOverlay({ layers, className }: TextLayerOverlayProps) {
   return (
     <div ref={containerRef} className={`absolute inset-0 pointer-events-none overflow-hidden ${className ?? ''}`}>
       {width > 0 && layers.map((layer) => {
-        if (!layer.text.trim()) return null;
+        if (!isPlaced(layer) || !layer.text.trim()) return null; // unplaced = suggestion (FIX 3)
         const padding = (layer.paddingPx ?? 0) * scale;
         const style: CSSProperties = {
           position: 'absolute',

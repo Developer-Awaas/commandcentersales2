@@ -107,6 +107,27 @@ describe('buildLayersFromZones', () => {
     expect(layers[0].xPct).toBeCloseTo(20);
     expect(layers[0].widthPct).toBeCloseTo(60);
   });
+  it('FIX 3 — auto-places name/headline/price/cta/footer, leaves details unplaced', () => {
+    const zones = [
+      z('headline', [0.1, 0.1, 0.8, 0.1]), z('price', [0.1, 0.25, 0.4, 0.05]),
+      z('cta', [0.1, 0.9, 0.3, 0.06]), z('footer', [0.05, 0.95, 0.9, 0.04]),
+      z('subheadline', [0.1, 0.2, 0.8, 0.05]),
+      z('badge', [0.05, 0.5, 0.25, 0.06]),
+      z('checklist', [0.05, 0.6, 0.4, 0.2]),
+    ];
+    const copy = { headline: 'H', price: 'P', cta: 'Book', footer: 'call us', subheadline: 'body', badges: ['A'], checklist: ['x', 'y'] };
+    const layers = buildLayersFromZones(zones, copy, opts);
+    const placed = (t: string) => layers.filter((l) => l.text.includes(t)).every((l) => l.placed !== false);
+    const unplaced = (t: string) => layers.filter((l) => l.text.includes(t)).every((l) => l.placed === false);
+    expect(placed('H') && placed('P') && placed('Book') && placed('call us')).toBe(true);
+    expect(unplaced('body') && unplaced('A') && unplaced('x') && unplaced('y')).toBe(true);
+  });
+
+  it('FIX 3 — no layer carries the old dark scrim backing on body text', () => {
+    const layers = buildLayersFromZones([z('headline', [0.1, 0.1, 0.8, 0.1]), z('price', [0.1, 0.3, 0.4, 0.06])], { headline: 'H', price: 'P' }, opts);
+    expect(layers.every((l) => !l.backgroundColor)).toBe(true); // scrim removed (FIX 2)
+  });
+
   it('produces JSON-serializable layers (persistence round-trip is lossless)', () => {
     const layers = buildLayersFromZones([z('headline', [0.1, 0.1, 0.8, 0.1]), z('cta', [0.1, 0.9, 0.3, 0.06])], { headline: 'H', cta: 'Book' }, opts);
     expect(JSON.parse(JSON.stringify(layers))).toEqual(layers);

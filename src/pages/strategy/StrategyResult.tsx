@@ -1553,7 +1553,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
               if (layers.some((l) => l.overflow)) setCopyTrimmed(true);
               const lz = logoZone(deduped);
-              const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlates(deduped));
+              const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlates(deduped), brandColors?.primary);
               uploadBase64 = composed.split(',')[1];
               uploadMime = 'image/jpeg';
               composedLayers = layers;

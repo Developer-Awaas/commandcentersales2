@@ -2,7 +2,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { X, Plus, Trash2, Bold, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useMeasuredWidth } from '../hooks/useMeasuredWidth';
-import { TEXT_LAYER_REFERENCE_WIDTH, type TextLayer } from '../lib/text-layers';
+import { TEXT_LAYER_REFERENCE_WIDTH, isPlaced, type TextLayer } from '../lib/text-layers';
 
 interface TextLayerEditorProps {
   assetId: string;
@@ -24,6 +24,12 @@ export function TextLayerEditor({ assetId, imageUrl, layers: initialLayers, onSa
 
   const scale = width / TEXT_LAYER_REFERENCE_WIDTH;
   const selected = layers.find((l) => l.id === selectedId) ?? null;
+  const suggestions = layers.filter((l) => l.placed === false); // FIX 3 — tap to place
+
+  function placeLayer(id: string) {
+    updateLayer(id, { placed: true }); // keeps its zone-derived position
+    setSelectedId(id);
+  }
 
   function updateLayer(id: string, patch: Partial<TextLayer>) {
     setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -107,7 +113,7 @@ export function TextLayerEditor({ assetId, imageUrl, layers: initialLayers, onSa
             onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}
           >
             <img src={imageUrl} alt="Creative preview" className="w-full h-auto block pointer-events-none" draggable={false} />
-            {width > 0 && layers.map((layer) => {
+            {width > 0 && layers.filter(isPlaced).map((layer) => {
               const isSelected = layer.id === selectedId;
               const padding = (layer.paddingPx ?? 0) * scale;
               return (
@@ -139,6 +145,25 @@ export function TextLayerEditor({ assetId, imageUrl, layers: initialLayers, onSa
             })}
           </div>
         </div>
+
+        {suggestions.length > 0 && (
+          <div className="px-5 py-3 border-t border-border flex-shrink-0">
+            <p className="text-[11px] text-text-tertiary mb-1.5">Suggested — tap to add to the image, then drag to position:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {suggestions.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => placeLayer(s.id)}
+                  title="Add to image"
+                  className="flex items-center gap-1 max-w-[220px] px-2.5 py-1.5 rounded-full border border-dashed border-border text-xs text-text-secondary hover:text-text-primary hover:border-brand hover:bg-brand/5 transition-all"
+                >
+                  <Plus size={12} className="flex-shrink-0" />
+                  <span className="truncate">{s.text || '(empty)'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {selected && (
           <div className="px-5 py-3 border-t border-border flex-shrink-0 flex flex-col gap-2">
