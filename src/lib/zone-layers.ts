@@ -239,6 +239,18 @@ export function textZonePlates(zones: ReferenceZone[]): [number, number, number,
   return zones.filter((z) => PLATE_ROLES.has(z.role)).map((z) => z.bbox);
 }
 
+/** Text-zone plates WITH their role — renderTextLayers needs the role to apply the
+ *  conservative patch policy (area cap, photo-intersection, occupancy). */
+export function textZonePlateSpecs(zones: ReferenceZone[]): { bbox: [number, number, number, number]; role: ReferenceZone['role'] }[] {
+  return zones.filter((z) => PLATE_ROLES.has(z.role)).map((z) => ({ bbox: z.bbox, role: z.role }));
+}
+
+/** Photo/hero regions — never painted over (STEP 3c); a patch here would smear the
+ *  building. The model renders the hero into these zones; we only lay text on top. */
+export function photoZones(zones: ReferenceZone[]): [number, number, number, number][] {
+  return zones.filter((z) => z.role === 'photo').map((z) => z.bbox);
+}
+
 /** Reference canvas height for a given output aspect (width fixed at 1080-ref). */
 export function refHeightFor(imageWidth: number, imageHeight: number): number {
   return Math.round(TEXT_LAYER_REFERENCE_WIDTH * (imageHeight / imageWidth));

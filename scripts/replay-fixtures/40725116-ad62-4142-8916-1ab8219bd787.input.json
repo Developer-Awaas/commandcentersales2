@@ -1,0 +1,190 @@
+{
+  "accent_color": "#C9A150",
+  "clean_template_url": "https://yelmuykbqdyeikgbmkoq.supabase.co/storage/v1/object/public/brand-assets/generated-creatives/1a0f7ac3-8053-4aee-824c-75f27681ce64/7e2dbbd5-7599-4d1d-a7c4-9099a38e2276/interactive-this-or-that-poll-pitting-rooftop-pool-lifestyle-against-ground-level-amenity-perks-driving-comments-and-saves-from-patia-it-professionals-evaluating-their-first-home-replicate.clean.jpeg",
+  "id": "40725116-ad62-4142-8916-1ab8219bd787",
+  "model_used": "gpt-image-1",
+  "overlay_zones": [
+    {
+      "align": "right",
+      "bbox": [
+        0.62,
+        0.01,
+        0.36,
+        0.08
+      ],
+      "color": "#d4af37",
+      "fontScale": 0.04,
+      "font_scale": 0.04,
+      "role": "logo",
+      "weight": "bold"
+    },
+    {
+      "align": "left",
+      "bbox": [
+        0.02,
+        0.04,
+        0.58,
+        0.12
+      ],
+      "color": "#ffffff",
+      "fontScale": 0.055,
+      "font_scale": 0.055,
+      "role": "headline",
+      "weight": "bold"
+    },
+    {
+      "align": "center",
+      "bbox": [
+        0.03,
+        0.13,
+        0.94,
+        0.52
+      ],
+      "color": "#000000",
+      "fontScale": 0,
+      "font_scale": 0,
+      "role": "photo",
+      "weight": "normal"
+    },
+    {
+      "align": "center",
+      "bbox": [
+        0.63,
+        0.14,
+        0.34,
+        0.18
+      ],
+      "color": "#d4af37",
+      "fontScale": 0.07,
+      "font_scale": 0.07,
+      "role": "badge",
+      "weight": "bold"
+    },
+    {
+      "align": "left",
+      "bbox": [
+        0.02,
+        0.64,
+        0.55,
+        0.08
+      ],
+      "color": "#ffffff",
+      "fontScale": 0.04,
+      "font_scale": 0.04,
+      "role": "subheadline",
+      "weight": "bold"
+    },
+    {
+      "align": "center",
+      "bbox": [
+        0.58,
+        0.64,
+        0.4,
+        0.08
+      ],
+      "color": "#ffffff",
+      "fontScale": 0.035,
+      "font_scale": 0.035,
+      "role": "cta",
+      "weight": "bold"
+    },
+    {
+      "align": "center",
+      "bbox": [
+        0.02,
+        0.73,
+        0.46,
+        0.09
+      ],
+      "color": "#ffffff",
+      "fontScale": 0.038,
+      "font_scale": 0.038,
+      "role": "badge",
+      "weight": "bold"
+    },
+    {
+      "align": "center",
+      "bbox": [
+        0.5,
+        0.73,
+        0.48,
+        0.09
+      ],
+      "color": "#ffffff",
+      "fontScale": 0.038,
+      "font_scale": 0.038,
+      "role": "badge",
+      "weight": "bold"
+    },
+    {
+      "align": "center",
+      "bbox": [
+        0.02,
+        0.84,
+        0.96,
+        0.08
+      ],
+      "color": "#d4af37",
+      "fontScale": 0.03,
+      "font_scale": 0.03,
+      "role": "footer",
+      "weight": "bold"
+    }
+  ],
+  "primary_color": "#1B4332",
+  "text_layers": [
+    {
+      "align": "left",
+      "backgroundColor": "#0f172ab0",
+      "borderRadiusPx": 6,
+      "color": "#ffffff",
+      "fontSizePx": 41,
+      "fontWeight": "bold",
+      "id": "17f72948-caf5-46a6-9c72-1c418b795e7c",
+      "paddingPx": 8,
+      "text": "Pool or Park? You Decide 🏊",
+      "widthPct": 57.99999999999999,
+      "xPct": 2.738007380073803,
+      "yPct": 2.3709717097170984
+    },
+    {
+      "align": "left",
+      "backgroundColor": "#c9a961",
+      "borderRadiusPx": 12,
+      "color": "#ffffff",
+      "fontSizePx": 14,
+      "fontWeight": "bold",
+      "id": "068cd3d7-17e6-4b95-b89b-9eca5cfb36a5",
+      "paddingPx": 18,
+      "text": "Rooftop pool at sunset 🌅 OR Stroll through the landscaped gardens 🌿?\nComment A or B — and yes, Ananta Enclave has BOTH. 62 homes left in Patia's IT heartland.",
+      "widthPct": 55.00000000000001,
+      "xPct": 4.398523985239841,
+      "yPct": 74.76309963099631
+    },
+    {
+      "align": "center",
+      "backgroundColor": "#C9A150",
+      "borderRadiusPx": 28,
+      "color": "#1B4332",
+      "fontSizePx": 36.73469387755102,
+      "fontWeight": "bold",
+      "id": "35ed7f57-5097-41ca-9af6-e9ec61ebc8e2",
+      "paddingPx": 18,
+      "text": "Send WhatsApp Message",
+      "widthPct": 40,
+      "xPct": 78.92250922509224,
+      "yPct": 64.28398523985238
+    },
+    {
+      "align": "center",
+      "color": "#ffffff",
+      "fontSizePx": 46,
+      "fontWeight": "normal",
+      "id": "2d8354f4-3754-47c9-8bfc-434237ad2495",
+      "text": "+91 9874561230   ·   Whatsapp 7055589465",
+      "widthPct": 96,
+      "xPct": 49.81549815498155,
+      "yPct": 91.8110701107011
+    }
+  ]
+}

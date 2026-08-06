@@ -10,7 +10,10 @@
  * Supersedes the old, unused ad-compositor.ts — this is now the only
  * text-compositing path in the app.
  */
-import { planPatch, rgbCss, type Rgb, type RingSamples } from './zone-patch';
+import { planPatch, decidePatches, bboxesIntersect, rgbCss, type Rgb, type RingSamples, type ZoneRecord } from './zone-patch';
+
+/** A text-zone plate for the patch stage: its bbox + role (from textZonePlateSpecs). */
+export interface PlateSpec { bbox: [number, number, number, number]; role: string }
 
 export interface TextLayer {
   id: string;
@@ -158,8 +161,10 @@ function rgbAt(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   return { r: d[0], g: d[1], b: d[2] };
 }
 
-/** Sample a ring just OUTSIDE a pixel box (per edge) + a grid INSIDE it (FIX 2). */
-function sampleRing(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number, W: number, H: number, off: number): RingSamples {
+/** Sample a ring just OUTSIDE a pixel box (per edge) + a grid INSIDE it (FIX 2).
+ *  Exported so the offline replay harness (scripts/replay-composite.ts) samples
+ *  through the exact same code path as production. */
+export function sampleRing(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number, W: number, H: number, off: number): RingSamples {
   const push = (arr: Rgb[], p: Rgb | null) => { if (p) arr.push(p); };
   const s: RingSamples = { top: [], bottom: [], left: [], right: [], inside: [] };
   for (let i = 1; i <= 5; i++) {
@@ -219,8 +224,10 @@ export async function renderTextLayers(
   canvasW: number,
   canvasH: number,
   logo?: { src: string; bbox: [number, number, number, number] },
-  cleanPlates?: [number, number, number, number][],
+  plates?: PlateSpec[],
   chipColor = '#0f172a',
+  photoZones: [number, number, number, number][] = [],
+  onDecisions?: (d: { zones: unknown[]; globalPatchingDisabled: boolean }) => void,
 ): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = canvasW;
@@ -252,33 +259,41 @@ export async function renderTextLayers(
     } catch { /* logo optional — skip on failure */ }
   }
 
-  // Clean-plates — background-aware ghost-text erasure (FIX 2). Instead of stamping
-  // one flat colour over every zone (which left dark opaque patches on skies/photos),
-  // sample the ring around each zone, decide per zone (planPatch), and either:
-  //   skip     — zone already clean, leave the pixels alone;
-  //   gradient — feathered top→bottom fill matched to the local background;
-  //   chip     — background too busy to fake: don't erase; if overlay text lands here,
-  //              back it with a design chip (~85% opacity) so the text stays legible.
+  // Clean-plates — background-aware ghost-text erasure under a CONSERVATIVE policy
+  // (FIX 2 + STEP 3, "first do no harm"). planPatch alone (pixel variance) let large
+  // calm-sky zones with no text get gradient-filled into bare slabs. Now every zone
+  // carries context — is a PLACED layer on it, how big is it, does it touch the photo
+  // — and decidePatches gates accordingly (unoccupied → never patch; photo/oversized
+  // → chip not paint; global fail-safe → chips only). See replay creative 0e2e2886.
   const feather = Math.max(8, Math.min(12, Math.round(canvasW / 100))); // 8–12px falloff
-  if (cleanPlates?.length) {
-    for (const [px, py, pw, ph] of cleanPlates) {
+  const zoneOccupied = (bx: number, by: number, bw: number, bh: number) => layers.some((l) => l.placed !== false && l.text.trim()
+    && (l.xPct / 100) * canvasW >= bx - bw * 0.15 && (l.xPct / 100) * canvasW <= bx + bw * 1.15
+    && (l.yPct / 100) * canvasH >= by - bh * 0.5 && (l.yPct / 100) * canvasH <= by + bh * 1.5);
+  if (plates?.length) {
+    const records: ZoneRecord[] = plates.map(({ bbox: [px, py, pw, ph], role }) => {
       const bx = px * canvasW, by = py * canvasH, bw = pw * canvasW, bh = ph * canvasH;
-      const plan = planPatch(sampleRing(ctx, bx, by, bw, bh, canvasW, canvasH, feather));
-      if (plan.mode === 'gradient') {
-        drawFeatheredGradient(ctx, bx, by, bw, bh, canvasW, canvasH, plan.topColor, plan.bottomColor, feather);
-      } else if (plan.mode === 'chip') {
-        // Only chip a zone that a PLACED layer actually sits on (avoid floating chips).
-        const occupied = layers.some((l) => l.placed !== false && l.text.trim()
-          && (l.xPct / 100) * canvasW >= bx - bw * 0.15 && (l.xPct / 100) * canvasW <= bx + bw * 1.15
-          && (l.yPct / 100) * canvasH >= by - bh * 0.5 && (l.yPct / 100) * canvasH <= by + bh * 1.5);
-        if (occupied) {
-          ctx.fillStyle = hexToRgba(chipColor, 0.85);
-          roundRect(ctx, bx, by, bw, bh, Math.min(bw, bh) * 0.18);
-          ctx.fill();
-        }
+      return {
+        role,
+        areaFrac: pw * ph,
+        occupied: zoneOccupied(bx, by, bw, bh),
+        intersectsPhoto: photoZones.some((p) => bboxesIntersect([px, py, pw, ph], p)),
+        base: planPatch(sampleRing(ctx, bx, by, bw, bh, canvasW, canvasH, feather)),
+      };
+    });
+    const { zones: treatments, globalPatchingDisabled } = decidePatches(records);
+    onDecisions?.({ zones: treatments, globalPatchingDisabled });
+    treatments.forEach((t, i) => {
+      const [px, py, pw, ph] = plates[i].bbox;
+      const bx = px * canvasW, by = py * canvasH, bw = pw * canvasW, bh = ph * canvasH;
+      if (t.mode === 'gradient') {
+        drawFeatheredGradient(ctx, bx, by, bw, bh, canvasW, canvasH, t.topColor, t.bottomColor, feather);
+      } else if (t.mode === 'chip') {
+        ctx.fillStyle = hexToRgba(chipColor, 0.85);
+        roundRect(ctx, bx, by, bw, bh, Math.min(bw, bh) * 0.18);
+        ctx.fill();
       }
-      // plan.mode === 'skip' → intentionally leave the zone untouched.
-    }
+      // t.mode === 'skip' → intentionally leave the zone untouched.
+    });
   }
 
   const scale = canvasW / TEXT_LAYER_REFERENCE_WIDTH;

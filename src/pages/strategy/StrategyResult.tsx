@@ -17,7 +17,7 @@ import {
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { buildHeroEditPrompt, buildReplicatePrompt, buildReplicateLayoutPrompt } from '../../lib/senior-designer-prompts';
 import { dedupeZones } from '../../lib/reference-style';
-import { buildLayersFromZones, refHeightFor, logoZone, textZonePlates } from '../../lib/zone-layers';
+import { buildLayersFromZones, refHeightFor, logoZone, textZonePlateSpecs, photoZones } from '../../lib/zone-layers';
 import { renderTextLayers, type TextLayer } from '../../lib/text-layers';
 import type { ReferenceZone } from '../../lib/reference-style';
 import { supabase } from '../../lib/supabase';
@@ -1553,7 +1553,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
               if (layers.some((l) => l.overflow)) setCopyTrimmed(true);
               const lz = logoZone(deduped);
-              const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlates(deduped), brandColors?.primary);
+              const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlateSpecs(deduped), brandColors?.primary, photoZones(deduped));
               uploadBase64 = composed.split(',')[1];
               uploadMime = 'image/jpeg';
               composedLayers = layers;

@@ -39,3 +39,6 @@ playwright-report/
 
 # Playwright monitor screenshots (regenerated in CI, uploaded as an artifact)
 screenshots/
+
+# offline overlay replay harness outputs (regenerate via scripts/replay-composite.ts)
+scripts/replay-out/

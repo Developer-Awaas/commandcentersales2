@@ -79,3 +79,61 @@ export function planPatch(s: RingSamples): PatchPlan {
 export function rgbCss({ r, g, b }: Rgb): string {
   return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
 }
+
+// ── Conservative patch policy (STEP 3 — "first, do no harm") ────────────────────
+// planPatch decides from local pixels alone; that let large calm-sky zones with no
+// text on them get gradient-filled into bare slabs (evidenced by replaying creative
+// 0e2e2886: subheadline 11.2% [empty] → gradient smear). decidePatches layers the
+// conservative rules on top, using per-zone context planPatch can't see.
+export const PATCH_AREA_CAP = 0.12;      // a zone larger than this is never painted
+export const GLOBAL_PATCH_CAP = 0.20;    // total gradient area over this ⇒ chips only
+
+export interface ZoneRecord {
+  role: string;
+  areaFrac: number;        // bbox area as a fraction of the canvas (0..1)
+  occupied: boolean;       // a PLACED text layer sits on this zone
+  intersectsPhoto: boolean;// overlaps a photo/hero region
+  base: PatchPlan;         // planPatch's pixel-only verdict
+}
+
+export interface ZoneTreatment {
+  mode: 'skip' | 'gradient' | 'chip';
+  reason: 'unoccupied' | 'photo-intersect' | 'area-cap' | 'busy-bg' | 'clean' | 'ok' | 'global-failsafe';
+  topColor: Rgb;
+  bottomColor: Rgb;
+}
+
+const treat = (mode: ZoneTreatment['mode'], reason: ZoneTreatment['reason'], r: ZoneRecord): ZoneTreatment =>
+  ({ mode, reason, topColor: r.base.topColor, bottomColor: r.base.bottomColor });
+
+/**
+ * Final per-zone treatment. Rules, in order:
+ *  a. unplaced/empty zone → never patch (nothing will cover it; ghost stays hidden
+ *     until the user places text there, at which point the chip backs it).
+ *  c. intersects a photo/hero region → never paint (would smear the building) → chip.
+ *  b. area > PATCH_AREA_CAP → never paint a big region → chip.
+ *  d. busy background (planPatch=chip) → chip; already-clean (planPatch=skip) → skip.
+ *  otherwise → gradient.
+ *  e. GLOBAL fail-safe: if the total gradient area still exceeds GLOBAL_PATCH_CAP,
+ *     drop ALL gradients to chips (chips-only render) and flag it.
+ */
+export function decidePatches(records: ZoneRecord[]): { zones: ZoneTreatment[]; globalPatchingDisabled: boolean } {
+  const zones = records.map((r) => {
+    if (!r.occupied) return treat('skip', 'unoccupied', r);         // a
+    if (r.intersectsPhoto) return treat('chip', 'photo-intersect', r); // c
+    if (r.areaFrac > PATCH_AREA_CAP) return treat('chip', 'area-cap', r); // b
+    if (r.base.mode === 'chip') return treat('chip', 'busy-bg', r);  // d
+    if (r.base.mode === 'skip') return treat('skip', 'clean', r);    // d
+    return treat('gradient', 'ok', r);
+  });
+  const gradientArea = zones.reduce((s, z, i) => s + (z.mode === 'gradient' ? records[i].areaFrac : 0), 0);
+  if (gradientArea > GLOBAL_PATCH_CAP) {
+    return { zones: zones.map((z, i) => (z.mode === 'gradient' ? treat('chip', 'global-failsafe', records[i]) : z)), globalPatchingDisabled: true };
+  }
+  return { zones, globalPatchingDisabled: false };
+}
+
+/** Axis-aligned rectangle overlap (normalized [x,y,w,h] boxes). */
+export function bboxesIntersect(a: readonly number[], b: readonly number[]): boolean {
+  return !(a[0] + a[2] <= b[0] || a[0] >= b[0] + b[2] || a[1] + a[3] <= b[1] || a[1] >= b[1] + b[3]);
+}
