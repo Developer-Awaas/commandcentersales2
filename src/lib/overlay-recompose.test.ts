@@ -43,15 +43,16 @@ beforeEach(() => {
 });
 
 describe('recompositeOverlay', () => {
-  it('renders over the CLEAN template at its natural dims, with logo + clean-plates', async () => {
+  it('renders over the CLEAN template at its natural dims, with the derived logo', async () => {
     const out = await recompositeOverlay({ cleanTemplateUrl: 'https://cdn/x/final.clean.jpg', layers, zones, logoUrl: 'https://cdn/logo.png' });
     expect(out).toBe('data:image/jpeg;base64,COMPOSED');
-    const [src, gotLayers, w, h, logo, plates] = renderMock.mock.calls[0] as unknown as [string, unknown, number, number, unknown, unknown[]];
+    const [src, gotLayers, w, h, logo] = renderMock.mock.calls[0] as unknown as [string, unknown, number, number, unknown];
     expect(src).toBe('https://cdn/x/final.clean.jpg'); // never the composited final
     expect(gotLayers).toBe(layers);
     expect([w, h]).toEqual([1080, 1350]);              // from the clean template
     expect(logo).toEqual({ src: 'https://cdn/logo.png', bbox: zones[0].bbox });
-    expect(plates.length).toBe(1);                     // only the price zone gets a plate (logo excluded)
+    // No patching args any more — the compositor is template + logo + text only.
+    expect(renderMock.mock.calls[0].length).toBe(5);
   });
 
   it('omits the logo when no logo zone / no logo url', async () => {

@@ -4,7 +4,6 @@
 // TEMPLATE (never the already-composited final, which would double the text),
 // using the persisted zones for clean-plate ghost erase + the brand logo.
 import { renderTextLayers, type TextLayer } from './text-layers';
-import { textZonePlateSpecs, photoZones } from './zone-layers';
 import type { ReferenceZone } from './reference-style';
 import { supabase } from './supabase';
 
@@ -35,10 +34,9 @@ export async function recompositeOverlay({ cleanTemplateUrl, layers, zones, logo
     layers,
     w,
     h,
+    // Back-compat: old creatives carry no logo LAYER, so derive the logo from the
+    // zone + brand kit. Ignored by renderTextLayers when a logo layer is present.
     logoBbox && logoUrl ? { src: logoUrl, bbox: logoBbox } : undefined,
-    zones ? textZonePlateSpecs(zones) : undefined,
-    undefined,
-    zones ? photoZones(zones) : undefined,
   );
 }
 

@@ -9,7 +9,7 @@ import { AdobeExpressModal } from './AdobeExpressModal';
 import { TextLayerEditor } from './TextLayerEditor';
 import { saveOverlayEdit } from '../lib/overlay-recompose';
 import type { TextLayer } from '../lib/text-layers';
-import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
 
 // A gallery image is self-editable (no parent handler needed) when it carries the
 // persisted re-composite inputs — the reload-safe path (RB-P2 Step 1).
@@ -69,6 +69,10 @@ interface ImageGalleryViewerProps {
   // Fires when the user clicks "Edit Text" on a text-overlay creative — the
   // parent owns the template/zones/logo and re-composites, so the editor lives there.
   onEditText?: (img: GalleryImage) => void;
+  // Fires when the user clicks "Regenerate template" (STEP 2) — the parent re-runs a
+  // single-image generation keeping this image's zones/copy + placed layers, for when
+  // the AI baked stray text. Human judgment, one click — no automated ghost detection.
+  onRegenerateTemplate?: (img: GalleryImage) => Promise<void> | void;
 }
 
 interface LightboxState {
@@ -76,14 +80,21 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText, onRegenerateTemplate }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
   // Local copy so the gallery reflects edits without needing a prop change from the parent
   const [localImages, setLocalImages] = useState<GalleryImage[]>(images);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
+  const [regenId, setRegenId] = useState<string | null>(null);
   const [canvaLoading, setCanvaLoading] = useState<string | null>(null);
+
+  async function handleRegenerate(img: GalleryImage) {
+    if (!onRegenerateTemplate) return;
+    setRegenId(img.id ?? img.url);
+    try { await onRegenerateTemplate(img); } finally { setRegenId(null); }
+  }
   const [adobeImage, setAdobeImage] = useState<GalleryImage | null>(null);
   // Self-mounted text editor (RB-P2 Step 1) — used when the image carries the
   // persisted re-composite inputs, so Edit Text works here without a parent.
@@ -400,6 +411,18 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
                   ✨ Edit Text
+                </button>
+              )}
+
+              {onRegenerateTemplate && img.editableText && (
+                <button
+                  onClick={() => handleRegenerate(img)}
+                  disabled={isBusy || regenId === (img.id ?? img.url)}
+                  title="Stray AI text? Generate a fresh template — your placed text/logo re-apply automatically."
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all disabled:opacity-50"
+                >
+                  <RefreshCw size={11} className={regenId === (img.id ?? img.url) ? 'animate-spin' : ''} />
+                  {regenId === (img.id ?? img.url) ? 'Regenerating…' : 'Regenerate template'}
                 </button>
               )}
             </div>

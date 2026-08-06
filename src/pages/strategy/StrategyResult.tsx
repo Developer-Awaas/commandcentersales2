@@ -17,7 +17,7 @@ import {
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
 import { buildHeroEditPrompt, buildReplicatePrompt, buildReplicateLayoutPrompt } from '../../lib/senior-designer-prompts';
 import { dedupeZones } from '../../lib/reference-style';
-import { buildLayersFromZones, refHeightFor, logoZone, textZonePlateSpecs, photoZones } from '../../lib/zone-layers';
+import { buildLayersFromZones, refHeightFor, logoZone } from '../../lib/zone-layers';
 import { renderTextLayers, type TextLayer } from '../../lib/text-layers';
 import type { ReferenceZone } from '../../lib/reference-style';
 import { supabase } from '../../lib/supabase';
@@ -1424,7 +1424,11 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
     });
   }
 
-  async function handleGenerateWithGemini() {
+  // `keepLayers` = "Regenerate template" (STEP 2): re-generate the clean template but
+  // re-apply the user's EXISTING placed layers (same zones/copy) onto the new one,
+  // instead of rebuilding layers from zones — so a stray-AI-text regenerate keeps all
+  // the user's edits. Single image → minimal cost (same gated generate-image path).
+  async function handleGenerateWithGemini(opts?: { keepLayers?: TextLayer[] }) {
     if (!data.nanobanana_prompt_main && !replicateAspect) return;
     setGeminiGenerating(true);
     onGeminiStateChange?.(true);
@@ -1550,10 +1554,28 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               const [cw, ch] = ({ '1:1': [1080, 1080], '4:5': [1080, 1350], '9:16': [1080, 1920] } as const)[replicateAspect];
               const deduped = dedupeZones(zones);
               overlayDeduped = deduped;
-              const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
-              if (layers.some((l) => l.overflow)) setCopyTrimmed(true);
-              const lz = logoZone(deduped);
-              const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlateSpecs(deduped), brandColors?.primary, photoZones(deduped));
+              // Regenerate template: re-apply the existing placed layers as-is; else
+              // build fresh layers from zones/copy + seed an editable logo layer.
+              let layers: TextLayer[];
+              if (opts?.keepLayers) {
+                layers = opts.keepLayers;
+              } else {
+                layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
+                if (layers.some((l) => l.overflow)) setCopyTrimmed(true);
+                const lz = logoZone(deduped);
+                // Seed the brand logo as a first-class, editable logo LAYER (z-order:
+                // template < logo < text) instead of a baked-in composite — so it can
+                // be repositioned/scaled/swapped in Edit Text and survives a reload.
+                if (lz && brandLogoUrl) {
+                  layers.push({
+                    id: crypto.randomUUID(), kind: 'logo', imageUrl: brandLogoUrl, text: '',
+                    xPct: lz.bbox[0] * 100, yPct: lz.bbox[1] * 100,
+                    widthPct: lz.bbox[2] * 100, heightPct: lz.bbox[3] * 100,
+                    fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left',
+                  });
+                }
+              }
+              const composed = await renderTextLayers(dataUrl, layers, cw, ch);
               uploadBase64 = composed.split(',')[1];
               uploadMime = 'image/jpeg';
               composedLayers = layers;
@@ -1723,7 +1745,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
                 {promptCopied ? 'Copied!' : 'Copy Prompt'}
               </button>
               <button
-                onClick={handleGenerateWithGemini}
+                onClick={() => handleGenerateWithGemini()}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-tertiary hover:text-text-primary transition-all"
               >
                 <RefreshCw size={12} /> Retry
@@ -1752,6 +1774,9 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               setPendingSaveIds((prev) => new Set(prev).add(imageId));
             }}
             onBeforeCanvaNavigate={() => { suppressBeforeUnloadRef.current = true; }}
+            // STEP 2 — Regenerate template: re-run this single image's generation but
+            // keep its zones/copy + the user's placed layers (overlay mode only).
+            onRegenerateTemplate={(textOverlayMode && zones && replicateAspect) ? (img) => handleGenerateWithGemini({ keepLayers: img.textLayers }) : undefined}
           />
           {/* Save Creative — marks only images pending a save (freshly
               generated or changed since the last save) as approved */}
@@ -1797,7 +1822,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
                   </button>
                   {!geminiGenerating && (
                     <button
-                      onClick={handleGenerateWithGemini}
+                      onClick={() => handleGenerateWithGemini()}
                       className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary transition-colors"
                     >
                       <RefreshCw size={11} /> Regenerate

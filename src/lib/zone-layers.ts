@@ -231,25 +231,9 @@ export function logoZone(zones: ReferenceZone[]): ReferenceZone | null {
   return zones.find((z) => z.role === 'logo') ?? null;
 }
 
-const PLATE_ROLES = new Set(['headline', 'subheadline', 'price', 'cta', 'badge', 'checklist', 'footer']);
-
-/** Bboxes of the text-bearing zones — filled with the local background at composite
- *  time (renderTextLayers `cleanPlates`) to erase any ghost text the generation baked. */
-export function textZonePlates(zones: ReferenceZone[]): [number, number, number, number][] {
-  return zones.filter((z) => PLATE_ROLES.has(z.role)).map((z) => z.bbox);
-}
-
-/** Text-zone plates WITH their role — renderTextLayers needs the role to apply the
- *  conservative patch policy (area cap, photo-intersection, occupancy). */
-export function textZonePlateSpecs(zones: ReferenceZone[]): { bbox: [number, number, number, number]; role: ReferenceZone['role'] }[] {
-  return zones.filter((z) => PLATE_ROLES.has(z.role)).map((z) => ({ bbox: z.bbox, role: z.role }));
-}
-
-/** Photo/hero regions — never painted over (STEP 3c); a patch here would smear the
- *  building. The model renders the hero into these zones; we only lay text on top. */
-export function photoZones(zones: ReferenceZone[]): [number, number, number, number][] {
-  return zones.filter((z) => z.role === 'photo').map((z) => z.bbox);
-}
+// NOTE: the automated ghost-text patch layer (textZonePlates / plate specs / photo
+// zones / planPatch) was removed — see text-layers.ts. Compositing no longer touches
+// the template pixels; stray AI text is handled by the user (Regenerate / text layer).
 
 /** Reference canvas height for a given output aspect (width fixed at 1080-ref). */
 export function refHeightFor(imageWidth: number, imageHeight: number): number {

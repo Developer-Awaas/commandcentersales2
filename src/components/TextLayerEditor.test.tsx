@@ -5,7 +5,9 @@ import type { TextLayer } from '../lib/text-layers';
 // Mock the Supabase persist chain (.from().update().eq()) → { error: null }.
 const updateEq = vi.fn(() => Promise.resolve({ error: null }));
 const update = vi.fn(() => ({ eq: updateEq }));
-vi.mock('../lib/supabase', () => ({ supabase: { from: () => ({ update }) } }));
+// from() serves both the persist chain (.update().eq()) and the brand-kit palette
+// fetch (.select().maybeSingle()) the editor runs on mount.
+vi.mock('../lib/supabase', () => ({ supabase: { from: () => ({ update, select: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) } }));
 // Force a measured width so the layer overlays actually render (no ResizeObserver in jsdom).
 vi.mock('../hooks/useMeasuredWidth', () => ({ useMeasuredWidth: () => [{ current: document.createElement('div') }, 500] }));
 

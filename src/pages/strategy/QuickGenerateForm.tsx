@@ -223,7 +223,7 @@ export function QuickGenerateForm({
                 onChange={(e) => set('textOverlayMode', e.target.checked)}
                 className="rounded border-border"
               />
-              <span>✨ Text-overlay mode <strong>(on by default)</strong> — clean template + app-composited crisp, editable copy. Places the essentials automatically (name, headline, price, contact from your Brand Kit); extra details like BHK, unit counts and amenities appear as suggested chips in <strong>Edit Text</strong> — tap to add any you want. Uncheck to let the model bake text (less reliable).</span>
+              <span>✨ Text-overlay mode <strong>(on by default)</strong> — clean template + app-composited crisp, editable copy. Places the essentials automatically (name, headline, price, contact from your Brand Kit); extra details appear as suggested chips in <strong>Edit Text</strong>. The AI occasionally bakes a bit of stray text into the template — just <strong>Regenerate template</strong> for a fresh one, or cover it with a text layer in Edit Text. Uncheck to let the model bake all text (less reliable).</span>
             </label>
           </>
         )}

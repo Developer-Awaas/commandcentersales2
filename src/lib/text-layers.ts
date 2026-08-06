@@ -10,10 +10,6 @@
  * Supersedes the old, unused ad-compositor.ts — this is now the only
  * text-compositing path in the app.
  */
-import { planPatch, decidePatches, bboxesIntersect, rgbCss, type Rgb, type RingSamples, type ZoneRecord } from './zone-patch';
-
-/** A text-zone plate for the patch stage: its bbox + role (from textZonePlateSpecs). */
-export interface PlateSpec { bbox: [number, number, number, number]; role: string }
 
 export interface TextLayer {
   id: string;
@@ -40,7 +36,17 @@ export interface TextLayer {
    *  — shown in the Edit Text panel as a tap-to-place chip, NOT baked into the image
    *  or shown in the read-only preview. Undefined/true = placed (rendered). */
   placed?: boolean;
+  /** Layer kind. `'logo'` renders `imageUrl` (fit into xPct/yPct/widthPct/heightPct
+   *  box) instead of text — a first-class, editable brand-logo layer, drawn under the
+   *  text layers (z-order: template < logo < text). Default/absent = a text layer. */
+  kind?: 'text' | 'logo';
+  imageUrl?: string;
+  /** Logo layers: box height as % of canvas height (text layers ignore this). */
+  heightPct?: number;
 }
+
+/** A logo layer is an image layer; everything else is text. */
+export const isLogoLayer = (l: TextLayer): boolean => l.kind === 'logo';
 
 /** A layer is baked/previewed unless it's an explicit unplaced suggestion (FIX 3). */
 export const isPlaced = (l: TextLayer): boolean => l.placed !== false;
@@ -115,14 +121,6 @@ export function buildDefaultLayers(
   return layers;
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const clean = hex.replace('#', '');
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -155,68 +153,12 @@ function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: nu
   return lines;
 }
 
-function rgbAt(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): Rgb | null {
-  if (x < 0 || y < 0 || x >= w || y >= h) return null;
-  const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
-  return { r: d[0], g: d[1], b: d[2] };
-}
-
-/** Sample a ring just OUTSIDE a pixel box (per edge) + a grid INSIDE it (FIX 2).
- *  Exported so the offline replay harness (scripts/replay-composite.ts) samples
- *  through the exact same code path as production. */
-export function sampleRing(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number, W: number, H: number, off: number): RingSamples {
-  const push = (arr: Rgb[], p: Rgb | null) => { if (p) arr.push(p); };
-  const s: RingSamples = { top: [], bottom: [], left: [], right: [], inside: [] };
-  for (let i = 1; i <= 5; i++) {
-    const fx = bx + (bw * i) / 6, fy = by + (bh * i) / 6;
-    push(s.top, rgbAt(ctx, fx, by - off, W, H));
-    push(s.bottom, rgbAt(ctx, fx, by + bh + off, W, H));
-    push(s.left, rgbAt(ctx, bx - off, fy, W, H));
-    push(s.right, rgbAt(ctx, bx + bw + off, fy, W, H));
-  }
-  for (let iy = 1; iy <= 3; iy++) for (let ix = 1; ix <= 3; ix++) {
-    push(s.inside, rgbAt(ctx, bx + (bw * ix) / 4, by + (bh * iy) / 4, W, H));
-  }
-  return s;
-}
-
-/** Feathered vertical-gradient patch: an offscreen buffer filled top→bottom, masked
- *  to fade its outer `feather`-px ring to transparent so there's no hard rectangle. */
-function drawFeatheredGradient(ctx: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number, W: number, H: number, top: Rgb, bottom: Rgb, feather: number) {
-  const f = Math.max(1, Math.round(feather));
-  const ex = Math.max(0, bx - f), ey = Math.max(0, by - f);
-  const ew = Math.min(W - ex, bw + 2 * f), eh = Math.min(H - ey, bh + 2 * f);
-  if (ew <= 0 || eh <= 0) return;
-  const buf = document.createElement('canvas'); buf.width = ew; buf.height = eh;
-  const bctx = buf.getContext('2d'); if (!bctx) return;
-  const grad = bctx.createLinearGradient(0, 0, 0, eh);
-  grad.addColorStop(0, rgbCss(top)); grad.addColorStop(1, rgbCss(bottom));
-  bctx.fillStyle = grad; bctx.fillRect(0, 0, ew, eh);
-
-  // Alpha mask: opaque core (the original zone) fading to 0 over the f-px margin.
-  const mask = document.createElement('canvas'); mask.width = ew; mask.height = eh;
-  const mctx = mask.getContext('2d'); if (!mctx) return;
-  mctx.fillStyle = '#fff'; mctx.fillRect(f, f, Math.max(0, ew - 2 * f), Math.max(0, eh - 2 * f));
-  mctx.globalCompositeOperation = 'lighter';
-  const band = (x0: number, y0: number, x1: number, y1: number, w: number, h: number, from0: boolean) => {
-    const g = mctx.createLinearGradient(x0, y0, x1, y1);
-    g.addColorStop(0, from0 ? 'rgba(255,255,255,0)' : '#fff');
-    g.addColorStop(1, from0 ? '#fff' : 'rgba(255,255,255,0)');
-    mctx.fillStyle = g; mctx.fillRect(x0, y0, w, h);
-  };
-  band(0, 0, 0, f, ew, f, true);            // top edge
-  band(0, eh - f, 0, eh, ew, f, false);     // bottom edge
-  band(0, 0, f, 0, f, eh, true);            // left edge
-  band(ew - f, 0, ew, 0, f, eh, false);     // right edge
-  bctx.globalCompositeOperation = 'destination-in';
-  bctx.drawImage(mask, 0, 0);
-  ctx.drawImage(buf, ex, ey);
-}
-
 /**
- * Loads `imageSrc`, draws each layer at its scaled position/size, and returns
- * a flat base64 JPEG data URL — used for the "Download" action once a
- * creative has text_layers, replacing a plain raw-image download.
+ * Loads `imageSrc` (the clean model template) and composites, in strict z-order:
+ *   template  <  logo layers  <  text layers
+ * and returns a flat base64 JPEG data URL. NO patching/erasure/scrims — the
+ * template pixels are never altered (the automated ghost-patching layer was
+ * removed; stray AI text is handled by the user via Regenerate or a text layer).
  */
 export async function renderTextLayers(
   imageSrc: string,
@@ -224,10 +166,6 @@ export async function renderTextLayers(
   canvasW: number,
   canvasH: number,
   logo?: { src: string; bbox: [number, number, number, number] },
-  plates?: PlateSpec[],
-  chipColor = '#0f172a',
-  photoZones: [number, number, number, number][] = [],
-  onDecisions?: (d: { zones: unknown[]; globalPatchingDisabled: boolean }) => void,
 ): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = canvasW;
@@ -243,64 +181,40 @@ export async function renderTextLayers(
     im.src = src;
   });
 
-  const img = await loadImage(imageSrc);
-  ctx.drawImage(img, 0, 0, canvasW, canvasH);
-
-  // Brand logo — composited programmatically into its zone (never model-rendered),
-  // fit into the bbox preserving aspect, centered. Non-fatal if it fails to load.
-  if (logo) {
+  // Fit an image into a box (contain, centered) — logo layers + legacy logo param.
+  const drawContain = async (src: string, bx: number, by: number, bw: number, bh: number) => {
     try {
-      const limg = await loadImage(logo.src);
-      const [lx, ly, lw, lh] = logo.bbox;
-      const bx = lx * canvasW, by = ly * canvasH, bw = lw * canvasW, bh = lh * canvasH;
+      const limg = await loadImage(src);
       const s = Math.min(bw / limg.naturalWidth, bh / limg.naturalHeight) || 1;
       const dw = limg.naturalWidth * s, dh = limg.naturalHeight * s;
       ctx.drawImage(limg, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
-    } catch { /* logo optional — skip on failure */ }
-  }
+    } catch { /* image optional — skip on failure */ }
+  };
 
-  // Clean-plates — background-aware ghost-text erasure under a CONSERVATIVE policy
-  // (FIX 2 + STEP 3, "first do no harm"). planPatch alone (pixel variance) let large
-  // calm-sky zones with no text get gradient-filled into bare slabs. Now every zone
-  // carries context — is a PLACED layer on it, how big is it, does it touch the photo
-  // — and decidePatches gates accordingly (unoccupied → never patch; photo/oversized
-  // → chip not paint; global fail-safe → chips only). See replay creative 0e2e2886.
-  const feather = Math.max(8, Math.min(12, Math.round(canvasW / 100))); // 8–12px falloff
-  const zoneOccupied = (bx: number, by: number, bw: number, bh: number) => layers.some((l) => l.placed !== false && l.text.trim()
-    && (l.xPct / 100) * canvasW >= bx - bw * 0.15 && (l.xPct / 100) * canvasW <= bx + bw * 1.15
-    && (l.yPct / 100) * canvasH >= by - bh * 0.5 && (l.yPct / 100) * canvasH <= by + bh * 1.5);
-  if (plates?.length) {
-    const records: ZoneRecord[] = plates.map(({ bbox: [px, py, pw, ph], role }) => {
-      const bx = px * canvasW, by = py * canvasH, bw = pw * canvasW, bh = ph * canvasH;
-      return {
-        role,
-        areaFrac: pw * ph,
-        occupied: zoneOccupied(bx, by, bw, bh),
-        intersectsPhoto: photoZones.some((p) => bboxesIntersect([px, py, pw, ph], p)),
-        base: planPatch(sampleRing(ctx, bx, by, bw, bh, canvasW, canvasH, feather)),
-      };
-    });
-    const { zones: treatments, globalPatchingDisabled } = decidePatches(records);
-    onDecisions?.({ zones: treatments, globalPatchingDisabled });
-    treatments.forEach((t, i) => {
-      const [px, py, pw, ph] = plates[i].bbox;
-      const bx = px * canvasW, by = py * canvasH, bw = pw * canvasW, bh = ph * canvasH;
-      if (t.mode === 'gradient') {
-        drawFeatheredGradient(ctx, bx, by, bw, bh, canvasW, canvasH, t.topColor, t.bottomColor, feather);
-      } else if (t.mode === 'chip') {
-        ctx.fillStyle = hexToRgba(chipColor, 0.85);
-        roundRect(ctx, bx, by, bw, bh, Math.min(bw, bh) * 0.18);
-        ctx.fill();
-      }
-      // t.mode === 'skip' → intentionally leave the zone untouched.
-    });
+  // z-order layer 0 — the clean model template, never altered.
+  const img = await loadImage(imageSrc);
+  ctx.drawImage(img, 0, 0, canvasW, canvasH);
+
+  // z-order layer 1a — legacy logo param (old creatives whose layers carry no logo).
+  if (logo && !layers.some(isLogoLayer)) {
+    const [lx, ly, lw, lh] = logo.bbox;
+    await drawContain(logo.src, lx * canvasW, ly * canvasH, lw * canvasW, lh * canvasH);
   }
 
   const scale = canvasW / TEXT_LAYER_REFERENCE_WIDTH;
   const FONT = `system-ui, -apple-system, 'Segoe UI', Arial, sans-serif`;
 
+  // z-order layer 1b — logo layers (first-class, editable). Drawn under the text.
   for (const layer of layers) {
-    if (layer.placed === false) continue; // unplaced suggestion — not baked (FIX 3)
+    if (layer.placed === false || !isLogoLayer(layer) || !layer.imageUrl) continue;
+    const bw = ((layer.widthPct ?? 20) / 100) * canvasW;
+    const bh = ((layer.heightPct ?? layer.widthPct ?? 20) / 100) * canvasH;
+    await drawContain(layer.imageUrl, (layer.xPct / 100) * canvasW, (layer.yPct / 100) * canvasH, bw, bh);
+  }
+
+  // z-order layer 2 — text layers (with optional user-chosen chip backing).
+  for (const layer of layers) {
+    if (layer.placed === false || isLogoLayer(layer)) continue; // unplaced/logo handled above
     if (!layer.text.trim()) continue;
 
     const x = (layer.xPct / 100) * canvasW;
@@ -326,9 +240,7 @@ export async function renderTextLayers(
       else if (layer.align === 'right') bgX = x - widest - padding * 2;
       else bgX = x - padding;
 
-      ctx.fillStyle = layer.backgroundColor.startsWith('#')
-        ? layer.backgroundColor
-        : hexToRgba(layer.backgroundColor, 1);
+      ctx.fillStyle = layer.backgroundColor; // any CSS color (hex / rgb / rgba chip)
       roundRect(ctx, bgX, y - padding, widest + padding * 2, blockHeight + padding * 2, (layer.borderRadiusPx ?? 0) * scale);
       ctx.fill();
     }
