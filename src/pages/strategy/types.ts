@@ -42,6 +42,11 @@ export interface QuickGenerateInputs {
   // are edited in-place (composition preserved) instead of only described in
   // text — see buildHeroEditPrompt() in senior-designer-prompts.ts.
   heroRefKey: string | null;
+  // Replicate text-overlay mode (beta, opt-in): when true AND a replicate_creative
+  // ref is set, the model renders a clean template (buildReplicateLayoutPrompt) and
+  // the app composites legible copy per vision-located zones (RB-P0 STEP 3), instead
+  // of the model baking (often garbled) text. Parallel to the default baked path.
+  textOverlayMode?: boolean;
 }
 
 export interface FullStrategyInputs {
@@ -233,6 +238,11 @@ export type StrategyResult =
       // generates ONE image at this aspect (the reference creative's own
       // aspect) using buildReplicatePrompt + the hero-image edit wire.
       replicateAspect?: '1:1' | '4:5' | '9:16';
+      // Replicate text-overlay mode (RB-P0 STEP 3): when set, StrategyResult
+      // generates a clean template and composites copy per these vision-located
+      // zones instead of baking text into the image.
+      textOverlayMode?: boolean;
+      zones?: import('../../lib/reference-style').ReferenceZone[];
     }
   | {
       type: 'full';

@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { getBrandProvider } from '../lib/providers';
 import { useToast } from '../contexts/ToastContext';
-import { aiCall, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
+import { aiCall, isAiEnabled, describeImageForFlux, analyzeReferenceZones } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -456,6 +456,7 @@ export function Strategy() {
         // =[project hero]); only the prompt wrapper + single-aspect output
         // differ (handled in StrategyResult). Overrides any hero selection.
         let replicateAspect: RefAspect | undefined;
+        let overlayZones: import('../lib/reference-style').ReferenceZone[] | undefined;
         const replicateRef = quickInputs.quickRefs.find((r) => r.role_hint === 'replicate_creative');
         if (replicateRef && quickInputs.projectId && quickInputs.projectId !== 'custom') {
           const { data: heroRow } = await supabase
@@ -473,6 +474,12 @@ export function Strategy() {
               { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
               { url: heroUrl },
             ];
+            // Text-overlay mode (beta): locate the reference's zones now so
+            // StrategyResult can composite crisp copy per zone onto a clean template.
+            if (quickInputs.textOverlayMode) {
+              overlayZones = (await analyzeReferenceZones({ base64: replicateRef.base64, mimeType: replicateRef.mimeType })) ?? undefined;
+              if (!overlayZones) showToast('Could not locate the reference layout zones — generating the standard replicate instead.', 'info');
+            }
           } else {
             showToast('No hero image on this project — generating normally. Add a hero image in Projects → Media to replicate the uploaded creative.', 'info');
           }
@@ -597,7 +604,7 @@ export function Strategy() {
 
         if (updatePricesInDb) await savePriceUpdates();
 
-        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages, replicateAspect });
+        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages, replicateAspect, textOverlayMode: !!overlayZones, zones: overlayZones });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';
       showToast('Generation failed. Check console.', 'error');

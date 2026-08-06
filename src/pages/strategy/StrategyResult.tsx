@@ -15,7 +15,10 @@ import {
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
-import { buildHeroEditPrompt, buildReplicatePrompt } from '../../lib/senior-designer-prompts';
+import { buildHeroEditPrompt, buildReplicatePrompt, buildReplicateLayoutPrompt } from '../../lib/senior-designer-prompts';
+import { dedupeZones } from '../../lib/reference-style';
+import { buildLayersFromZones, refHeightFor, logoZone, textZonePlates } from '../../lib/zone-layers';
+import { renderTextLayers, type TextLayer } from '../../lib/text-layers';
 import { supabase } from '../../lib/supabase';
 import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../../lib/constants';
 import { enforceCreativeHistoryLimit } from '../../lib/creative-history';
@@ -1313,7 +1316,7 @@ function FullStrategyPlaceholder({ inputs, projects }: { inputs: FullStrategyInp
 
 
 
-function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange, resumedGalleryImages, heroImages, replicateAspect }: {
+function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange, resumedGalleryImages, heroImages, replicateAspect, textOverlayMode, zones }: {
   data: SeniorDesignerResult;
   languages: string[];
   onRetry?: () => void;
@@ -1332,6 +1335,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   // project hero] and we generate ONE image at this aspect using
   // buildReplicatePrompt instead of the 3-up hero/from-scratch path.
   replicateAspect?: '1:1' | '4:5' | '9:16';
+  // Text-overlay mode (RB-P0 STEP 3): compose crisp copy per `zones` onto a clean
+  // template instead of baking text into the model image.
+  textOverlayMode?: boolean;
+  zones?: import('../../lib/reference-style').ReferenceZone[];
 }) {
   const [promptCopied, setPromptCopied] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
@@ -1454,8 +1461,29 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         price:    data.ad_copy?.[`price_${primaryLang}`] ?? data.ad_copy?.price,
         cta:      data.ad_copy?.cta,
       };
+      // Text-overlay mode: fuller copy for zone-composited text (subheadline/footer
+      // added; badges/checklist only fill zones when a copy source exists).
+      const overlayCopy = {
+        ...replicateCopy,
+        subheadline: data.ad_copy?.[`primary_text_${primaryLang}`] ?? data.ad_copy?.subheadline,
+        footer: data.ad_copy?.footer,
+      };
+      const overlayOn = !!(textOverlayMode && zones && replicateAspect);
+      // Brand-kit logo + colours (org-scoped) — logo placed programmatically, never
+      // model-rendered; colours drive the CTA badge. Columns per brand_kits schema.
+      let brandLogoUrl: string | undefined;
+      let brandColors: { primary: string; accent: string } | undefined;
+      if (overlayOn) {
+        const { data: bk } = await supabase
+          .from('brand_kits')
+          .select('logo_white_url, logo_color_url, logo_dark_url, primary_color, accent_color')
+          .maybeSingle();
+        const kit = bk as { logo_white_url?: string; logo_color_url?: string; logo_dark_url?: string; primary_color?: string; accent_color?: string } | null;
+        brandLogoUrl = kit?.logo_white_url ?? kit?.logo_color_url ?? kit?.logo_dark_url ?? undefined;
+        if (kit?.primary_color && kit?.accent_color) brandColors = { primary: kit.primary_color, accent: kit.accent_color };
+      }
       const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = replicateAspect
-        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', buildReplicatePrompt(replicateCopy)]]
+        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt() : buildReplicatePrompt(replicateCopy)]]
         : [
             ['1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
             ['4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],
@@ -1493,11 +1521,30 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         if (result.status === 'fulfilled' && result.value.length > 0) {
           const img = result.value[0];
           const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
-          let url = dataUrl;
+          // Text-overlay composite: clean template → crisp copy per zone + brand
+          // logo, ghost erased via clean-plates. Falls back to the raw template.
+          let uploadBase64 = img.base64;
+          let uploadMime = img.mimeType;
+          let composedLayers: TextLayer[] | undefined;
+          if (overlayOn && zones && replicateAspect) {
+            try {
+              const [cw, ch] = ({ '1:1': [1080, 1080], '4:5': [1080, 1350], '9:16': [1080, 1920] } as const)[replicateAspect];
+              const deduped = dedupeZones(zones);
+              const layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
+              const lz = logoZone(deduped);
+              const composed = await renderTextLayers(dataUrl, layers, cw, ch, (lz && brandLogoUrl) ? { src: brandLogoUrl, bbox: lz.bbox } : undefined, textZonePlates(deduped));
+              uploadBase64 = composed.split(',')[1];
+              uploadMime = 'image/jpeg';
+              composedLayers = layers;
+            } catch (compErr) {
+              console.error('[overlay] composite failed — using clean template:', compErr);
+            }
+          }
+          let url = `data:${uploadMime};base64,${uploadBase64}`;
           let id: string | undefined;
           let storagePath: string | undefined;
           try {
-            const uploaded = await uploadGeminiImageToSupabase(img.base64, img.mimeType, {
+            const uploaded = await uploadGeminiImageToSupabase(uploadBase64, uploadMime, {
               sessionId: sessionIdRef.current,
               angleLabel: data.creative_concept ? `${data.creative_concept}-${angleLabel}` : angleLabel,
               funnelStage: funnelStage ?? 'BOFU',
@@ -1507,6 +1554,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             url = uploaded.url;
             id = uploaded.id;
             storagePath = uploaded.storagePath;
+            // Persist composited layers so the creative stays re-editable later.
+            if (composedLayers && uploaded.id) {
+              await supabase.from('creative_assets').update({ text_layers: composedLayers }).eq('id', uploaded.id);
+            }
           } catch (uploadErr) {
             // Non-fatal — image still displays via the base64 data URL — but
             // without a real creative_assets id, Canva/Adobe Express edit
@@ -1872,6 +1923,8 @@ export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, 
             resumedGalleryImages={result.resumedGalleryImages}
             heroImages={result.heroImages}
             replicateAspect={result.replicateAspect}
+            textOverlayMode={result.textOverlayMode}
+            zones={result.zones}
           />;
         }
         return <ErrorBanner message="No result returned." onRetry={onRetry} />;
