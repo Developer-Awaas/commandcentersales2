@@ -3,6 +3,7 @@ import { ADMIN_EMAIL } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
 import { isValidReferenceAnalysis, sanitizePalette, isValidReferenceZone, dedupeZones, clampBbox, type ReferenceAnalysis, type ReferenceZone } from './reference-style';
+import { recordApiCost } from './api-cost';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_SYSTEM =
@@ -37,6 +38,10 @@ function getBrowserSessionId(): string {
 export interface TraceOptions {
   traceName?: string;
   metadata?: Record<string, unknown>;
+  // Cost-ledger attribution (agent_interactions). `feature` defaults to
+  // traceName; `projectId` ties the spend to a project in the Usage surface.
+  feature?: string;
+  projectId?: string | null;
 }
 
 // Vision call messages embed base64 image bytes — strip those before
@@ -396,6 +401,7 @@ export async function aiCall(
 
     const parsed = extractJson(rawText);
     logToLangfuse(traceName, { input: prompt, output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
+    recordApiCost({ provider: 'anthropic', callType: 'text', feature: trace.feature ?? traceName, model: CLAUDE_MODEL, inputTokens, outputTokens, projectId: trace.projectId });
 
     if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 
@@ -450,6 +456,7 @@ export async function describeImageForFlux(
       inputTokens: outcome.result.inputTokens,
       outputTokens: outcome.result.outputTokens,
     });
+    recordApiCost({ provider: 'anthropic', callType: 'vision', feature: 'media_describe', model: 'claude-haiku-4-5-20251001', inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens });
     return text || null;
   } catch (err) {
     logToLangfuse('claude-vision-describe-image', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
@@ -507,6 +514,7 @@ export async function analyzeReferenceStyle(
       inputTokens: outcome.result.inputTokens,
       outputTokens: outcome.result.outputTokens,
     });
+    recordApiCost({ provider: 'anthropic', callType: 'vision', feature: 'reference_analysis', model: 'claude-haiku-4-5-20251001', inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens });
     if (!isValidReferenceAnalysis(parsed)) return null;
     // Stamp the mode so both reference paths share one typed shape (RB-P0). The
     // client CreativeGenerator flow is always style_hints; replicate_layout is
@@ -568,6 +576,7 @@ export async function analyzeReferenceZones(
       output: JSON.stringify(parsed), model: ZONE_VISION_MODEL,
       inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens,
     });
+    recordApiCost({ provider: 'anthropic', callType: 'vision', feature: 'reference_zones', model: ZONE_VISION_MODEL, inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens });
     if (!parsed || !Array.isArray(parsed.zones)) return null;
     // Normalize the vision's snake_case font_scale -> fontScale, then validate.
     const normalized = parsed.zones.map((z) => {
@@ -620,6 +629,7 @@ export async function aiVision(
 
     const parsed = extractJson(rawText);
     logToLangfuse(traceName, { input: redactImages(messages), output: parsed ?? rawText, model: CLAUDE_MODEL, inputTokens, outputTokens, metadata: trace.metadata });
+    recordApiCost({ provider: 'anthropic', callType: 'vision', feature: trace.feature ?? traceName, model: CLAUDE_MODEL, inputTokens, outputTokens, projectId: trace.projectId });
 
     if (parsed) return { ...parsed as Record<string, unknown>, _inputTokens: inputTokens, _outputTokens: outputTokens };
 

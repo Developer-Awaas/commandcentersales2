@@ -1403,36 +1403,54 @@ export interface Database {
           id: string
           org_id: string
           user_id: string | null
-          agent: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya' | 'dhruv'
+          agent: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya' | 'dhruv' | null
           trace_id: string | null
           model: string
           input_tokens: number
           output_tokens: number
-          cost_usd: number
+          cost_usd: number | null
+          provider: 'anthropic' | 'openai' | 'gemini' | null
+          call_type: 'text' | 'image_gen' | 'image_edit' | 'vision' | null
+          feature: string | null
+          project_id: string | null
+          image_count: number | null
+          unit_cost_usd: number | null
           created_at: string
         }
         Insert: {
           id?: string
           org_id: string
           user_id?: string | null
-          agent: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya' | 'dhruv'
+          agent?: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya' | 'dhruv' | null
           trace_id?: string | null
           model: string
           input_tokens?: number
           output_tokens?: number
-          cost_usd?: number
+          cost_usd?: number | null
+          provider?: 'anthropic' | 'openai' | 'gemini' | null
+          call_type?: 'text' | 'image_gen' | 'image_edit' | 'vision' | null
+          feature?: string | null
+          project_id?: string | null
+          image_count?: number | null
+          unit_cost_usd?: number | null
           created_at?: string
         }
         Update: {
           id?: string
           org_id?: string
           user_id?: string | null
-          agent?: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya' | 'dhruv'
+          agent?: 'aarav' | 'arjun' | 'aanya' | 'diya' | 'kavya' | 'dhruv' | null
           trace_id?: string | null
           model?: string
           input_tokens?: number
           output_tokens?: number
-          cost_usd?: number
+          cost_usd?: number | null
+          provider?: 'anthropic' | 'openai' | 'gemini' | null
+          call_type?: 'text' | 'image_gen' | 'image_edit' | 'vision' | null
+          feature?: string | null
+          project_id?: string | null
+          image_count?: number | null
+          unit_cost_usd?: number | null
           created_at?: string
         }
         Relationships: Rel[]

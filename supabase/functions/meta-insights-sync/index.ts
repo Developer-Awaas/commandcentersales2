@@ -1,6 +1,7 @@
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database, Json } from '../_shared/database.types.ts'
+import { recordApiCost } from '../_shared/api-cost.ts'
 
 type DB = SupabaseClient<Database>
 type SyncStatus = Database['public']['Tables']['integration_sync_log']['Insert']['status']
@@ -420,7 +421,7 @@ async function arjunPromoteCreatives(supabase: DB, orgId: string) {
     }
 
     // Run 9-section Haiku vision analysis
-    const visionAnalysis = await runHaikuVision(apiKey, asset.image_url)
+    const visionAnalysis = await runHaikuVision(apiKey, asset.image_url, { supabase, orgId, projectId })
 
     await supabase.from('aanya_training_creatives').insert({
       org_id: orgId,
@@ -437,7 +438,11 @@ async function arjunPromoteCreatives(supabase: DB, orgId: string) {
   }
 }
 
-async function runHaikuVision(apiKey: string, imageUrl: string): Promise<Record<string, unknown> | null> {
+async function runHaikuVision(
+  apiKey: string,
+  imageUrl: string,
+  cost?: { supabase: DB; orgId: string; projectId: string | null },
+): Promise<Record<string, unknown> | null> {
   try {
     const res = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
@@ -467,7 +472,16 @@ async function runHaikuVision(apiKey: string, imageUrl: string): Promise<Record<
       }),
     })
     if (!res.ok) return null
-    const data = await res.json() as { content?: { type: string; text: string }[] }
+    const data = await res.json() as { content?: { type: string; text: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }
+    if (cost) {
+      await recordApiCost({
+        orgId: cost.orgId, userId: null,
+        provider: 'anthropic', callType: 'vision', feature: 'arjun_promote_vision',
+        model: HAIKU_MODEL,
+        inputTokens: data.usage?.input_tokens ?? 0, outputTokens: data.usage?.output_tokens ?? 0,
+        projectId: cost.projectId, client: cost.supabase,
+      })
+    }
     const text = (data.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('').trim()
     return JSON.parse(text.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim()) as Record<string, unknown>
   } catch {

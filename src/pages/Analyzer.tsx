@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled, callClaudeProxyStream } from '../lib/ai-service';
+import { recordApiCost } from '../lib/api-cost';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { Card } from '../components/ui/Card';
@@ -595,6 +596,7 @@ Return ONLY a JSON object:
 
       if (!outcome.ok) throw new Error(outcome.error);
 
+      recordApiCost({ provider: 'anthropic', callType: 'text', feature: 'meta_research', model: 'claude-sonnet-4-6', inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens });
       setResearch({ status: 'ok', text: outcome.result.text.trim() || 'No text response returned.' });
     } catch (err: unknown) {
       setResearch({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' });

@@ -152,6 +152,19 @@ export function AIChatbot() {
       return;
     }
 
+    // Server-side org-daily cap (STEP 4) — the authoritative enforcement, unlike
+    // the per-browser localStorage limit below which any user trivially clears.
+    // The COUNT runs in Postgres (check_daily_feature_cap, SECURITY DEFINER) over
+    // this org's chatbot ledger rows. Fail-open on a transient RPC error so a DB
+    // blip never bricks the chatbot; a definite `false` blocks.
+    try {
+      const { data: underCap, error: capErr } = await supabase.rpc('check_daily_feature_cap', { p_feature: 'chatbot', p_cap: 30 });
+      if (!capErr && underCap === false) {
+        addMessage({ role: 'bot', text: "Your team has reached today's chatbot limit (30 messages). Resets at midnight IST.", timestamp: new Date() });
+        return;
+      }
+    } catch { /* fail-open: never block on a transient RPC failure */ }
+
     const rem = getRemainingMessages();
     if (rem <= 0) {
       addMessage({ role: 'bot', text: 'Daily limit reached (30 messages). Resets at midnight.', timestamp: new Date() });
@@ -189,7 +202,7 @@ export function AIChatbot() {
 
       const fullPrompt = historyPrompt ? `${historyPrompt}\nUser: ${text}` : text;
 
-      const res = await aiCall(fullPrompt, systemPrompt);
+      const res = await aiCall(fullPrompt, systemPrompt, 16000, { traceName: 'chatbot', feature: 'chatbot' });
       const botText = res.error
         ? 'Sorry, I ran into an error. Please try again.'
         : typeof res === 'string'

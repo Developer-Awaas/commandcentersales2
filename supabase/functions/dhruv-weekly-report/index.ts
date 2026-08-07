@@ -69,11 +69,13 @@ Deno.serve(async (_req: Request): Promise<Response> => {
         status: 'saved',
       })
 
-      // Cost row for the report call (cron has no user).
+      // Cost row for the report call (cron has no user). Keeps agent='dhruv'
+      // (it IS a specialist run) AND carries the universal-ledger columns.
       await supabase.from('agent_interactions').insert({
         org_id, user_id: null, agent: 'dhruv', trace_id: `weekly-report-${org_id}`,
         model: dhruv.model, input_tokens: dhruv.inputTokens, output_tokens: dhruv.outputTokens,
         cost_usd: claudeCostUsd(dhruv.inputTokens, dhruv.outputTokens),
+        provider: 'anthropic', call_type: 'text', feature: 'weekly_report',
       })
 
       const title = (dhruv.output as { title?: string }).title ?? "This week's performance report"

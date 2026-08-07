@@ -10,6 +10,7 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Spinner } from '../components/ui/Spinner';
 import { useToast } from '../contexts/ToastContext';
+import { UsageSection } from '../components/settings/UsageSection';
 
 interface OrgData {
   name: string;
@@ -267,6 +268,8 @@ export function SettingsPage() {
       </div>
 
       <div className="flex flex-col gap-6 max-w-3xl">
+        {/* Admin-only cost usage — renders nothing for non-admins (STEP 5). */}
+        <UsageSection />
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <SectionLabel>Brand</SectionLabel>

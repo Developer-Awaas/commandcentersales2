@@ -138,7 +138,7 @@ jobs:
         run: |
           deno test --allow-env \
             --lock=deno.lock \
-            _shared/agents/
+            _shared/
         working-directory: supabase/functions
 
   ws1-6-isolation:

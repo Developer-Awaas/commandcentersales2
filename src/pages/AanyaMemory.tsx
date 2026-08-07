@@ -3,6 +3,7 @@ import { Brain, Upload, Trash2, Sparkles, CheckCircle2, AlertCircle, Loader2, Ch
 import { supabase } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 import { aiCall, logToLangfuse, callClaudeProxyStream } from '../lib/ai-service';
+import { recordApiCost } from '../lib/api-cost';
 import { generateImageWithGemini } from '../lib/gemini-service';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { Select } from '../components/ui/Select';
@@ -148,6 +149,7 @@ Return ONLY the JSON object, no markdown, no preamble.`,
       inputTokens: outcome.result.inputTokens,
       outputTokens: outcome.result.outputTokens,
     });
+    recordApiCost({ provider: 'anthropic', callType: 'vision', feature: 'aanya_memory_vision', model: 'claude-haiku-4-5-20251001', inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens });
     return parsed as VisionAnalysis;
   } catch (err) {
     logToLangfuse('aanya-memory-vision-analysis', { model: 'claude-haiku-4-5-20251001', level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });

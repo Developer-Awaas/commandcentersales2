@@ -1525,7 +1525,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         slots.map(([aspect, , , prompt], i) =>
           (!replicateAspect && SINGLE_IMAGE_TESTING_MODE && i > 0)
             ? Promise.resolve([] as Awaited<ReturnType<typeof generateImageWithGemini>>)
-            : generateImageWithGemini(prompt, aspect, undefined, heroImages)
+            : generateImageWithGemini(prompt, aspect, undefined, heroImages, { feature: opts?.keepLayers ? 'regenerate_template' : 'creatives' })
         )
       );
 

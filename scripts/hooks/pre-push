@@ -40,6 +40,6 @@ deno check \
   supabase/functions/dhruv-weekly-report/index.ts
 
 echo "[pre-push] deno test (credential-free)..."
-deno test --allow-env supabase/functions/_shared/agents/
+deno test --allow-env supabase/functions/_shared/
 
 echo "[pre-push] all checks passed."

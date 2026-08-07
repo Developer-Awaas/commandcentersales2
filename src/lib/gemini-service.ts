@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { getOrgId } from './constants';
+import { getOrgId, getUserId } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_CREATIVE_IMAGE_BASE64, MOCK_CREATIVE_IMAGE_MIME_TYPE } from '../mocks/ai-fixtures';
 
@@ -70,6 +70,14 @@ export function resolveHeroRef(
   return entry ? toHeroImageRef(entry) : undefined;
 }
 
+// Cost-ledger attribution (agent_interactions), threaded to the generate-image
+// edge fn which writes the row (it knows the real provider/quality/unit cost).
+// Defaults to feature='creatives' when omitted.
+export interface ImageCostMeta {
+  feature?: string;
+  projectId?: string | null;
+}
+
 export async function generateImageWithGemini(
   prompt: string,
   aspectRatio: '1:1' | '9:16' | '4:5' = '1:1',
@@ -78,7 +86,8 @@ export async function generateImageWithGemini(
   // (real pixels sent for a true image-to-image edit, composition preserved)
   // and any further entries are supporting photos (e.g. amenities) blended in
   // as secondary elements. Omit entirely for the normal text-to-image path.
-  heroImages?: HeroImageRef[]
+  heroImages?: HeroImageRef[],
+  costMeta?: ImageCostMeta,
 ): Promise<GeminiGeneratedImage[]> {
   const dimensionMap: Record<string, { width: number; height: number }> = {
     '9:16': { width: 1080, height: 1920 },
@@ -102,6 +111,11 @@ export async function generateImageWithGemini(
     body.heroImage = heroImages[0];
     if (heroImages.length > 1) body.supportingImages = heroImages.slice(1);
   }
+  // Attribution for the cost ledger — the edge fn writes the row.
+  body.orgId = getOrgId() || undefined;
+  body.userId = getUserId() || null;
+  body.feature = costMeta?.feature ?? 'creatives';
+  if (costMeta?.projectId) body.projectId = costMeta.projectId;
 
   const { data, error } = await supabase.functions.invoke('generate-image', {
     body,

@@ -36,6 +36,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
 import { OPENAI_IMAGE_COST_USD, editImage } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
+import { recordApiCost } from '../_shared/api-cost.ts'
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
 
@@ -88,6 +89,12 @@ Deno.serve(async (req: Request) => {
     quality?: 'low' | 'medium' | 'high'
     heroImage?: ImageRef
     supportingImages?: ImageRef[]
+    // Cost-ledger attribution (agent_interactions). Passed by gemini-service.ts;
+    // org/user follow the same client-reported trust model as ai_sessions.
+    orgId?: string
+    userId?: string | null
+    feature?: string
+    projectId?: string | null
   }
   try {
     body = await req.json()
@@ -95,7 +102,7 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders() })
   }
 
-  const { prompt, width = 1080, height = 1080, quality = 'medium', heroImage, supportingImages = [] } = body
+  const { prompt, width = 1080, height = 1080, quality = 'medium', heroImage, supportingImages = [], orgId, userId, feature, projectId } = body
   if (!prompt || typeof prompt !== 'string') {
     return new Response(JSON.stringify({ error: 'prompt is required' }), { status: 400, headers: corsHeaders() })
   }
@@ -121,6 +128,14 @@ Deno.serve(async (req: Request) => {
         images: [resolvedHero, ...resolvedSupporting],
         observationName: 'openai-image-edit',
       })
+      if (orgId) {
+        await recordApiCost({
+          orgId, userId: userId ?? null,
+          provider: 'openai', callType: 'image_edit', feature: feature ?? 'creatives',
+          model: 'gpt-image-1', imageCount: 1, unitCostUsd: OPENAI_IMAGE_COST_USD[quality],
+          projectId: projectId ?? null,
+        })
+      }
       return new Response(
         JSON.stringify({ base64: result.imageBase64, mimeType: result.mimeType }),
         { headers: corsHeaders() }
@@ -215,6 +230,15 @@ Deno.serve(async (req: Request) => {
       input: { prompt: safePrompt, size, quality },
       output: { imageGenerated: true, mimeType: 'image/png' },
     })
+
+    if (orgId) {
+      await recordApiCost({
+        orgId, userId: userId ?? null,
+        provider: 'openai', callType: 'image_gen', feature: feature ?? 'creatives',
+        model: 'gpt-image-1', imageCount: 1, unitCostUsd: OPENAI_IMAGE_COST_USD[quality],
+        projectId: projectId ?? null, traceId,
+      })
+    }
 
     return new Response(
       JSON.stringify({ base64, mimeType: 'image/png' }),
