@@ -216,6 +216,11 @@ export function QuickGenerateForm({
         {replicateActive && (
           <>
             <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — layout copied from the style reference; this hero appears as the building. Produces one image at the reference's aspect ratio. Assign a project photo the ★ Hero role above.</p>
+            {/* A6 clarification: replicate sends only the style-ref + the one ★ hero
+                (imageCount 2 in the payload log) — other project photos (amenities,
+                interiors) are NOT used in this mode, and the hero populates only where
+                the reference layout actually has a photo/image section. */}
+            <p className="text-[11px] text-text-tertiary -mt-1">Only the ★ hero is placed — into the reference's photo area. It populates only if the reference layout has a photo/image section; other project photos (amenities, interiors) aren't used in Replicate mode.</p>
             <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer -mt-1">
               <input
                 type="checkbox"
@@ -223,7 +228,7 @@ export function QuickGenerateForm({
                 onChange={(e) => set('textOverlayMode', e.target.checked)}
                 className="rounded border-border"
               />
-              <span>✨ Text-overlay mode <strong>(on by default)</strong> — clean template + app-composited crisp, editable copy. Places the essentials automatically (name, headline, price, contact from your Brand Kit); extra details appear as suggested chips in <strong>Edit Text</strong>. The AI occasionally bakes a bit of stray text into the template — just <strong>Regenerate template</strong> for a fresh one, or cover it with a text layer in Edit Text. Uncheck to let the model bake all text (less reliable).</span>
+              <span>🧩 Blank template mode <strong>(off by default)</strong> — the AI leaves the design text-free; you compose the text in <strong>Edit Text</strong>. Nothing is auto-placed: every essential (name, headline, price, contact) arrives as a pre-filled suggestion chip you tap to place and drag. Leave this <strong>unchecked</strong> for the default AI-designed creative (the model bakes the full, polished design including text).</span>
             </label>
           </>
         )}

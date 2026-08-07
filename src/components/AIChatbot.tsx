@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MessageCircle, Minus, Send, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
 import {
   buildChatbotContext,
@@ -77,14 +77,21 @@ export function AIChatbot() {
   async function fetchLiveData(): Promise<string> {
     const orgId = getOrgId();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
 
-    const [projectsRes, campaignsRes, metricsRes, sessionsRes, funnelRes] = await Promise.all([
+    const [projectsRes, campaignsRes, metricsRes, sessionsRes, funnelRes, roleRes, usageRes] = await Promise.all([
       supabase.from('projects').select('name,locality,configurations,units_remaining,total_units,status,priority').eq('is_active', true).eq('org_id', orgId),
       supabase.from('campaigns').select('campaign_name,project_id,status,budget,started_at').eq('status', 'active').eq('org_id', orgId).limit(10),
       supabase.from('daily_metrics').select('spend,leads,cpl,ctr,date,project_id').eq('org_id', orgId).gte('date', thirtyDaysAgo),
-      supabase.from('ai_sessions').select('session_type,input_summary,health_score,created_at').eq('org_id', orgId).order('created_at', { ascending: false }).limit(10),
+      // last N sessions with created_at + a longer summary so "my last strategy
+      // session" resolves against real rows (STEP 5a) instead of a deflection.
+      supabase.from('ai_sessions').select('session_type,input_summary,health_score,created_at').eq('org_id', orgId).order('created_at', { ascending: false }).limit(12),
       supabase.from('lead_funnel').select('total_leads,sv_done,booked,week_start').eq('org_id', orgId).gte('week_start', thirtyDaysAgo),
+      supabase.from('profiles').select('role').eq('id', getUserId()).maybeSingle(),
+      // Usage aggregate — only surfaced to admins (same gate as the Usage Reports UI).
+      supabase.from('agent_interactions').select('feature,agent,cost_usd,created_at').eq('org_id', orgId).gte('created_at', startOfMonth.toISOString()).limit(3000),
     ]);
+    const isAdminChat = (roleRes.data as { role?: string } | null)?.role === 'admin';
 
     const lines: string[] = ['LIVE_DATA:'];
 
@@ -126,10 +133,14 @@ export function AIChatbot() {
       lines.push('30D METRICS: ' + metricLines.join(' | '));
     }
 
-    // AI sessions
+    // AI sessions — with timestamps so date-relative questions ("my last
+    // strategy session", "what did I generate yesterday") resolve to real rows.
     const sessions = (sessionsRes.data ?? []) as Array<{ session_type: string; input_summary: string; health_score: number | null; created_at: string }>;
     if (sessions.length > 0) {
-      lines.push('RECENT AI SESSIONS: ' + sessions.slice(0, 5).map((s) => `${s.session_type} (${s.input_summary?.substring(0, 40)}, score:${s.health_score ?? 'n/a'})`).join(' | '));
+      lines.push('RECENT AI SESSIONS (newest first): ' + sessions.slice(0, 8).map((s) => {
+        const when = new Date(s.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        return `${s.session_type} — "${(s.input_summary ?? '').substring(0, 60)}" — ${when}${s.health_score != null ? `, score:${s.health_score}` : ''}`;
+      }).join(' | '));
     }
 
     // Funnel
@@ -139,7 +150,20 @@ export function AIChatbot() {
       lines.push(`30D FUNNEL: ${totals.leads} leads → ${totals.svs} SVs → ${totals.booked} bookings`);
     }
 
-    return lines.join('\n').substring(0, 1500);
+    // Usage aggregate — admins only (STEP 5a). Month-to-date cost by feature so
+    // "how much have we spent on AI this month" resolves with real numbers.
+    if (isAdminChat) {
+      const usage = (usageRes.data ?? []) as Array<{ feature: string | null; agent: string | null; cost_usd: number | null }>;
+      if (usage.length > 0) {
+        const total = usage.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
+        const byFeat: Record<string, number> = {};
+        for (const r of usage) { const k = r.feature ?? r.agent ?? 'other'; byFeat[k] = (byFeat[k] ?? 0) + (r.cost_usd ?? 0); }
+        const top = Object.entries(byFeat).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k} $${v.toFixed(3)}`).join(', ');
+        lines.push(`AI USAGE (month-to-date, admin): $${total.toFixed(3)} total across ${usage.length} calls — top: ${top}. Full breakdown in Usage & AI Activity → Usage Reports.`);
+      }
+    }
+
+    return lines.join('\n').substring(0, 3000);
   }
 
   async function handleSend() {

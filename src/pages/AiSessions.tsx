@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Clock, History, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 import { Card } from '../components/ui/Card';
 import { Spinner } from '../components/ui/Spinner';
 import { AiSessionDetail } from '../components/AiSessionDetail';
+import { UsageSection } from '../components/settings/UsageSection';
+
+// Mode-tab pill styling (AI Activity | Usage Reports).
+const tabCls = (active: boolean) =>
+  `px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+    active ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-primary'
+  }`;
 
 interface AiSession {
   id: string;
@@ -88,10 +95,15 @@ export function AiSessions() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [selected, setSelected] = useState<AiSession | null>(null);
+  const [activeTab, setActiveTab] = useState<'activity' | 'usage'>('activity');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
+      // Role gate for the admin-only Usage Reports tab (non-admins never see it).
+      supabase.from('profiles').select('role').eq('id', getUserId()).maybeSingle()
+        .then(({ data }) => setIsAdmin((data as { role?: string } | null)?.role === 'admin'));
       const { data } = await supabase
         .from('ai_sessions')
         .select('*')
@@ -144,11 +156,24 @@ export function AiSessions() {
       <div className="flex items-center gap-3 mb-7">
         <History size={20} className="text-brand" />
         <div>
-          <h1 className="text-xl font-semibold text-text-primary">AI Session History</h1>
-          <p className="text-text-tertiary text-xs mt-0.5">Browse and review all past AI-generated outputs</p>
+          <h1 className="text-xl font-semibold text-text-primary">Usage &amp; AI Activity</h1>
+          <p className="text-text-tertiary text-xs mt-0.5">Your AI generation history — and, for admins, cost usage reports</p>
         </div>
       </div>
 
+      {/* Mode tabs: AI Activity (everyone) | Usage Reports (admin only) */}
+      <div className="flex items-center gap-1 mb-6 border-b border-border">
+        <button onClick={() => setActiveTab('activity')} className={tabCls(activeTab === 'activity')}>AI Activity</button>
+        {isAdmin && (
+          <button onClick={() => setActiveTab('usage')} className={tabCls(activeTab === 'usage')}>Usage Reports</button>
+        )}
+      </div>
+
+      {activeTab === 'usage' && isAdmin && (
+        <div className="max-w-4xl"><UsageSection /></div>
+      )}
+
+      {activeTab === 'activity' && (<>
       <div className="flex items-center gap-2 mb-5 overflow-x-auto pb-1">
         {FILTER_TABS.map((tab) => (
           <button
@@ -224,6 +249,7 @@ export function AiSessions() {
           </div>
         </Card>
       )}
+      </>)}
 
       {selected && (
         <AiSessionDetail session={selected} onClose={() => setSelected(null)} />

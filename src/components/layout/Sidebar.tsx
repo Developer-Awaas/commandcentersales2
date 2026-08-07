@@ -46,7 +46,7 @@ type NavItem = { id: string; label: string; icon: React.ElementType };
 const DASHBOARD_NAV: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'ai-sessions', label: 'AI History', icon: Clock },
+  { id: 'ai-sessions', label: 'Usage & AI Activity', icon: Clock },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];

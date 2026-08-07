@@ -117,6 +117,11 @@ export function TextLayerEditor({ assetId, imageUrl, layers: initialLayers, onSa
         </div>
 
         <div className="p-4 overflow-auto flex-1 min-h-0">
+          {layers.length === 0 && (
+            <p className="mb-3 text-[11px] leading-relaxed text-text-tertiary bg-surface-sunken rounded-lg px-3 py-2">
+              This is an <strong>AI-designed</strong> creative — the text is baked into the image and <strong>can’t be edited</strong> here. Use <span className="font-medium text-text-secondary">＋ Add</span> below to place new layers (headline, price, logo) on top.
+            </p>
+          )}
           <div ref={containerRef} className="relative w-full rounded-lg overflow-hidden bg-surface-sunken select-none"
             onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}
             onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}>

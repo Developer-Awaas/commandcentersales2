@@ -85,10 +85,44 @@ function syntheticLogoDataUrl(): string {
   return c.toDataURL('image/png');
 }
 
+// RB-P4 blank-template evidence: self-contained (no TEST fetch). Generates a
+// deliberately TEXT-FREE template, then feeds renderTextLayers the essentials
+// ALL as placed:false suggestion chips (the new blank-mode behavior). The
+// composite must equal the clean-template-only render — i.e. NOTHING is drawn,
+// proving blank mode leaves the design text-free and everything stays a chip.
+async function runBlank() {
+  const { renderTextLayers } = await import('../src/lib/text-layers.ts');
+  const doc = (globalThis as Record<string, unknown>).document as { createElement: (t: string) => { width: number; height: number; getContext: (c: string) => CanvasRenderingContext2D; toDataURL: (t?: string) => string } };
+  const W = 1080, H = 1080;
+  const c = doc.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, '#bcd4e6'); grad.addColorStop(1, '#e8eef2');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#5b6b7a'; g.fillRect(300, 520, 480, 420); // a building block — no text anywhere
+  const templateUrl = c.toDataURL('image/png');
+
+  const chips: TextLayer[] = [
+    { id: 'name',  text: 'Ananta Enclave',      placed: false, xPct: 8,  yPct: 12, fontSizePx: 64, fontWeight: 'bold',   color: '#12324f', align: 'left' },
+    { id: 'head',  text: '3BHK homes in Patia', placed: false, xPct: 8,  yPct: 30, fontSizePx: 40, fontWeight: 'normal', color: '#12324f', align: 'left' },
+    { id: 'price', text: '₹ 68 L onwards',       placed: false, xPct: 8,  yPct: 70, fontSizePx: 44, fontWeight: 'bold',   color: '#c9a961', align: 'left' },
+    { id: 'cta',   text: 'WhatsApp us today',    placed: false, xPct: 8,  yPct: 90, fontSizePx: 30, fontWeight: 'normal', color: '#12324f', align: 'left' },
+    { id: 'logo',  kind: 'logo', imageUrl: syntheticLogoDataUrl(), text: '', placed: false, xPct: 80, yPct: 4, widthPct: 14, heightPct: 9, fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left' },
+  ];
+  const rendered = await renderTextLayers(templateUrl, chips, W, H);
+  const cleanOnly = await renderTextLayers(templateUrl, [], W, H);
+  const dir = 'scripts/replay-out/blank'; fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'blank-template.png'), pngFromDataUrl(rendered, W, H));
+  const [hr, hc] = [sha(Buffer.from(rendered)), sha(Buffer.from(cleanOnly))];
+  console.log(`blank-template: ${chips.length} essentials ALL as placed:false chips → ${dir}/blank-template.png`);
+  console.log(`  allChipsUnplaced hash=${hr}  cleanTemplateOnly hash=${hc}  → ${hr === hc ? 'IDENTICAL — nothing composited, template stays text-free ✓' : 'MISMATCH ✗'}`);
+  if (hr !== hc) process.exit(2);
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--blank')) { await runBlank(); return; }
   const id = args.find((a) => !a.startsWith('--'));
-  if (!id) { console.error('usage: tsx scripts/replay-composite.ts <creativeId> [--synthetic] [--refetch]'); process.exit(1); }
+  if (!id) { console.error('usage: tsx scripts/replay-composite.ts <creativeId> [--synthetic] [--refetch] | --blank'); process.exit(1); }
   const input = fetchInput(id, args.includes('--refetch'));
   await prefetch(input.clean_template_url);
 

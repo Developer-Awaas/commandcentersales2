@@ -14,7 +14,17 @@ import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2
 // A gallery image is self-editable (no parent handler needed) when it carries the
 // persisted re-composite inputs — the reload-safe path (RB-P2 Step 1).
 function canSelfEdit(img: GalleryImage): boolean {
-  return !!(img.id && img.storagePath && img.cleanTemplateUrl && img.textLayers?.length);
+  // RB-P4: no longer requires existing layers — an AI-designed creative starts
+  // with an empty layer set (textLayers=[]) and the baked image as its clean
+  // base, and the user ADDS layers on top. A present cleanTemplateUrl is the
+  // signal that this image supports the self-mounted editor.
+  return !!(img.id && img.storagePath && img.cleanTemplateUrl);
+}
+
+// Blank-template creatives carry located zones; AI-designed ones don't — used to
+// label the regenerate action ("template" vs "creative").
+function isBlankTemplate(img: GalleryImage): boolean {
+  return !!img.overlayZones?.length;
 }
 
 // Mirrors _shared/vision-analysis.ts's EditSummary shape (server-only file,
@@ -418,11 +428,15 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 <button
                   onClick={() => handleRegenerate(img)}
                   disabled={isBusy || regenId === (img.id ?? img.url)}
-                  title="Stray AI text? Generate a fresh template — your placed text/logo re-apply automatically."
+                  title={isBlankTemplate(img)
+                    ? 'Generate a fresh blank template — your placed text/logo re-apply automatically.'
+                    : 'Not quite right? Generate a fresh AI-designed creative.'}
                   className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-border-strong transition-all disabled:opacity-50"
                 >
                   <RefreshCw size={11} className={regenId === (img.id ?? img.url) ? 'animate-spin' : ''} />
-                  {regenId === (img.id ?? img.url) ? 'Regenerating…' : 'Regenerate template'}
+                  {regenId === (img.id ?? img.url)
+                    ? 'Regenerating…'
+                    : isBlankTemplate(img) ? 'Regenerate template' : 'Regenerate creative'}
                 </button>
               )}
             </div>

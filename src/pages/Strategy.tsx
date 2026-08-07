@@ -87,11 +87,11 @@ const DEFAULT_QUICK: QuickGenerateInputs = {
   quickRefs: [],
   projectMediaIds: [],
   heroRefKey: null,
-  // Overlay text is ON by default for replicate: baked model text is unreliable
-  // (garble, ₹→$, duplicated rows). Replicate now defaults to a clean template +
-  // app-composited crisp copy with price/contact repopulated. Opt-out via the
-  // checkbox in QuickGenerateForm (RB-P2 Step 3 — kills the garbled-text reports).
-  textOverlayMode: true,
+  // RB-P4: default is now AI-DESIGNED (the model bakes the full design incl.
+  // text) — the professional-looking output. "Blank template mode" is opt-in
+  // (this flag OFF by default): the model leaves the design text-free and the
+  // user composes copy in Edit Text from pre-filled suggestion chips.
+  textOverlayMode: false,
 };
 
 const DEFAULT_FULL: FullStrategyInputs = {

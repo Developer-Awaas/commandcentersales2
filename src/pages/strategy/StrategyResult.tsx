@@ -1558,17 +1558,22 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               // build fresh layers from zones/copy + seed an editable logo layer.
               let layers: TextLayer[];
               if (opts?.keepLayers) {
+                // Regenerate: re-apply the user's current layers verbatim (their
+                // placements/edits survive — placed ones re-composite, chips stay chips).
                 layers = opts.keepLayers;
               } else {
-                layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors });
-                if (layers.some((l) => l.overflow)) setCopyTrimmed(true);
+                // RB-P4 blank-template mode: NOTHING is auto-placed. Every essential
+                // (name/headline/price/contact + badges/checklist) is emitted as a
+                // pre-filled suggestion chip (placed:false) the user taps to place in
+                // Edit Text — so the composite draws the clean template only.
+                layers = buildLayersFromZones(deduped, overlayCopy, { refHeight: refHeightFor(cw, ch), colors: brandColors })
+                  .map((l) => ({ ...l, placed: false }));
                 const lz = logoZone(deduped);
-                // Seed the brand logo as a first-class, editable logo LAYER (z-order:
-                // template < logo < text) instead of a baked-in composite — so it can
-                // be repositioned/scaled/swapped in Edit Text and survives a reload.
+                // Logo is also a suggestion chip (placed:false) — a first-class,
+                // editable logo LAYER the user places/scales/swaps in Edit Text.
                 if (lz && brandLogoUrl) {
                   layers.push({
-                    id: crypto.randomUUID(), kind: 'logo', imageUrl: brandLogoUrl, text: '',
+                    id: crypto.randomUUID(), kind: 'logo', imageUrl: brandLogoUrl, text: '', placed: false,
                     xPct: lz.bbox[0] * 100, yPct: lz.bbox[1] * 100,
                     widthPct: lz.bbox[2] * 100, heightPct: lz.bbox[3] * 100,
                     fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left',
@@ -1582,6 +1587,12 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             } catch (compErr) {
               console.error('[overlay] composite failed — using clean template:', compErr);
             }
+          } else if (replicateAspect) {
+            // RB-P4 AI-designed replicate (default): the model baked the full design
+            // incl. text. Expose the editor for ADDING layers on top (the baked text
+            // itself isn't editable) — empty layer set, the uploaded image is the
+            // recomposite base. Nothing is composited here; upload the baked image as-is.
+            composedLayers = [];
           }
           let url = `data:${uploadMime};base64,${uploadBase64}`;
           let id: string | undefined;
@@ -1602,13 +1613,17 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
             // works from any viewer (RB-P2 Step 1): upload the CLEAN template to a
             // sibling path + store clean_template_url + overlay_zones + text_layers.
             if (composedLayers && uploaded.id && uploaded.storagePath) {
-              cleanTemplateUrl = uploaded.url; // fallback if the clean upload fails
-              try {
-                const cleanPath = uploaded.storagePath.replace(/(\.[^.]+)$/, '.clean$1');
-                const cleanBlob = await (await fetch(dataUrl)).blob();
-                const { error: cErr } = await supabase.storage.from('brand-assets').upload(cleanPath, cleanBlob, { upsert: true, contentType: img.mimeType });
-                if (!cErr) cleanTemplateUrl = supabase.storage.from('brand-assets').getPublicUrl(cleanPath).data.publicUrl;
-              } catch (ce) { console.error('[overlay] clean-template upload failed — re-edit will fall back to the composited image:', ce); }
+              cleanTemplateUrl = uploaded.url; // AI-designed: the baked image IS the recomposite base
+              if (overlayOn) {
+                // Blank mode only: upload the untouched clean template to a sibling
+                // path so re-edit always composites the user's chips over the true blank.
+                try {
+                  const cleanPath = uploaded.storagePath.replace(/(\.[^.]+)$/, '.clean$1');
+                  const cleanBlob = await (await fetch(dataUrl)).blob();
+                  const { error: cErr } = await supabase.storage.from('brand-assets').upload(cleanPath, cleanBlob, { upsert: true, contentType: img.mimeType });
+                  if (!cErr) cleanTemplateUrl = supabase.storage.from('brand-assets').getPublicUrl(cleanPath).data.publicUrl;
+                } catch (ce) { console.error('[overlay] clean-template upload failed — re-edit will fall back to the composited image:', ce); }
+              }
               await supabase.from('creative_assets').update({
                 text_layers: composedLayers,
                 clean_template_url: cleanTemplateUrl,
@@ -1774,9 +1789,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               setPendingSaveIds((prev) => new Set(prev).add(imageId));
             }}
             onBeforeCanvaNavigate={() => { suppressBeforeUnloadRef.current = true; }}
-            // STEP 2 — Regenerate template: re-run this single image's generation but
-            // keep its zones/copy + the user's placed layers (overlay mode only).
-            onRegenerateTemplate={(textOverlayMode && zones && replicateAspect) ? (img) => handleGenerateWithGemini({ keepLayers: img.textLayers }) : undefined}
+            // RB-P4 — per-creative regenerate in BOTH replicate modes: blank mode
+            // keeps the user's placed layers/chips; AI-designed re-bakes a fresh
+            // creative (its layers are [] so nothing to keep).
+            onRegenerateTemplate={replicateAspect ? (img) => handleGenerateWithGemini({ keepLayers: img.textLayers }) : undefined}
           />
           {/* Save Creative — marks only images pending a save (freshly
               generated or changed since the last save) as approved */}
