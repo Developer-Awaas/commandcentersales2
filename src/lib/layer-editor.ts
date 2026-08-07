@@ -4,12 +4,15 @@
 // overlay-recompose path. Scope is deliberately small — see EDITOR_OUT_OF_SCOPE.
 import { type TextLayer } from './text-layers';
 
-/** IN scope: text (size/weight/color/align), drag + arrow nudge, resize box, add
- *  (blank or from a suggestion chip), delete, per-layer chip backing, logo layer
- *  (position/scale/swap), simple z-order (template < logo < text), in-session undo.
- *  OUT of scope (use "Edit in Canva"): filters, crops, arbitrary image manipulation,
- *  uploads into the canvas, effects, multi-select. Do not add them here. */
-export const EDITOR_OUT_OF_SCOPE = ['filters', 'crops', 'image-manipulation', 'uploads', 'effects', 'multi-select'] as const;
+/** IN scope: text (size/weight/color/align), IMAGE layers (logo/project media/upload,
+ *  scale + aspect-lock), drag + arrow nudge, resize box, add (blank/suggestion/image),
+ *  delete, per-layer chip backing, per-layer opacity, hide toggle, z-order reorder via
+ *  the layer list, in-session undo. OUT of scope (use "Edit in Canva"): filters, crops,
+ *  arbitrary pixel manipulation, effects, multi-select. Do not add them here.
+ *  NOTE (RB-P5): image UPLOAD is now in scope (org-scoped storage), so it left the
+ *  out-of-scope list — "uploads" there meant arbitrary canvas image-editing, not a
+ *  placed image layer. */
+export const EDITOR_OUT_OF_SCOPE = ['filters', 'crops', 'image-manipulation', 'effects', 'multi-select'] as const;
 
 /** ~85%-opacity slate chip — the backing rounded-rect, now a user toggle, not an eraser. */
 export const CHIP_BACKING = 'rgba(15,23,42,0.85)';
@@ -29,6 +32,7 @@ export type EditorAction =
   | { type: 'move'; id: string; xPct: number; yPct: number }   // live drag — NO history (see checkpoint)
   | { type: 'checkpoint' }                                     // snapshot layers before a drag
   | { type: 'place'; id: string }                             // suggestion → placed
+  | { type: 'reorder'; order: string[] }                      // new z-order (layer list drag)
   | { type: 'undo' };
 
 export const initEditor = (layers: TextLayer[]): EditorState => ({ layers, history: [] });
@@ -58,6 +62,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, history: pushHistory(state) };
     case 'place':
       return { history: pushHistory(state), layers: state.layers.map((l) => (l.id === action.id ? { ...l, placed: true } : l)) };
+    case 'reorder': {
+      // Reorder by the given id list; any layer missing from `order` (defensive)
+      // keeps its relative position at the end.
+      const byId = new Map(state.layers.map((l) => [l.id, l]));
+      const ordered = action.order.map((id) => byId.get(id)).filter((l): l is TextLayer => !!l);
+      const rest = state.layers.filter((l) => !action.order.includes(l.id));
+      return { history: pushHistory(state), layers: [...ordered, ...rest] };
+    }
     case 'undo': {
       if (!state.history.length) return state;
       const prev = state.history[state.history.length - 1];

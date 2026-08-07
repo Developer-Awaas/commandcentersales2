@@ -83,6 +83,9 @@ interface ImageGalleryViewerProps {
   // single-image generation keeping this image's zones/copy + placed layers, for when
   // the AI baked stray text. Human judgment, one click — no automated ghost detection.
   onRegenerateTemplate?: (img: GalleryImage) => Promise<void> | void;
+  // RB-P5: enables the editor's "project media" image source. Optional — omit
+  // where there's no project context (logo variants + upload still work).
+  projectId?: string;
 }
 
 interface LightboxState {
@@ -90,7 +93,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText, onRegenerateTemplate }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText, onRegenerateTemplate, projectId }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
@@ -551,6 +554,7 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           assetId={editingImg.id!}
           imageUrl={editingImg.cleanTemplateUrl!}
           layers={editingImg.textLayers!}
+          projectId={projectId}
           onSave={(layers) => { void handleTextSave(editingImg, layers); }}
           onClose={() => setEditingImg(null)}
         />

@@ -36,17 +36,50 @@ export interface TextLayer {
    *  — shown in the Edit Text panel as a tap-to-place chip, NOT baked into the image
    *  or shown in the read-only preview. Undefined/true = placed (rendered). */
   placed?: boolean;
-  /** Layer kind. `'logo'` renders `imageUrl` (fit into xPct/yPct/widthPct/heightPct
-   *  box) instead of text — a first-class, editable brand-logo layer, drawn under the
-   *  text layers (z-order: template < logo < text). Default/absent = a text layer. */
+  /** RB-P5: layer kind. `'image'` renders `imageUrl` (fit into the box) instead of
+   *  text; `'text'`/absent = a text layer. Schema-versioned for back-compat — absent
+   *  `type` on old creatives is resolved via `layerType()` (legacy `kind:'logo'` ⇒
+   *  image), so no migration is needed. Use `layerType()`/`isImageLayer()`, not raw
+   *  `.type`, when reading. */
+  type?: 'text' | 'image';
+  /** DEPRECATED alias kept for back-compat with pre-RB-P5 creatives. `layerType()`
+   *  maps `kind:'logo'` → image. New code writes `type`, not `kind`. */
   kind?: 'text' | 'logo';
   imageUrl?: string;
-  /** Logo layers: box height as % of canvas height (text layers ignore this). */
+  /** Image layers: box height as % of canvas height (text layers ignore this). */
   heightPct?: number;
+  /** Image layers: when false, the image stretches to fill w×h; default/true keeps
+   *  aspect (contain within the box). The editor's "unlock" toggle sets this false. */
+  aspectLocked?: boolean;
+  /** Per-layer opacity 5–100 (percent). Absent = 100 (fully opaque). Applies to the
+   *  WHOLE layer (text + its chip backing, or the image); the chip backing keeps its
+   *  own base alpha in `backgroundColor`, multiplied by this. */
+  opacity?: number;
+  /** Layer list: temporarily hidden — excluded from the composite and preview while
+   *  true. Distinct from `placed:false` (a suggestion chip). */
+  hidden?: boolean;
+  /** Optional display name for the layer list (falls back to text/'Logo'/'Image'). */
+  name?: string;
 }
 
-/** A logo layer is an image layer; everything else is text. */
-export const isLogoLayer = (l: TextLayer): boolean => l.kind === 'logo';
+/** Resolves a layer's kind with back-compat: explicit `type` wins, else legacy
+ *  `kind:'logo'` ⇒ image, else text. THE canonical accessor — read this, not `.type`. */
+export const layerType = (l: TextLayer): 'text' | 'image' =>
+  l.type ?? (l.kind === 'logo' ? 'image' : 'text');
+
+/** An image layer (logo or any other picked/uploaded image). */
+export const isImageLayer = (l: TextLayer): boolean => layerType(l) === 'image';
+
+/** DEPRECATED — legacy logo predicate. Retained for callers not yet migrated; new
+ *  code should use `isImageLayer`. A logo is just an image layer today. */
+export const isLogoLayer = (l: TextLayer): boolean => l.kind === 'logo' || l.type === 'image';
+
+/** A layer participates in the composite only when placed AND not hidden. */
+export const isVisible = (l: TextLayer): boolean => l.placed !== false && !l.hidden;
+
+/** Layer opacity as a 0..1 alpha (5–100% clamped; absent = 1). */
+export const layerAlpha = (l: TextLayer): number =>
+  l.opacity == null ? 1 : Math.min(100, Math.max(5, l.opacity)) / 100;
 
 /** A layer is baked/previewed unless it's an explicit unplaced suggestion (FIX 3). */
 export const isPlaced = (l: TextLayer): boolean => l.placed !== false;
@@ -181,13 +214,21 @@ export async function renderTextLayers(
     im.src = src;
   });
 
-  // Fit an image into a box (contain, centered) — logo layers + legacy logo param.
-  const drawContain = async (src: string, bx: number, by: number, bw: number, bh: number) => {
+  // Draw an image into a box at a given alpha. `contain` (default) preserves
+  // aspect within the box; otherwise the image stretches to fill w×h.
+  const drawImageBox = async (src: string, bx: number, by: number, bw: number, bh: number, alpha: number, contain: boolean) => {
     try {
       const limg = await loadImage(src);
-      const s = Math.min(bw / limg.naturalWidth, bh / limg.naturalHeight) || 1;
-      const dw = limg.naturalWidth * s, dh = limg.naturalHeight * s;
-      ctx.drawImage(limg, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (contain) {
+        const s = Math.min(bw / limg.naturalWidth, bh / limg.naturalHeight) || 1;
+        const dw = limg.naturalWidth * s, dh = limg.naturalHeight * s;
+        ctx.drawImage(limg, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
+      } else {
+        ctx.drawImage(limg, bx, by, bw, bh);
+      }
+      ctx.restore();
     } catch { /* image optional — skip on failure */ }
   };
 
@@ -195,28 +236,32 @@ export async function renderTextLayers(
   const img = await loadImage(imageSrc);
   ctx.drawImage(img, 0, 0, canvasW, canvasH);
 
-  // z-order layer 1a — legacy logo param (old creatives whose layers carry no logo).
-  if (logo && !layers.some(isLogoLayer)) {
+  // z-order layer 1a — legacy logo param (old creatives whose layers carry no image).
+  if (logo && !layers.some(isImageLayer)) {
     const [lx, ly, lw, lh] = logo.bbox;
-    await drawContain(logo.src, lx * canvasW, ly * canvasH, lw * canvasW, lh * canvasH);
+    await drawImageBox(logo.src, lx * canvasW, ly * canvasH, lw * canvasW, lh * canvasH, 1, true);
   }
 
   const scale = canvasW / TEXT_LAYER_REFERENCE_WIDTH;
   const FONT = `system-ui, -apple-system, 'Segoe UI', Arial, sans-serif`;
 
-  // z-order layer 1b — logo layers (first-class, editable). Drawn under the text.
+  // z-order layer 1b — image layers (logo or any picked/uploaded image). Under text.
+  // NOTE: array order within the image/text groups is the z-order the layer-list
+  // panel reorders; images always sit under text (template < images < text).
   for (const layer of layers) {
-    if (layer.placed === false || !isLogoLayer(layer) || !layer.imageUrl) continue;
+    if (!isVisible(layer) || !isImageLayer(layer) || !layer.imageUrl) continue;
     const bw = ((layer.widthPct ?? 20) / 100) * canvasW;
     const bh = ((layer.heightPct ?? layer.widthPct ?? 20) / 100) * canvasH;
-    await drawContain(layer.imageUrl, (layer.xPct / 100) * canvasW, (layer.yPct / 100) * canvasH, bw, bh);
+    await drawImageBox(layer.imageUrl, (layer.xPct / 100) * canvasW, (layer.yPct / 100) * canvasH, bw, bh, layerAlpha(layer), layer.aspectLocked !== false);
   }
 
   // z-order layer 2 — text layers (with optional user-chosen chip backing).
   for (const layer of layers) {
-    if (layer.placed === false || isLogoLayer(layer)) continue; // unplaced/logo handled above
+    if (!isVisible(layer) || isImageLayer(layer)) continue; // hidden/unplaced/image handled above
     if (!layer.text.trim()) continue;
 
+    ctx.save();
+    ctx.globalAlpha = layerAlpha(layer);
     const x = (layer.xPct / 100) * canvasW;
     const y = (layer.yPct / 100) * canvasH;
     const fontSize = layer.fontSizePx * scale;
@@ -247,6 +292,7 @@ export async function renderTextLayers(
 
     ctx.fillStyle = layer.color;
     lines.forEach((line, i) => ctx.fillText(line, x, y + i * lineHeight));
+    ctx.restore(); // pop globalAlpha for this layer
   }
 
   ctx.textAlign = 'left';

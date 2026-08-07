@@ -1573,7 +1573,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
                 // editable logo LAYER the user places/scales/swaps in Edit Text.
                 if (lz && brandLogoUrl) {
                   layers.push({
-                    id: crypto.randomUUID(), kind: 'logo', imageUrl: brandLogoUrl, text: '', placed: false,
+                    id: crypto.randomUUID(), type: 'image', name: 'Logo', imageUrl: brandLogoUrl, text: '', placed: false,
                     xPct: lz.bbox[0] * 100, yPct: lz.bbox[1] * 100,
                     widthPct: lz.bbox[2] * 100, heightPct: lz.bbox[3] * 100,
                     fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left',
@@ -1782,8 +1782,17 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               ✂️ Some copy was shortened to fit its zone (at a word boundary, never mid-word). Click <span className="font-semibold">✨ Edit Text</span> on a creative to reword or resize it.
             </div>
           )}
+          {/* RB-P5 STEP 1 fallback: the model can still bake a panel/band into a
+              "blank" template. Rather than iterate the prompt forever, tell the user
+              it's usable as a text backdrop — or one click regenerates it. */}
+          {textOverlayMode && zones && replicateAspect && (
+            <div className="mb-2 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs text-sky-300">
+              🧩 Blank template — compose your text in <span className="font-semibold">✨ Edit Text</span> (essentials are pre-filled chips). If the AI left a panel or band in the design, use it as a backdrop for a text layer, or hit <span className="font-semibold">Regenerate template</span> for a cleaner, panel-free one.
+            </div>
+          )}
           <ImageGalleryViewer
             images={galleryImages}
+            projectId={projectId}
             onImagesChanged={(imageId) => {
               setCreativesSaved(false);
               setPendingSaveIds((prev) => new Set(prev).add(imageId));

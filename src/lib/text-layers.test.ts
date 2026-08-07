@@ -1,5 +1,38 @@
 import { describe, it, expect } from 'vitest';
-import { buildDefaultLayers } from './text-layers';
+import { buildDefaultLayers, layerType, isImageLayer, isVisible, layerAlpha, type TextLayer } from './text-layers';
+
+const mk = (o: Partial<TextLayer>): TextLayer =>
+  ({ id: 'x', text: '', xPct: 0, yPct: 0, fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left', ...o });
+
+describe('layer model (RB-P5 back-compat + predicates)', () => {
+  it('layerType: explicit type wins; legacy kind:logo ⇒ image; default text', () => {
+    expect(layerType(mk({ type: 'image' }))).toBe('image');
+    expect(layerType(mk({ kind: 'logo' }))).toBe('image');       // old creatives still load as image
+    expect(layerType(mk({}))).toBe('text');
+    expect(layerType(mk({ text: 'hi' }))).toBe('text');
+  });
+
+  it('isImageLayer covers both new type:image and legacy kind:logo', () => {
+    expect(isImageLayer(mk({ type: 'image' }))).toBe(true);
+    expect(isImageLayer(mk({ kind: 'logo' }))).toBe(true);
+    expect(isImageLayer(mk({ text: 'hi' }))).toBe(false);
+  });
+
+  it('isVisible excludes unplaced suggestions AND hidden layers', () => {
+    expect(isVisible(mk({ text: 'a' }))).toBe(true);
+    expect(isVisible(mk({ placed: false }))).toBe(false);
+    expect(isVisible(mk({ hidden: true }))).toBe(false);
+  });
+
+  it('layerAlpha: absent = 1, clamps 5..100 → 0.05..1', () => {
+    expect(layerAlpha(mk({}))).toBe(1);
+    expect(layerAlpha(mk({ opacity: 40 }))).toBeCloseTo(0.4, 6);
+    expect(layerAlpha(mk({ opacity: 0 }))).toBeCloseTo(0.05, 6);  // clamped up to 5%
+    expect(layerAlpha(mk({ opacity: 250 }))).toBe(1);              // clamped down to 100%
+  });
+});
+
+
 
 describe('buildDefaultLayers', () => {
   it('produces one layer per populated ad-copy field', () => {

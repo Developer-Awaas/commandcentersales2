@@ -30,7 +30,9 @@ describe('TextLayerEditor — edit-text interaction', () => {
     render(<TextLayerEditor assetId="asset-1" imageUrl="data:image/png;base64,AAAA" layers={layers} onSave={onSave} onClose={vi.fn()} />);
 
     // Select the layer by pointer-down on its overlay, then the text field appears.
-    fireEvent.pointerDown(screen.getByText('Old Headline'));
+    // 'Old Headline' now appears in both the canvas preview AND the layer list
+    // (RB-P5); the canvas element is first in DOM order — select that one.
+    fireEvent.pointerDown(screen.getAllByText('Old Headline')[0]);
     const input = screen.getByPlaceholderText('Layer text') as HTMLInputElement;
     expect(input.value).toBe('Old Headline');
 
@@ -49,7 +51,9 @@ describe('TextLayerEditor — edit-text interaction', () => {
     updateEq.mockResolvedValueOnce({ error: { message: 'RLS denied' } } as never);
     const onSave = vi.fn();
     render(<TextLayerEditor assetId="asset-2" imageUrl="data:image/png;base64,AAAA" layers={layers} onSave={onSave} onClose={vi.fn()} />);
-    fireEvent.pointerDown(screen.getByText('Old Headline'));
+    // 'Old Headline' now appears in both the canvas preview AND the layer list
+    // (RB-P5); the canvas element is first in DOM order — select that one.
+    fireEvent.pointerDown(screen.getAllByText('Old Headline')[0]);
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(screen.getByText(/RLS denied/)).toBeTruthy());
     expect(onSave).not.toHaveBeenCalled();

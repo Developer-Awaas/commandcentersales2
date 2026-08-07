@@ -158,12 +158,18 @@ async function main() {
 
   if (args.includes('--synthetic')) {
     const s: TextLayer[] = [
-      { id: '1', kind: 'logo', imageUrl: syntheticLogoDataUrl(), text: '', xPct: 4, yPct: 3, widthPct: 14, heightPct: 9, fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left' },
+      // RB-P5: image layer (new type) at 70% opacity, aspect locked (contain).
+      { id: '1', type: 'image', name: 'Logo', imageUrl: syntheticLogoDataUrl(), text: '', opacity: 70, aspectLocked: true, xPct: 4, yPct: 3, widthPct: 14, heightPct: 9, fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left' },
+      // second image layer, aspect UNLOCKED (stretch) + 50% opacity — exercises both.
+      { id: '1b', type: 'image', name: 'Stretched mark', imageUrl: syntheticLogoDataUrl(), text: '', opacity: 50, aspectLocked: false, xPct: 78, yPct: 4, widthPct: 18, heightPct: 6, fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left' },
+      // legacy kind:'logo' (no type) must still render as an image (back-compat).
+      { id: '1c', kind: 'logo', imageUrl: syntheticLogoDataUrl(), text: '', xPct: 40, yPct: 4, widthPct: 12, heightPct: 8, fontSizePx: 0, fontWeight: 'normal', color: '#000', align: 'left' },
       { id: '2', text: 'BIG BOLD HEADLINE', xPct: 6, yPct: 16, widthPct: 88, fontSizePx: 72, fontWeight: 'bold', color: '#ffffff', align: 'left' },
-      { id: '3', text: 'A smaller gold subhead', xPct: 6, yPct: 30, widthPct: 80, fontSizePx: 40, fontWeight: 'normal', color: '#c9a961', align: 'left' },
+      { id: '3', text: 'A smaller gold subhead', opacity: 60, xPct: 6, yPct: 30, widthPct: 80, fontSizePx: 40, fontWeight: 'normal', color: '#c9a961', align: 'left' },
       { id: '4', text: 'Centered chip-backed line', xPct: 50, yPct: 46, widthPct: 70, fontSizePx: 34, fontWeight: 'bold', color: '#ffffff', align: 'center', backgroundColor: 'rgba(15,23,42,0.85)', paddingPx: 16, borderRadiusPx: 14 },
       { id: '5', text: 'Book Now  →', xPct: 6, yPct: 90, fontSizePx: 30, fontWeight: 'bold', color: '#1a2332', align: 'left', backgroundColor: '#c9a961', paddingPx: 18, borderRadiusPx: 28 },
       { id: '6', text: 'unplaced suggestion (not rendered)', placed: false, xPct: 6, yPct: 60, fontSizePx: 30, fontWeight: 'normal', color: '#fff', align: 'left' },
+      { id: '7', text: 'HIDDEN (excluded)', hidden: true, xPct: 6, yPct: 72, fontSizePx: 30, fontWeight: 'bold', color: '#f00', align: 'left' },
     ];
     const synDir = 'scripts/replay-out/synthetic'; fs.mkdirSync(synDir, { recursive: true });
     const a = await renderTextLayers(input.clean_template_url, s, W, H);

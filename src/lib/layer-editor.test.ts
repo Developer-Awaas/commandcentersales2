@@ -39,6 +39,30 @@ describe('editorReducer — layer ops', () => {
   });
 });
 
+describe('editorReducer — RB-P5 reorder / hide / opacity', () => {
+  it('reorder rearranges z-order by id list and snapshots history', () => {
+    const s = editorReducer(initEditor([L('a'), L('b'), L('c')]), { type: 'reorder', order: ['c', 'a', 'b'] });
+    expect(s.layers.map((l) => l.id)).toEqual(['c', 'a', 'b']);
+    expect(s.history).toHaveLength(1);
+    expect(editorReducer(s, { type: 'undo' }).layers.map((l) => l.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('reorder keeps layers missing from the order list at the end (defensive)', () => {
+    const s = editorReducer(initEditor([L('a'), L('b'), L('c')]), { type: 'reorder', order: ['b', 'a'] });
+    expect(s.layers.map((l) => l.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('hide + opacity go through update (undoable) without touching siblings', () => {
+    let s = editorReducer(initEditor([L('a'), L('b')]), { type: 'update', id: 'a', patch: { hidden: true } });
+    expect(s.layers.find((l) => l.id === 'a')!.hidden).toBe(true);
+    s = editorReducer(s, { type: 'update', id: 'a', patch: { opacity: 40 } });
+    expect(s.layers.find((l) => l.id === 'a')!.opacity).toBe(40);
+    expect(s.layers.find((l) => l.id === 'b')!.hidden).toBeUndefined();
+    expect(s.layers.find((l) => l.id === 'b')!.opacity).toBeUndefined();
+    expect(editorReducer(s, { type: 'undo' }).layers.find((l) => l.id === 'a')!.opacity).toBeUndefined();
+  });
+});
+
 describe('editorReducer — undo stack', () => {
   it('undo restores the exact prior layers', () => {
     const before = s0();
