@@ -34,7 +34,7 @@
 
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
-import { OPENAI_IMAGE_COST_USD, editImage } from '../_shared/image-provider.ts'
+import { editImage, resolveImageModel, openaiImageUnitCost } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
@@ -95,6 +95,9 @@ Deno.serve(async (req: Request) => {
     userId?: string | null
     feature?: string
     projectId?: string | null
+    // RB-P6 STEP 2/4: per-request model override for the migration spike matrix.
+    // Omit → IMAGE_MODEL env / default (gpt-image-1).
+    model?: string
   }
   try {
     body = await req.json()
@@ -106,8 +109,9 @@ Deno.serve(async (req: Request) => {
   if (!prompt || typeof prompt !== 'string') {
     return new Response(JSON.stringify({ error: 'prompt is required' }), { status: 400, headers: corsHeaders() })
   }
+  const model = resolveImageModel(body.model)
 
-  // Map caller dimensions to the closest supported GPT-Image-1 size
+  // Map caller dimensions to the closest supported size
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
 
   const safePrompt = prompt.slice(0, 4000)
@@ -127,12 +131,13 @@ Deno.serve(async (req: Request) => {
         quality,
         images: [resolvedHero, ...resolvedSupporting],
         observationName: 'openai-image-edit',
+        model,
       })
       if (orgId) {
         await recordApiCost({
           orgId, userId: userId ?? null,
           provider: 'openai', callType: 'image_edit', feature: feature ?? 'creatives',
-          model: 'gpt-image-1', imageCount: 1, unitCostUsd: OPENAI_IMAGE_COST_USD[quality],
+          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: true }),
           projectId: projectId ?? null,
         })
       }
@@ -158,7 +163,7 @@ Deno.serve(async (req: Request) => {
   // inconsistency, out of scope here), so the same check is duplicated
   // at this second entry point rather than left uncovered.
   try {
-    await reserveImageBudget(OPENAI_IMAGE_COST_USD[quality])
+    await reserveImageBudget(openaiImageUnitCost(model, quality))
   } catch (err) {
     if (err instanceof ImageBudgetExceededError) {
       return new Response(
@@ -172,7 +177,7 @@ Deno.serve(async (req: Request) => {
   const traceId = `generate-image-${crypto.randomUUID()}`
   await langfuseTrace(traceId, {
     name: 'generate-image',
-    tags: ['image-gen', 'gpt-image-1'],
+    tags: ['image-gen', model],
     metadata: { size, quality },
     input: { prompt: safePrompt },
   })
@@ -185,7 +190,7 @@ Deno.serve(async (req: Request) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-image-1',
+        model,
         prompt: safePrompt,
         n: 1,
         size,
@@ -196,8 +201,8 @@ Deno.serve(async (req: Request) => {
     if (!imageRes.ok) {
       const errText = await imageRes.text().catch(() => imageRes.statusText)
       await langfuseGeneration(traceId, {
-        name: 'gpt-image-1',
-        model: 'gpt-image-1',
+        name: model,
+        model,
         input: { prompt: safePrompt, size, quality },
         level: 'ERROR',
         statusMessage: `OpenAI API error ${imageRes.status}: ${errText}`,
@@ -212,8 +217,8 @@ Deno.serve(async (req: Request) => {
     const base64 = result.data?.[0]?.b64_json
     if (!base64) {
       await langfuseGeneration(traceId, {
-        name: 'gpt-image-1',
-        model: 'gpt-image-1',
+        name: model,
+        model,
         input: { prompt: safePrompt, size, quality },
         level: 'ERROR',
         statusMessage: 'No image returned from OpenAI API',
@@ -225,8 +230,8 @@ Deno.serve(async (req: Request) => {
     }
 
     await langfuseGeneration(traceId, {
-      name: 'gpt-image-1',
-      model: 'gpt-image-1',
+      name: model,
+      model,
       input: { prompt: safePrompt, size, quality },
       output: { imageGenerated: true, mimeType: 'image/png' },
     })
@@ -235,7 +240,7 @@ Deno.serve(async (req: Request) => {
       await recordApiCost({
         orgId, userId: userId ?? null,
         provider: 'openai', callType: 'image_gen', feature: feature ?? 'creatives',
-        model: 'gpt-image-1', imageCount: 1, unitCostUsd: OPENAI_IMAGE_COST_USD[quality],
+        model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality),
         projectId: projectId ?? null, traceId,
       })
     }
@@ -247,8 +252,8 @@ Deno.serve(async (req: Request) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     await langfuseGeneration(traceId, {
-      name: 'gpt-image-1',
-      model: 'gpt-image-1',
+      name: model,
+      model,
       input: { prompt: safePrompt, size, quality },
       level: 'ERROR',
       statusMessage: message,

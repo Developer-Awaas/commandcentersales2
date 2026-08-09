@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   textCostUsd, imageUnitCostUsd, MODEL_PRICING,
-  OPENAI_IMAGE_COST_USD, GEMINI_IMAGE_COST_USD,
+  OPENAI_IMAGE_COST_USD, GEMINI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD,
 } from './pricing';
 
 describe('pricing — text cost', () => {
@@ -41,6 +41,12 @@ describe('pricing — image unit cost', () => {
     expect(imageUnitCostUsd('midjourney', 'high')).toBeNull();
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
+  });
+
+  it('model-aware: gpt-image-1.5 uses the 1.5 table, default stays gpt-image-1', () => {
+    expect(imageUnitCostUsd('openai', 'high', 'gpt-image-1.5')).toBe(OPENAI_IMAGE_15_COST_USD.high);
+    expect(imageUnitCostUsd('openai', 'high', 'gpt-image-1')).toBe(OPENAI_IMAGE_COST_USD.high);
+    expect(imageUnitCostUsd('openai', 'medium')).toBe(OPENAI_IMAGE_COST_USD.medium); // no model → default table
   });
 });
 

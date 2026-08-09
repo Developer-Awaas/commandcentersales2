@@ -1782,12 +1782,12 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
               ✂️ Some copy was shortened to fit its zone (at a word boundary, never mid-word). Click <span className="font-semibold">✨ Edit Text</span> on a creative to reword or resize it.
             </div>
           )}
-          {/* RB-P5 STEP 1 fallback: the model can still bake a panel/band into a
-              "blank" template. Rather than iterate the prompt forever, tell the user
-              it's usable as a text backdrop — or one click regenerates it. */}
+          {/* RB-P6 STEP 3 (invariant pattern): the layout's panels/bands are KEPT,
+              just emptied of text — they're the design, not a defect. Compose copy
+              into them; Regenerate only if the layout or building came out wrong. */}
           {textOverlayMode && zones && replicateAspect && (
             <div className="mb-2 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-xs text-sky-300">
-              🧩 Blank template — compose your text in <span className="font-semibold">✨ Edit Text</span> (essentials are pre-filled chips). If the AI left a panel or band in the design, use it as a backdrop for a text layer, or hit <span className="font-semibold">Regenerate template</span> for a cleaner, panel-free one.
+              🧩 Blank template — the reference layout is preserved with its panels/bands kept empty. Compose your text into them in <span className="font-semibold">✨ Edit Text</span> (essentials are pre-filled chips). Use <span className="font-semibold">Regenerate template</span> only if the layout or building came out wrong.
             </div>
           )}
           <ImageGalleryViewer

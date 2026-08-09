@@ -54,6 +54,8 @@ export interface GenerateImageInput {
   // model name) — useful for "aanya-image-value-iter1"-style naming so
   // iterations are distinguishable in the Langfuse UI.
   observationName?: string
+  // RB-P6: per-request model override (spike matrix). Omit → IMAGE_MODEL env / default.
+  model?: string
 }
 
 export interface ImageCostMeta {
@@ -80,6 +82,8 @@ export interface EditImageInput {
   images: { base64: string; mimeType: string }[]
   traceId?: string
   observationName?: string
+  // RB-P6: per-request model override (spike matrix). Omit → IMAGE_MODEL env / default.
+  model?: string
 }
 
 function resolveProvider(hint?: ImageProvider): ImageProvider {
@@ -126,6 +130,36 @@ export const OPENAI_IMAGE_COST_USD: Record<ImageQuality, number> = {
   high: 0.167,
 }
 
+// RB-P6 STEP 2 — gpt-image-1.5 per-image pricing. ⚠️ PLACEHOLDER / UNVERIFIED:
+// set equal to gpt-image-1 until confirmed against OpenAI's published gpt-image-1.5
+// rates during the migration spike. Flag any mismatch here when the real rates
+// are known. (gpt-image-1 retires Oct 2026, so the migration is mandatory
+// regardless — this table just needs the real numbers before we flip the default.)
+export const OPENAI_IMAGE_15_COST_USD: Record<ImageQuality, number> = {
+  low: 0.011,
+  medium: 0.042,
+  high: 0.167,
+}
+
+// RB-P6 STEP 1 — input_fidelity:'high' on /images/edits sends the input image at
+// higher token detail, adding input-image tokens on top of the per-image output
+// cost. Approximate additive surcharge per edit (cost-tracking estimate, not
+// invoicing-grade — the ledger's unit_cost_usd already carries a "re-verify" caveat).
+export const INPUT_FIDELITY_HIGH_SURCHARGE_USD = 0.01
+
+// The active image model: per-request override (spike matrix) wins, else the
+// IMAGE_MODEL env flag, else the default. Default stays gpt-image-1 until the
+// spike verdict flips it (STEP 2).
+export function resolveImageModel(override?: string): string {
+  return override ?? Deno.env.get('IMAGE_MODEL') ?? 'gpt-image-1'
+}
+
+// Per-image unit cost by model + quality (+ optional high-fidelity edit surcharge).
+export function openaiImageUnitCost(model: string, quality: ImageQuality, opts?: { inputFidelityHigh?: boolean }): number {
+  const base = model.startsWith('gpt-image-1.5') ? OPENAI_IMAGE_15_COST_USD[quality] : OPENAI_IMAGE_COST_USD[quality]
+  return base + (opts?.inputFidelityHigh ? INPUT_FIDELITY_HIGH_SURCHARGE_USD : 0)
+}
+
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
 
 async function generateWithOpenAI(
@@ -137,7 +171,7 @@ async function generateWithOpenAI(
   const size = input.size ?? '1024x1024'
   const quality = input.quality ?? 'medium'
   const safePrompt = input.prompt.slice(0, 4000)
-  const model = 'gpt-image-1'
+  const model = resolveImageModel(input.model)
 
   return withRetry(async () => {
     const res = await fetch(OPENAI_URL, {
@@ -164,7 +198,7 @@ async function generateWithOpenAI(
       imageBase64: base64,
       mimeType: 'image/png',
       providerUsed: 'openai',
-      costMeta: { provider: 'openai', model, unitCost: OPENAI_IMAGE_COST_USD[quality], currency: 'USD' },
+      costMeta: { provider: 'openai', model, unitCost: openaiImageUnitCost(model, quality), currency: 'USD' },
     }
   }, 'generateWithOpenAI')
 }
@@ -188,7 +222,7 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
   const size = input.size ?? '1024x1024'
   const quality = input.quality ?? 'medium'
   const safePrompt = input.prompt.slice(0, 4000)
-  const model = 'gpt-image-1'
+  const model = resolveImageModel(input.model)
 
   return withRetry(async () => {
     const form = new FormData()
@@ -197,6 +231,10 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
     form.append('n', '1')
     form.append('size', size)
     form.append('quality', quality)
+    // RB-P6 STEP 1 — maximise faithfulness to the input photo(s). gpt-image-1
+    // supports input_fidelity since 2025-07; gpt-image-1.5 defaults to high but
+    // we pin it explicitly so behaviour is identical across both models.
+    form.append('input_fidelity', 'high')
     for (const img of input.images) {
       const bytes = Uint8Array.from(atob(img.base64), (c) => c.charCodeAt(0))
       form.append('image[]', new Blob([bytes], { type: img.mimeType }), `image.${mimeToExt(img.mimeType)}`)
@@ -221,7 +259,7 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
       imageBase64: base64,
       mimeType: 'image/png',
       providerUsed: 'openai' as ImageProvider,
-      costMeta: { provider: 'openai' as ImageProvider, model, unitCost: OPENAI_IMAGE_COST_USD[quality], currency: 'USD' as const },
+      costMeta: { provider: 'openai' as ImageProvider, model, unitCost: openaiImageUnitCost(model, quality, { inputFidelityHigh: true }), currency: 'USD' as const },
     }
   }, 'editWithOpenAI')
 }

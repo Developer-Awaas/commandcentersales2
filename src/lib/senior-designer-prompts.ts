@@ -1527,17 +1527,17 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
     copy.cta?.trim()      ? `- Call-to-action text: "${copy.cta.trim()}"` : '',
   ].filter(Boolean).join('\n');
 
+  // RB-P6 STEP 3 — INVARIANT pattern (same as the blank variant, but text is
+  // REPLACED with our copy rather than emptied). Layout is FIXED; building + text CHANGE.
   return [
     'You are EDITING using two attached images — do not create from scratch.',
-    'IMAGE 1 is a REFERENCE AD CREATIVE. Preserve its LAYOUT EXACTLY: zone structure, photo-card placement and proportions, headline/badge/checklist/CTA/footer positions, and the overall color-block composition. Do not move, resize, add, or remove any zone.',
-    "IMAGE 2 is the REAL PROJECT BUILDING (hero) — the ONLY building/subject. Render THIS building inside image 1's photo area(s). Do NOT keep, copy, or reference the building shown in image 1; image 1 is layout only.",
+    'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colours, and its aspect ratio. Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
+    'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
     textLines
-      ? `Replace ONLY the text inside the existing text zones with this project's copy (keep each zone's position and styling):\n${textLines}`
-      : 'Keep the existing text zones in place.',
-    // Strip the reference\'s BRAND IDENTITY only — never erase the structural
-    // price/contact/CTA zones themselves; those are repopulated with our values.
-    'Erase the reference\'s brand IDENTITY: its logo, brand marks, emblems, QR codes, watermarks, company names, and its specific phone-number digits — paint those over with clean background matching the surrounding design. BUT KEEP the structural zones intact — the price callout, the contact/footer strip, and the CTA band stay in their original position, shape and colour block (just cleared of the competitor\'s specific values). This project supplies its own logo, price and contact details separately; never copy them from image 1.',
-    'Change nothing else: keep every zone, proportion, and color block from image 1. Do not invent new elements, extra text, or building details not present in the attached images.',
+      ? `CHANGE (b) — text: replace ONLY the text CONTENT inside the existing zones with this project's copy, keeping each zone's exact position, shape, colour and styling:\n${textLines}`
+      : 'CHANGE (b) — text: keep the existing text zones exactly in place (shape, position, styling).',
+    'Competitor identity: remove image 1\'s logo, brand marks, emblems, QR codes, watermarks, company name and its specific phone-number digits — but LEAVE THE ZONE that held each in place (the price callout, the contact/footer strip, the CTA band stay in their original position, shape and colour), cleared of the competitor\'s specific values. This project supplies its own logo/price/contact separately; never copy them from image 1.',
+    'Change nothing else — no new elements, no extra text, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }
 
@@ -1547,18 +1547,17 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
 // sidesteps GPT-Image-1's text-rendering unreliability entirely: text no longer
 // costs the model anything, so dense stat-rows/checklists stay perfectly legible.
 export function buildReplicateLayoutPrompt(): string {
+  // RB-P6 STEP 3 — INVARIANT pattern (replaces the RB-P5 shape-ban, which caused
+  // layout drift by asking the model to remove panels). The layout is FIXED; only
+  // the building and the text CHANGE. Blank mode empties the lettering out of the
+  // shapes, but the shapes themselves stay — so the app can composite crisp copy
+  // back into exactly the same zones.
   return [
     'You are EDITING using two attached images — do not create from scratch.',
-    'IMAGE 1 is a REFERENCE AD CREATIVE. Preserve its LAYOUT EXACTLY: zone structure, photo-card placement and proportions, and the color-block composition of every zone (headline bar, badge/stat cells, checklist panel, CTA button, footer strip). Do not move, resize, add, or remove any zone.',
-    "IMAGE 2 is the REAL PROJECT BUILDING (hero) — the ONLY building/subject. Render THIS building inside image 1's photo area(s). Do NOT keep, copy, or reference the building shown in image 1; image 1 is layout only.",
-    // RB-P5 S3 (iteration 4): earlier wording still let FROSTED/TRANSLUCENT PANELS
-    // and gradient blocks bake in as text backdrops. Attack that specifically — the
-    // output must read as a FINISHED, text-free photograph/artwork, with NOTHING
-    // whose purpose is to host future text.
-    'CRITICAL — PRODUCE A FINISHED, TEXT-FREE PHOTOGRAPH/ARTWORK, NOT A LAYOUT TEMPLATE. Render ZERO readable content: no glyphs, letters, numbers, digits, words, punctuation or symbols in ANY language or script (Latin, Devanagari, Arabic, CJK — none), and no faint, embossed, placeholder "Lorem", watermark, partial or blurred lettering.',
-    'ABSOLUTELY NO text-hosting elements anywhere. Do NOT add — in the reference\'s former text zones OR anywhere else — any panel, card, banner, ribbon, tab, plate, pill, badge, button shape, rounded-rectangle container, solid or flat colour block, bar, strip, divider, FROSTED / TRANSLUCENT / GLASS / blurred panel, semi-transparent overlay, gradient used as a block or scrim, darkened band, or vignette strip. If it exists to reserve, frame, or sit behind text, it must NOT appear.',
-    'Instead, let the design\'s own content continue SEAMLESSLY through every former text area — sky continues as sky, wall as wall, façade as façade, landscaping/ground as ground, the base colour or natural gradient of that region flowing uninterrupted — so a viewer cannot tell text was ever intended. Keep the reference\'s PHOTO/image areas, proportions and overall composition; the result reads as one clean, continuous, intentional, finished surface. All real text is added later by software.',
-    'Erase only the reference\'s brand IDENTITY: its logo, brand marks, emblems, QR codes, watermarks and company names — paint those over with clean background. This project adds its own logo separately. Do not copy the reference\'s phone number or company name anywhere.',
-    'Change nothing else: keep every zone, proportion, and colour block from image 1. Do not invent new elements or building details not present in the attached images.',
+    'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colours, and its aspect ratio. Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
+    'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
+    'CHANGE (b) — text: remove ALL lettering, glyphs, numbers, digits, words, wordmarks, punctuation and readable characters of ANY language or script (Latin, Devanagari, Arabic, CJK — none) from every zone. CRUCIALLY: the SHAPES that held the text REMAIN exactly as they are — same panels, bands, badges, buttons, strips, same fill/colour/opacity/position — just EMPTY of text. Do NOT collapse, shrink, delete, or fill-in a shape because its text is gone. Render ZERO readable characters; the app composites the real copy afterwards.',
+    'Competitor identity: remove image 1\'s logo, brand marks, emblems, QR codes, watermarks and company name — but LEAVE THE ZONE that held them in place, empty (do not delete or collapse the zone). This project adds its own logo separately, into that same zone.',
+    'Change nothing else — no new elements, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }

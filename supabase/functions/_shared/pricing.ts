@@ -38,8 +38,19 @@ export const OPENAI_IMAGE_COST_USD: Record<ImageQuality, number> = {
 }
 export const GEMINI_IMAGE_COST_USD = 0.039
 
-export function imageUnitCostUsd(provider: string, quality: ImageQuality): number | null {
-  if (provider === 'openai') return OPENAI_IMAGE_COST_USD[quality] ?? null
+// RB-P6 — gpt-image-1.5 per-image rates. ⚠️ PLACEHOLDER / UNVERIFIED (= gpt-image-1
+// until confirmed vs OpenAI's published gpt-image-1.5 pricing). Mirror of src/lib/
+// pricing.ts. NOTE: image-provider.ts's openaiImageUnitCost() is the authoritative
+// ledger source (it also adds the input_fidelity:'high' edit surcharge) — this stays
+// for the client mirror + drift test.
+export const OPENAI_IMAGE_15_COST_USD: Record<ImageQuality, number> = { low: 0.011, medium: 0.042, high: 0.167 }
+export const INPUT_FIDELITY_HIGH_SURCHARGE_USD = 0.01
+
+export function imageUnitCostUsd(provider: string, quality: ImageQuality, model?: string): number | null {
+  if (provider === 'openai') {
+    const table = model?.startsWith('gpt-image-1.5') ? OPENAI_IMAGE_15_COST_USD : OPENAI_IMAGE_COST_USD
+    return table[quality] ?? null
+  }
   if (provider === 'gemini') return GEMINI_IMAGE_COST_USD
   console.warn(`[pricing] unknown image provider "${provider}" — cost logged as NULL`)
   return null
