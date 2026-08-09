@@ -46,6 +46,9 @@ export const OPENAI_IMAGE_2_COST_USD: Record<ImageQuality, number> = { low: 0.01
 // gpt-image-1.5 rates (rollback). ⚠️ PLACEHOLDER = gpt-image-1 until confirmed.
 export const OPENAI_IMAGE_15_COST_USD: Record<ImageQuality, number> = { low: 0.011, medium: 0.042, high: 0.167 }
 export const INPUT_FIDELITY_HIGH_SURCHARGE_USD = 0.01
+// RB-P9 — per-input-reference image-token cost on edits (multi-view). Mirror of
+// image-provider.ts's authoritative openaiImageUnitCost.
+export const IMAGE_INPUT_REF_COST_USD = 0.024
 
 export function imageUnitCostUsd(provider: string, quality: ImageQuality, model?: string): number | null {
   if (provider === 'openai') {

@@ -1510,8 +1510,12 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         footer: data.ad_copy?.footer?.trim() || contactStrip,
         location,
       };
+      // RB-P9 — building-view count drives the two-tier angle policy. In replicate
+      // mode heroImages = [styleRef, building, ...extraViews]; the views after the
+      // style ref are the building photos (angle-lock at 1, view-bounded at 2+).
+      const buildingViews = Math.max(1, (heroImages?.length ?? 2) - 1);
       const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = replicateAspect
-        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt() : buildReplicatePrompt({ ...replicateCopy, location })]]
+        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt(buildingViews) : buildReplicatePrompt({ ...replicateCopy, location }, buildingViews)]]
         : [
             ['1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
             ['4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],

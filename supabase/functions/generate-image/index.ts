@@ -149,7 +149,8 @@ Deno.serve(async (req: Request) => {
         await recordApiCost({
           orgId, userId: userId ?? null,
           provider: 'openai', callType: 'image_edit', feature: feature ?? 'creatives',
-          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model) }),
+          // inputRefs = hero + supporting building views (multi-view bills more input tokens).
+          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model), inputRefs: 1 + supportingImages.length }),
           projectId: projectId ?? null,
         })
       }

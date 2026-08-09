@@ -51,6 +51,9 @@ export const OPENAI_IMAGE_2_COST_USD: Record<ImageQuality, number> = { low: 0.01
 export const OPENAI_IMAGE_15_COST_USD: Record<ImageQuality, number> = { low: 0.011, medium: 0.042, high: 0.167 };
 // input_fidelity:'high' edit surcharge — gpt-image-1 / 1.5 only (gpt-image-2 rejects it).
 export const INPUT_FIDELITY_HIGH_SURCHARGE_USD = 0.01;
+// RB-P9 — per-input-reference image-token cost on edits (multi-view = more refs).
+// Mirror of image-provider.ts (authoritative). ≈3k tok/ref × $8/M.
+export const IMAGE_INPUT_REF_COST_USD = 0.024;
 
 // AUTHORITATIVE image cost for the ledger is the edge `openaiImageUnitCost()` in
 // supabase/functions/_shared/image-provider.ts — keep this client mirror in sync.

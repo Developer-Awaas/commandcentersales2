@@ -494,6 +494,23 @@ export function Strategy() {
               { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
               heroSubject,
             ];
+            // RB-P9 — extra building VIEWS (up to 2 more of the SAME building from
+            // different angles) enable view-bounded angle freedom. Auto-included
+            // from exterior/building-category project media, sent AFTER the hero
+            // (labeled IMAGE 3..N in the directive). More images ⇒ more input tokens,
+            // which the ledger picks up automatically.
+            const heroUrl = 'url' in heroSubject ? heroSubject.url : undefined;
+            const { data: viewRows } = await supabase
+              .from('project_assets')
+              .select('asset_url, asset_type')
+              .eq('project_id', quickInputs.projectId)
+              .or('asset_type.ilike.%exterior%,asset_type.ilike.%building%');
+            const extraViews = [...new Set(
+              ((viewRows ?? []) as { asset_url?: string }[])
+                .map((r) => r.asset_url)
+                .filter((u): u is string => !!u && u !== heroUrl)
+            )].slice(0, 2);
+            if (extraViews.length) heroImages.push(...extraViews.map((url) => ({ url })));
             // Evidence log (RB-P2 Step 3 / H1): prove the style-reference asset
             // actually reaches the generation payload — if this shows styleRef:true
             // the reference IS wired; a "model free-composes" report then means the

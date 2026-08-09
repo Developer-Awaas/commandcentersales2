@@ -3,7 +3,8 @@
 import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts'
 import {
   resolveImageModel, openaiImageUnitCost, supportsInputFidelity,
-  OPENAI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD, OPENAI_IMAGE_2_COST_USD, INPUT_FIDELITY_HIGH_SURCHARGE_USD,
+  OPENAI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD, OPENAI_IMAGE_2_COST_USD,
+  INPUT_FIDELITY_HIGH_SURCHARGE_USD, IMAGE_INPUT_REF_COST_USD,
 } from './image-provider.ts'
 
 Deno.test('resolveImageModel: request override > IMAGE_MODEL env > default (gpt-image-2)', () => {
@@ -35,4 +36,12 @@ Deno.test('openaiImageUnitCost: model-aware base + conditional fidelity surcharg
   )
   // gpt-image-2 edit → NO surcharge even if requested (it rejects input_fidelity)
   assertEquals(openaiImageUnitCost('gpt-image-2', 'high', { inputFidelityHigh: true }), OPENAI_IMAGE_2_COST_USD.high)
+})
+
+Deno.test('openaiImageUnitCost: per-input-ref cost scales multi-view edits (RB-P9)', () => {
+  // 1 input ref (single-view edit) vs 3 (multi-view) — cost scales with ref count.
+  assertEquals(openaiImageUnitCost('gpt-image-2', 'medium', { inputRefs: 1 }), OPENAI_IMAGE_2_COST_USD.medium + IMAGE_INPUT_REF_COST_USD)
+  assertEquals(openaiImageUnitCost('gpt-image-2', 'medium', { inputRefs: 3 }), OPENAI_IMAGE_2_COST_USD.medium + 3 * IMAGE_INPUT_REF_COST_USD)
+  // gen (no refs) is unchanged
+  assertEquals(openaiImageUnitCost('gpt-image-2', 'medium'), OPENAI_IMAGE_2_COST_USD.medium)
 })

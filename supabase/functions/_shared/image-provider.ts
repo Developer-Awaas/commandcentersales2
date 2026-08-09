@@ -154,6 +154,11 @@ export const OPENAI_IMAGE_15_COST_USD: Record<ImageQuality, number> = {
 // Approximate additive surcharge per edit (cost-tracking estimate, not invoicing-grade).
 export const INPUT_FIDELITY_HIGH_SURCHARGE_USD = 0.01
 
+// RB-P9 — each INPUT reference image on an /images/edits call bills image-input
+// tokens (~3k tokens/ref high-detail × $8/M ≈ $0.024). Multi-view generations send
+// more refs, so the ledger must scale with the input-ref count (STEP 2). Estimate.
+export const IMAGE_INPUT_REF_COST_USD = 0.024
+
 // gpt-image-2 rejects `input_fidelity` (empirically: code=invalid_input_fidelity_model)
 // and always runs high — so we OMIT the param for it. gpt-image-1 / 1.5 still take it.
 export function supportsInputFidelity(model: string): boolean {
@@ -167,14 +172,17 @@ export function resolveImageModel(override?: string): string {
   return override ?? Deno.env.get('IMAGE_MODEL') ?? 'gpt-image-2'
 }
 
-// Per-image unit cost by model + quality (+ optional high-fidelity edit surcharge,
-// which only applies to models that actually accept input_fidelity).
-export function openaiImageUnitCost(model: string, quality: ImageQuality, opts?: { inputFidelityHigh?: boolean }): number {
+// Per-image unit cost by model + quality (+ high-fidelity edit surcharge for models
+// that accept input_fidelity, + per-input-reference image-token cost for edits).
+export function openaiImageUnitCost(
+  model: string, quality: ImageQuality, opts?: { inputFidelityHigh?: boolean; inputRefs?: number },
+): number {
   const base = model.startsWith('gpt-image-2') ? OPENAI_IMAGE_2_COST_USD[quality]
     : model.startsWith('gpt-image-1.5') ? OPENAI_IMAGE_15_COST_USD[quality]
     : OPENAI_IMAGE_COST_USD[quality]
   const surcharge = (opts?.inputFidelityHigh && supportsInputFidelity(model)) ? INPUT_FIDELITY_HIGH_SURCHARGE_USD : 0
-  return base + surcharge
+  const inputCost = Math.max(0, opts?.inputRefs ?? 0) * IMAGE_INPUT_REF_COST_USD
+  return base + surcharge + inputCost
 }
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
@@ -276,7 +284,7 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
       imageBase64: base64,
       mimeType: 'image/png',
       providerUsed: 'openai' as ImageProvider,
-      costMeta: { provider: 'openai' as ImageProvider, model, unitCost: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model) }), currency: 'USD' as const },
+      costMeta: { provider: 'openai' as ImageProvider, model, unitCost: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model), inputRefs: input.images.length }), currency: 'USD' as const },
     }
   }, 'editWithOpenAI')
 }

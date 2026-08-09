@@ -216,11 +216,11 @@ export function QuickGenerateForm({
         {replicateActive && (
           <>
             <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — layout copied from the style reference; this hero appears as the building. Produces one image at the reference's aspect ratio. Assign a project photo the ★ Hero role above.</p>
-            {/* A6 clarification: replicate sends only the style-ref + the one ★ hero
-                (imageCount 2 in the payload log) — other project photos (amenities,
-                interiors) are NOT used in this mode, and the hero populates only where
-                the reference layout actually has a photo/image section. */}
-            <p className="text-[11px] text-text-tertiary -mt-1">Only the ★ hero is placed — into the reference's photo area. It populates only if the reference layout has a photo/image section; other project photos (amenities, interiors) aren't used in Replicate mode.</p>
+            {/* RB-P9 hero-hint: the ★ hero anchors the building; up to 2 more
+                exterior/building photos (different angles of the SAME building) are
+                auto-included so the AI can pick the best-fitting VIEW — it never
+                invents unseen sides. Amenity/interior photos aren't used here. */}
+            <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the building into the reference's photo area. Add more <strong>exterior photos of the same building from different angles</strong> and the AI picks the best-fitting view (it never invents unseen sides — with one photo it locks to that exact angle). Amenity/interior photos aren't used in Replicate mode.</p>
             <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer -mt-1">
               <input
                 type="checkbox"

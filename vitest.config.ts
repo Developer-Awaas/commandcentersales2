@@ -29,6 +29,7 @@ export default defineConfig({
       'src/lib/zone-layers.test.ts',
       'src/lib/layer-editor.test.ts',
       'src/lib/overlay-recompose.test.ts',
+      'src/lib/senior-designer-prompts.angle.test.ts',
       'src/lib/pricing.test.ts',
       'src/lib/api-cost.test.ts',
       'src/lib/usage-aggregate.test.ts',

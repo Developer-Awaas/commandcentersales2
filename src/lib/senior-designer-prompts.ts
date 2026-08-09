@@ -1520,7 +1520,7 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
 // `nanobanana_prompt_main` to leak in here. The model preserves the reference's
 // exact layout instead of re-imagining a scene from a 9-section brief. The only
 // project-specific text injected is the ad copy ({headline, price, cta}).
-export function buildReplicatePrompt(copy: { headline?: string; price?: string; cta?: string; location?: string }): string {
+export function buildReplicatePrompt(copy: { headline?: string; price?: string; cta?: string; location?: string }, buildingViews = 1): string {
   const textLines = [
     copy.headline?.trim() ? `- Headline text: "${copy.headline.trim()}"` : '',
     copy.price?.trim()    ? `- Price text: "${copy.price.trim()}"`       : '',
@@ -1533,7 +1533,7 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
   return [
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
-    'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
+    buildingAngleDirective(buildingViews),
     textLines
       ? `CHANGE (b) — text: replace the text CONTENT inside the existing zones with this project's copy — use these EXACT strings (in quotes), keeping each zone's exact position, shape, colour and styling:\n${textLines}`
       : 'CHANGE (b) — text: keep the existing text zones exactly in place (shape, position, styling).',
@@ -1550,7 +1550,22 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
 // vision-located zones afterwards (buildLayersFromZones + renderTextLayers). This
 // sidesteps GPT-Image-1's text-rendering unreliability entirely: text no longer
 // costs the model anything, so dense stat-rows/checklists stay perfectly legible.
-export function buildReplicateLayoutPrompt(): string {
+/**
+ * RB-P9 — two-tier building-angle policy shared by both replicate directives.
+ * `buildingViews` = how many photos of the building are attached AFTER the layout
+ * reference (IMAGE 1). 1 → ANGLE-LOCK (render IMAGE 2's exact viewpoint, never
+ * invent unseen sides). 2+ → VIEW-BOUNDED freedom (pick the best-fitting provided
+ * view, never blend the views into a new structure, never invent unseen sides).
+ */
+export function buildingAngleDirective(buildingViews: number): string {
+  if (buildingViews >= 2) {
+    const lastN = buildingViews + 1; // IMAGE 2 .. IMAGE (buildingViews + 1)
+    return `CHANGE (a) — building, VIEW-BOUNDED: IMAGES 2 through ${lastN} are the SAME building photographed from DIFFERENT angles. Render the building ONLY as it appears in these views — SELECT the single provided view that best fits image 1's photo area and use it faithfully. Do NOT blend, merge, or interpolate the views into a new or composite structure, and NEVER invent a side, face, wing, or floor not visible in any provided view. Image 1 supplies the LAYOUT only; images 2..${lastN} supply the BUILDING.`;
+  }
+  return "CHANGE (a) — building, ANGLE-LOCK: only ONE view of the building is provided (IMAGE 2). Render the building from IMAGE 2's EXACT viewpoint and angle — do NOT rotate it, show a different side, or invent any face, wing, or side not visible in IMAGE 2. Adapt the surrounding scene (sky, ground, landscaping, lighting) around that fixed view. Image 1 supplies the LAYOUT only; image 2 supplies the BUILDING at its one true angle.";
+}
+
+export function buildReplicateLayoutPrompt(buildingViews = 1): string {
   // RB-P6 STEP 3 — INVARIANT pattern (replaces the RB-P5 shape-ban, which caused
   // layout drift by asking the model to remove panels). The layout is FIXED; only
   // the building and the text CHANGE. Blank mode empties the lettering out of the
@@ -1559,7 +1574,7 @@ export function buildReplicateLayoutPrompt(): string {
   return [
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
-    'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
+    buildingAngleDirective(buildingViews),
     'CHANGE (b) — text, remove ALL lettering, glyphs, numbers, words, wordmarks and readable characters of ANY script (Latin, Devanagari, Arabic, CJK — none). Handle it in TWO cases by whether the text has a container behind it:',
     'CASE 1 — text INSIDE a panel, band, pill, badge, button, card or coloured plate: REMOVE the text but KEEP that container exactly as it is (same shape, fill, colour, opacity, position), now EMPTY. Do NOT collapse, shrink, delete or fill-in the container because its text is gone — the app composites real copy back into it.',
     'CASE 2 — text sitting DIRECTLY on the background or photo (a floating headline, a caption over the sky, free-standing digits with NO container behind them): REMOVE it ENTIRELY and let the background continue SEAMLESSLY through where it was. Do NOT leave behind a pill, plate, box, bar or coloured patch where floating text used to be — that area becomes clean background, as if text were never there.',
