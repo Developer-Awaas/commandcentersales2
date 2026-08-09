@@ -1520,23 +1520,27 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
 // `nanobanana_prompt_main` to leak in here. The model preserves the reference's
 // exact layout instead of re-imagining a scene from a 9-section brief. The only
 // project-specific text injected is the ad copy ({headline, price, cta}).
-export function buildReplicatePrompt(copy: { headline?: string; price?: string; cta?: string }): string {
+export function buildReplicatePrompt(copy: { headline?: string; price?: string; cta?: string; location?: string }): string {
   const textLines = [
     copy.headline?.trim() ? `- Headline text: "${copy.headline.trim()}"` : '',
     copy.price?.trim()    ? `- Price text: "${copy.price.trim()}"`       : '',
+    copy.location?.trim() ? `- Location text: "${copy.location.trim()}"` : '',
     copy.cta?.trim()      ? `- Call-to-action text: "${copy.cta.trim()}"` : '',
   ].filter(Boolean).join('\n');
 
-  // RB-P6 STEP 3 — INVARIANT pattern (same as the blank variant, but text is
-  // REPLACED with our copy rather than emptied). Layout is FIXED; building + text CHANGE.
+  // RB-P6/P8 — INVARIANT pattern (same as the blank variant, but text is REPLACED
+  // with our copy rather than emptied). Layout FIXED; building + text CHANGE.
   return [
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
     textLines
-      ? `CHANGE (b) — text: replace ONLY the text CONTENT inside the existing zones with this project's copy — use these EXACT strings (in quotes), keeping each zone's exact position, shape, colour and styling:\n${textLines}`
+      ? `CHANGE (b) — text: replace the text CONTENT inside the existing zones with this project's copy — use these EXACT strings (in quotes), keeping each zone's exact position, shape, colour and styling:\n${textLines}`
       : 'CHANGE (b) — text: keep the existing text zones exactly in place (shape, position, styling).',
-    'Competitor identity: remove image 1\'s logo, brand marks, emblems, QR codes, watermarks, company name and its specific phone-number digits — but LEAVE THE ZONE that held each in place (the price callout, the contact/footer strip, the CTA band stay in their original position, shape and colour), cleared of the competitor\'s specific values. This project supplies its own logo/price/contact separately; never copy them from image 1.',
+    // RB-P8 STEP 2 — copy integrity: prevents the SCHEDD-33 leak class (the reference
+    // ad's own headline/price/phone bleeding through into our output).
+    'COPY INTEGRITY — ABSOLUTE: every readable character in the output MUST come from the EXACT strings above and nothing else. NEVER reproduce, paraphrase, or leave any text from image 1 (its headline, price, digits, phone, tagline, company name — none). Any zone that has NO corresponding string above must be rendered as an EMPTY container (if it has a panel/band/pill behind it) or seamless background (if the text floated) — never filled with reference text or invented text.',
+    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and its specific phone-number digits — but LEAVE THE ZONE that held each in place (price callout, contact/footer strip, CTA band stay in their original position/shape/colour), cleared of the competitor\'s values. This project supplies its own logo/price/contact separately; never copy them from image 1.',
     'Change nothing else — no new elements, no extra text, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }
@@ -1556,8 +1560,11 @@ export function buildReplicateLayoutPrompt(): string {
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
-    'CHANGE (b) — text: remove ALL lettering, glyphs, numbers, digits, words, wordmarks, punctuation and readable characters of ANY language or script (Latin, Devanagari, Arabic, CJK — none) from every zone. CRUCIALLY: the SHAPES that held the text REMAIN exactly as they are — same panels, bands, badges, buttons, strips, same fill/colour/opacity/position — just EMPTY of text. Do NOT collapse, shrink, delete, or fill-in a shape because its text is gone. Render ZERO readable characters; the app composites the real copy afterwards.',
-    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and phone numbers — but LEAVE THE ZONE that held each in place, empty (do not delete or collapse the zone). This project adds its own logo/contact separately, into those same zones.',
+    'CHANGE (b) — text, remove ALL lettering, glyphs, numbers, words, wordmarks and readable characters of ANY script (Latin, Devanagari, Arabic, CJK — none). Handle it in TWO cases by whether the text has a container behind it:',
+    'CASE 1 — text INSIDE a panel, band, pill, badge, button, card or coloured plate: REMOVE the text but KEEP that container exactly as it is (same shape, fill, colour, opacity, position), now EMPTY. Do NOT collapse, shrink, delete or fill-in the container because its text is gone — the app composites real copy back into it.',
+    'CASE 2 — text sitting DIRECTLY on the background or photo (a floating headline, a caption over the sky, free-standing digits with NO container behind them): REMOVE it ENTIRELY and let the background continue SEAMLESSLY through where it was. Do NOT leave behind a pill, plate, box, bar or coloured patch where floating text used to be — that area becomes clean background, as if text were never there.',
+    'Render ZERO readable characters either way.',
+    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and phone numbers. If the identity sat in a container, leave that container empty (Case 1); if it floated on the background, clear it seamlessly (Case 2). This project adds its own logo/contact separately.',
     'Change nothing else — no new elements, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }

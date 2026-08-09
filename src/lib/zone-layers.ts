@@ -9,7 +9,8 @@ export interface ReplicateCopy {
   subheadline?: string;
   price?: string;
   cta?: string;
-  footer?: string;
+  footer?: string;      // contact strip (brand phone/WhatsApp)
+  location?: string;    // project locality → location-pin chip (RB-P8)
   badges?: string[];    // consumed in order, one per 'badge' zone
   checklist?: string[]; // stacked as one layer per item within the 'checklist' zone
 }
@@ -130,6 +131,76 @@ function textForRole(role: ReferenceZone['role'], copy: ReplicateCopy): string |
   }
 }
 
+const zoneCenterY = (z: ReferenceZone): number => z.bbox[1] + z.bbox[3] / 2;
+
+/**
+ * RB-P8 — pick a zone index for a suggestion chip by role heuristic, then the
+ * nearest unclaimed text zone; -1 if none free. top-large → headline, footer/
+ * bottom → contact, bottom-most non-contact → location (pin proxy), else next
+ * unclaimed → price/other.
+ */
+export function pickZoneForChip(
+  kind: 'headline' | 'contact' | 'location' | 'price',
+  zones: ReferenceZone[],
+  claimed: Set<number>,
+): number {
+  const cand = zones.map((z, i) => ({ z, i })).filter(({ z, i }) => !NON_TEXT_ROLES.has(z.role) && !claimed.has(i));
+  if (!cand.length) return -1;
+  const area = (c: { z: ReferenceZone }) => c.z.bbox[2] * c.z.bbox[3];
+  if (kind === 'headline') {
+    const top = cand.filter((c) => zoneCenterY(c.z) < 0.5);
+    return (top.length ? top : cand).slice().sort((a, b) => area(b) - area(a))[0].i;
+  }
+  if (kind === 'contact') {
+    const f = cand.find((c) => c.z.role === 'footer');
+    return (f ?? cand.slice().sort((a, b) => zoneCenterY(b.z) - zoneCenterY(a.z))[0]).i;
+  }
+  if (kind === 'location') {
+    const notContact = cand.filter((c) => c.z.role !== 'footer' && c.z.role !== 'cta');
+    return (notContact.length ? notContact : cand).slice().sort((a, b) => zoneCenterY(b.z) - zoneCenterY(a.z))[0].i;
+  }
+  return cand[0].i; // price / other → nearest unclaimed in zone order
+}
+
+// Fallback default positions (normalized 0..1 bbox) when NO free zone exists —
+// mirrors buildDefaultLayers' rough placement so a chip still lands somewhere sane.
+const FALLBACK_BBOX: Record<'headline' | 'contact' | 'location' | 'price', [number, number, number, number]> = {
+  headline: [0.08, 0.08, 0.84, 0.10],
+  price:    [0.08, 0.60, 0.50, 0.08],
+  location: [0.08, 0.80, 0.60, 0.05],
+  contact:  [0.08, 0.90, 0.84, 0.05],
+};
+
+/** RB-P8 — guarantee a zone-anchored suggestion chip for each essential type that
+ *  has copy but wasn't already placed by the zone loop (esp. `location`). */
+function ensureEssentialChips(
+  layers: TextLayer[], zones: ReferenceZone[], copy: ReplicateCopy, claimed: Set<number>, placedKinds: Set<string>, refH: number,
+): void {
+  const essentials: { kind: 'headline' | 'contact' | 'location' | 'price'; text?: string }[] = [
+    { kind: 'headline', text: copy.headline },
+    { kind: 'price', text: copy.price },
+    { kind: 'contact', text: copy.footer },
+    { kind: 'location', text: copy.location },
+  ];
+  for (const { kind, text } of essentials) {
+    const t = text?.trim();
+    if (!t) continue;
+    if (placedKinds.has(kind)) continue; // the zone loop already placed this kind
+    const zi = pickZoneForChip(kind, zones, claimed);
+    const bbox = zi >= 0 ? zones[zi].bbox : FALLBACK_BBOX[kind];
+    const align = zi >= 0 ? zones[zi].align : 'left';
+    const [, y, w, h] = bbox;
+    layers.push({
+      id: crypto.randomUUID(), text: t,
+      xPct: anchorXPct(bbox, align), yPct: (y + h * 0.1) * 100, widthPct: Math.max(4, w * 100),
+      fontSizePx: fitFontPx(t, w, h, refH, 1, 0.5),
+      fontWeight: kind === 'headline' ? 'bold' : 'normal', color: '#ffffff', align,
+      placed: false, // zone-anchored suggestion chip — tap to place (RB-P8)
+    });
+    if (zi >= 0) claimed.add(zi);
+  }
+}
+
 /**
  * Build the overlay layers for a replicate composite. One layer per single-text
  * zone; badges consume `copy.badges` in order; a checklist zone expands to one
@@ -146,8 +217,11 @@ export function buildLayersFromZones(
   const layers: TextLayer[] = [];
   const flow: TextLayer[] = []; // vertically-stacked body text, for the non-overlap pass
   let badgeIdx = 0;
+  const claimed = new Set<number>(); // zone indices already turned into a layer (RB-P8)
+  const placedKinds = new Set<string>(); // essential kinds the zone loop already placed
 
-  for (const z of zones) {
+  for (let zi = 0; zi < zones.length; zi++) {
+    const z = zones[zi];
     if (NON_TEXT_ROLES.has(z.role)) continue;
     const [x, y, w, h] = z.bbox;
     const xPct = anchorXPct(z.bbox, z.align);
@@ -164,6 +238,7 @@ export function buildLayersFromZones(
         fontWeight: 'bold', color: '#ffffff', align: z.align,
         placed: false, // badge/stat-cell — suggested, tap to place (FIX 3)
       });
+      claimed.add(zi);
       continue;
     }
 
@@ -181,6 +256,7 @@ export function buildLayersFromZones(
         fontSizePx: Math.max(14, fontSizePx), fontWeight: 'normal', color: '#ffffff', align: 'left',
         placed: false, // amenity checklist — suggested, tap to place (FIX 3)
       }));
+      claimed.add(zi);
       continue;
     }
 
@@ -195,6 +271,7 @@ export function buildLayersFromZones(
         fontWeight: 'bold', color: colors.primary, align: z.align,
         backgroundColor: colors.accent, paddingPx: 18, borderRadiusPx: 28,
       });
+      claimed.add(zi);
       continue;
     }
 
@@ -212,8 +289,18 @@ export function buildLayersFromZones(
       ...(UNPLACED_ROLES.has(z.role) ? { placed: false } : {}), // subheadline/body → suggested (FIX 3)
     };
     layers.push(layer);
+    claimed.add(zi);
+    if (z.role === 'headline') placedKinds.add('headline');
+    else if (z.role === 'price') placedKinds.add('price');
+    else if (z.role === 'footer') placedKinds.add('contact');
     if (z.role === 'headline' || z.role === 'subheadline' || z.role === 'price') flow.push(layer);
   }
+  if (copy.cta) placedKinds.add('cta');
+
+  // RB-P8 — every essential chip type with copy gets a zone-anchored default even
+  // if the reference lacked a dedicated zone for it. `location` has no vision role
+  // (the vision prompt doesn't tag a pin), so it's always resolved here.
+  ensureEssentialChips(layers, zones, copy, claimed, placedKinds, refH);
 
   // Non-overlap: nudge each stacked body-text layer below the previous one's bottom.
   flow.sort((a, b) => a.yPct - b.yPct);

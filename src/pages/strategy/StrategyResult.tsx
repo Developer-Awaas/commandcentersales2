@@ -1481,6 +1481,15 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       let brandColors: { primary: string; accent: string } | undefined;
       let contactStrip: string | undefined;   // brand-kit phone/WhatsApp → contact zone
       let priceFallback: string | undefined;   // projects.price_display when ad_copy has no price
+      let location: string | undefined;         // projects.locality → location line / pin chip (RB-P8)
+      // Project locality + price_display for BOTH replicate modes: AI mode uses
+      // `location` in the copy directive; blank mode uses it for the location chip.
+      if (replicateAspect && projectId) {
+        const { data: proj } = await supabase.from('projects').select('locality, price_display').eq('id', projectId).maybeSingle();
+        const p = proj as { locality?: string; price_display?: string } | null;
+        location = p?.locality?.trim() || undefined;
+        priceFallback = p?.price_display?.trim() || undefined;
+      }
       if (overlayOn) {
         const { data: bk } = await supabase
           .from('brand_kits')
@@ -1490,10 +1499,6 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         brandLogoUrl = kit?.logo_white_url ?? kit?.logo_color_url ?? kit?.logo_dark_url ?? undefined;
         if (kit?.primary_color && kit?.accent_color) brandColors = { primary: kit.primary_color, accent: kit.accent_color };
         contactStrip = [kit?.phone_display, kit?.whatsapp_number].map((s) => s?.trim()).filter(Boolean).join('   ·   ') || undefined;
-        if (projectId) {
-          const { data: proj } = await supabase.from('projects').select('price_display').eq('id', projectId).maybeSingle();
-          priceFallback = (proj as { price_display?: string } | null)?.price_display?.trim() || undefined;
-        }
       }
       // Text-overlay copy: price falls back to projects.price_display; the contact
       // strip (footer zone) comes from the brand kit. A zone with no value is
@@ -1503,9 +1508,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         price: replicateCopy.price?.trim() || priceFallback,
         subheadline: data.ad_copy?.[`primary_text_${primaryLang}`] ?? data.ad_copy?.subheadline,
         footer: data.ad_copy?.footer?.trim() || contactStrip,
+        location,
       };
       const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = replicateAspect
-        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt() : buildReplicatePrompt(replicateCopy)]]
+        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt() : buildReplicatePrompt({ ...replicateCopy, location })]]
         : [
             ['1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
             ['4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],

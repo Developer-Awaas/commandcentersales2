@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { anchorXPct, fontPxForZone, refHeightFor, buildLayersFromZones, logoZone, fitBodyText, ellipsizeAtBoundary, estimateLines } from './zone-layers';
+import { anchorXPct, fontPxForZone, refHeightFor, buildLayersFromZones, logoZone, fitBodyText, ellipsizeAtBoundary, estimateLines, pickZoneForChip } from './zone-layers';
 import type { ReferenceZone } from './reference-style';
 
 const z = (role: ReferenceZone['role'], bbox: [number, number, number, number], align: ReferenceZone['align'] = 'left', fontScale = 0.05): ReferenceZone =>
@@ -131,6 +131,42 @@ describe('buildLayersFromZones', () => {
   it('produces JSON-serializable layers (persistence round-trip is lossless)', () => {
     const layers = buildLayersFromZones([z('headline', [0.1, 0.1, 0.8, 0.1]), z('cta', [0.1, 0.9, 0.3, 0.06])], { headline: 'H', cta: 'Book' }, opts);
     expect(JSON.parse(JSON.stringify(layers))).toEqual(layers);
+  });
+});
+
+describe('RB-P8 — zone-anchored suggestion chips', () => {
+  const opts = { refHeight: 1620 };
+
+  it('pickZoneForChip: top-large→headline, footer→contact, bottom-non-contact→location', () => {
+    const zones = [z('headline', [0.1, 0.05, 0.8, 0.12]), z('price', [0.1, 0.4, 0.4, 0.06]), z('footer', [0.05, 0.92, 0.9, 0.05])];
+    expect(pickZoneForChip('headline', zones, new Set())).toBe(0); // top + largest area
+    expect(pickZoneForChip('contact', zones, new Set())).toBe(2);  // the footer zone
+    expect(pickZoneForChip('location', zones, new Set())).toBe(1); // bottom-most non-footer/cta text zone
+    expect(pickZoneForChip('price', zones, new Set([0, 1, 2]))).toBe(-1); // nothing free
+  });
+
+  it('adds a location chip (placed:false) anchored to an unclaimed zone', () => {
+    // headline gets claimed; the empty subheadline zone (no copy) stays free for location.
+    const zones = [z('headline', [0.1, 0.05, 0.8, 0.1]), z('subheadline', [0.08, 0.82, 0.6, 0.05])];
+    const layers = buildLayersFromZones(zones, { headline: 'Grand Mark', location: 'Patia, Bhubaneswar' }, opts);
+    const loc = layers.find((l) => l.text === 'Patia, Bhubaneswar');
+    expect(loc).toBeTruthy();
+    expect(loc!.placed).toBe(false);
+    expect(loc!.yPct).toBeGreaterThan(70); // anchored to the bottom subheadline zone, not the top headline
+  });
+
+  it('location falls back to a bottom default position when no zone is free', () => {
+    const layers = buildLayersFromZones([z('headline', [0.1, 0.05, 0.8, 0.1])], { headline: 'H', location: 'Patia' }, opts);
+    const loc = layers.find((l) => l.text === 'Patia');
+    expect(loc?.placed).toBe(false);
+    expect(loc!.yPct).toBeGreaterThan(70); // FALLBACK_BBOX.location ≈ 80%
+  });
+
+  it('never duplicates an essential the zone loop already placed (even when ellipsized)', () => {
+    const long = 'A very long headline that will be shortened to fit a tiny zone box neatly';
+    const layers = buildLayersFromZones([z('headline', [0.05, 0.05, 0.2, 0.03])], { headline: long }, opts);
+    // Exactly one headline layer — no duplicate full-text chip from the ensure-pass.
+    expect(layers).toHaveLength(1);
   });
 });
 
