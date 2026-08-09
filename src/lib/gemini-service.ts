@@ -200,7 +200,10 @@ export async function uploadGeminiImageToSupabase(
       image_url: url,
       storage_path: filename,
       prompt_used: opts?.promptUsed ?? opts?.angleLabel ?? null,
-      model_used: 'gpt-image-1',
+      // RB-P7: display tag reflecting the IMAGE_MODEL default. The AUTHORITATIVE
+      // per-call model lives on the agent_interactions ledger row (edge-written);
+      // this client-side field can't see a per-request/rollback override.
+      model_used: 'gpt-image-2',
       status: 'generated',
       session_id: opts?.sessionId ?? null,
       creative_id: opts?.creativeId ?? null,

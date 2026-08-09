@@ -34,7 +34,7 @@
 
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
-import { editImage, resolveImageModel, openaiImageUnitCost } from '../_shared/image-provider.ts'
+import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
@@ -95,9 +95,11 @@ Deno.serve(async (req: Request) => {
     userId?: string | null
     feature?: string
     projectId?: string | null
-    // RB-P6 STEP 2/4: per-request model override for the migration spike matrix.
-    // Omit → IMAGE_MODEL env / default (gpt-image-1).
+    // RB-P6/P7: per-request model override (spike matrix). Omit → IMAGE_MODEL env
+    // / default (gpt-image-2).
     model?: string
+    // RB-P7 guard target: transparent background is unsupported on gpt-image-2.
+    background?: string
   }
   try {
     body = await req.json()
@@ -110,6 +112,16 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'prompt is required' }), { status: 400, headers: corsHeaders() })
   }
   const model = resolveImageModel(body.model)
+
+  // RB-P7 STEP 1 — fail fast, clearly, if a caller ever asks for a transparent
+  // background under gpt-image-2 (unsupported). No code path does this today
+  // (grep-verified), so this is a defensive guard against a future regression.
+  if (model.startsWith('gpt-image-2') && body.background === 'transparent') {
+    return new Response(
+      JSON.stringify({ error: "gpt-image-2 does not support background:'transparent'. Use IMAGE_MODEL=gpt-image-1 for transparent backgrounds, or drop the transparent request." }),
+      { status: 400, headers: corsHeaders() }
+    )
+  }
 
   // Map caller dimensions to the closest supported size
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
@@ -137,7 +149,7 @@ Deno.serve(async (req: Request) => {
         await recordApiCost({
           orgId, userId: userId ?? null,
           provider: 'openai', callType: 'image_edit', feature: feature ?? 'creatives',
-          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: true }),
+          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model) }),
           projectId: projectId ?? null,
         })
       }

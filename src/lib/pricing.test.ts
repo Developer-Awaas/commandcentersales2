@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   textCostUsd, imageUnitCostUsd, MODEL_PRICING,
-  OPENAI_IMAGE_COST_USD, GEMINI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD,
+  OPENAI_IMAGE_COST_USD, GEMINI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD, OPENAI_IMAGE_2_COST_USD,
 } from './pricing';
 
 describe('pricing — text cost', () => {
@@ -43,10 +43,12 @@ describe('pricing — image unit cost', () => {
     warn.mockRestore();
   });
 
-  it('model-aware: gpt-image-1.5 uses the 1.5 table, default stays gpt-image-1', () => {
+  it('model-aware: gpt-image-2 / 1.5 tables selected by model string', () => {
+    expect(imageUnitCostUsd('openai', 'high', 'gpt-image-2')).toBe(OPENAI_IMAGE_2_COST_USD.high);
+    expect(imageUnitCostUsd('openai', 'medium', 'gpt-image-2')).toBe(0.041);
     expect(imageUnitCostUsd('openai', 'high', 'gpt-image-1.5')).toBe(OPENAI_IMAGE_15_COST_USD.high);
     expect(imageUnitCostUsd('openai', 'high', 'gpt-image-1')).toBe(OPENAI_IMAGE_COST_USD.high);
-    expect(imageUnitCostUsd('openai', 'medium')).toBe(OPENAI_IMAGE_COST_USD.medium); // no model → default table
+    expect(imageUnitCostUsd('openai', 'medium')).toBe(OPENAI_IMAGE_COST_USD.medium); // no model → gpt-image-1 table
   });
 });
 

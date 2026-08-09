@@ -1531,10 +1531,10 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
   // REPLACED with our copy rather than emptied). Layout is FIXED; building + text CHANGE.
   return [
     'You are EDITING using two attached images — do not create from scratch.',
-    'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colours, and its aspect ratio. Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
+    'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
     textLines
-      ? `CHANGE (b) — text: replace ONLY the text CONTENT inside the existing zones with this project's copy, keeping each zone's exact position, shape, colour and styling:\n${textLines}`
+      ? `CHANGE (b) — text: replace ONLY the text CONTENT inside the existing zones with this project's copy — use these EXACT strings (in quotes), keeping each zone's exact position, shape, colour and styling:\n${textLines}`
       : 'CHANGE (b) — text: keep the existing text zones exactly in place (shape, position, styling).',
     'Competitor identity: remove image 1\'s logo, brand marks, emblems, QR codes, watermarks, company name and its specific phone-number digits — but LEAVE THE ZONE that held each in place (the price callout, the contact/footer strip, the CTA band stay in their original position, shape and colour), cleared of the competitor\'s specific values. This project supplies its own logo/price/contact separately; never copy them from image 1.',
     'Change nothing else — no new elements, no extra text, no invented building details beyond the two attached images.',
@@ -1554,10 +1554,10 @@ export function buildReplicateLayoutPrompt(): string {
   // back into exactly the same zones.
   return [
     'You are EDITING using two attached images — do not create from scratch.',
-    'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colours, and its aspect ratio. Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
+    'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     'CHANGE (a) — building: render the building/subject from IMAGE 2 into image 1\'s photo area(s), exactly as it appears in IMAGE 2. Do NOT keep, copy, or reference the building shown in image 1; image 1 supplies the LAYOUT only, image 2 supplies the BUILDING.',
     'CHANGE (b) — text: remove ALL lettering, glyphs, numbers, digits, words, wordmarks, punctuation and readable characters of ANY language or script (Latin, Devanagari, Arabic, CJK — none) from every zone. CRUCIALLY: the SHAPES that held the text REMAIN exactly as they are — same panels, bands, badges, buttons, strips, same fill/colour/opacity/position — just EMPTY of text. Do NOT collapse, shrink, delete, or fill-in a shape because its text is gone. Render ZERO readable characters; the app composites the real copy afterwards.',
-    'Competitor identity: remove image 1\'s logo, brand marks, emblems, QR codes, watermarks and company name — but LEAVE THE ZONE that held them in place, empty (do not delete or collapse the zone). This project adds its own logo separately, into that same zone.',
+    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and phone numbers — but LEAVE THE ZONE that held each in place, empty (do not delete or collapse the zone). This project adds its own logo/contact separately, into those same zones.',
     'Change nothing else — no new elements, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }

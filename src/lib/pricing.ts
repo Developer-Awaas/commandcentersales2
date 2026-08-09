@@ -42,18 +42,23 @@ export const OPENAI_IMAGE_COST_USD: Record<ImageQuality, number> = {
 };
 export const GEMINI_IMAGE_COST_USD = 0.039;
 
-// RB-P6 — gpt-image-1.5 per-image rates. ⚠️ PLACEHOLDER / UNVERIFIED (= gpt-image-1
-// until confirmed against OpenAI's published gpt-image-1.5 pricing in the migration
-// spike; flag any mismatch). The AUTHORITATIVE image cost for the ledger is the edge
-// `openaiImageUnitCost()` in supabase/functions/_shared/image-provider.ts — keep this
-// mirror in sync. input_fidelity:'high' on /images/edits adds input-image tokens
-// (~+$0.01/edit estimate); the ledger's unit_cost_usd already carries a re-verify caveat.
+// RB-P7 — gpt-image-2 per-image rates (the new default). From OpenAI's published
+// rates: text in $5/M, image in $8/M (refs ~3k tok high-fidelity), image out $30/M →
+// portrait (1024x1536) ≈ $0.041 medium, ≈ $0.165 high. gpt-image-2 always runs high
+// fidelity and REJECTS input_fidelity → no separate surcharge for it.
+export const OPENAI_IMAGE_2_COST_USD: Record<ImageQuality, number> = { low: 0.011, medium: 0.041, high: 0.165 };
+// gpt-image-1.5 rates (rollback tier). ⚠️ PLACEHOLDER = gpt-image-1 until confirmed.
 export const OPENAI_IMAGE_15_COST_USD: Record<ImageQuality, number> = { low: 0.011, medium: 0.042, high: 0.167 };
+// input_fidelity:'high' edit surcharge — gpt-image-1 / 1.5 only (gpt-image-2 rejects it).
 export const INPUT_FIDELITY_HIGH_SURCHARGE_USD = 0.01;
 
+// AUTHORITATIVE image cost for the ledger is the edge `openaiImageUnitCost()` in
+// supabase/functions/_shared/image-provider.ts — keep this client mirror in sync.
 export function imageUnitCostUsd(provider: string, quality: ImageQuality, model?: string): number | null {
   if (provider === 'openai') {
-    const table = model?.startsWith('gpt-image-1.5') ? OPENAI_IMAGE_15_COST_USD : OPENAI_IMAGE_COST_USD;
+    const table = model?.startsWith('gpt-image-2') ? OPENAI_IMAGE_2_COST_USD
+      : model?.startsWith('gpt-image-1.5') ? OPENAI_IMAGE_15_COST_USD
+      : OPENAI_IMAGE_COST_USD;
     return table[quality] ?? null;
   }
   if (provider === 'gemini') return GEMINI_IMAGE_COST_USD;
