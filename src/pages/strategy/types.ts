@@ -1,4 +1,5 @@
 import type { GalleryImage } from '../../components/ImageGalleryViewer';
+import type { PhotoPanel, PanelSlot, ReferenceZone } from '../../lib/reference-style';
 
 export interface StrategyProject {
   id: string;
@@ -47,6 +48,16 @@ export interface QuickGenerateInputs {
   // the app composites legible copy per vision-located zones (RB-P0 STEP 3), instead
   // of the model baking (often garbled) text. Parallel to the default baked path.
   textOverlayMode?: boolean;
+  // V5 panel assignment. Detection runs ONCE when a replicate_creative ref is
+  // set (QuickGenerateForm effect) and the result is reused at submit — the
+  // vision call is not repeated, so this costs no extra spend over the previous
+  // overlay-only zone pass. referencePanels drives the assignment UI;
+  // referenceZones is the same call's text-overlay output, cached here so
+  // Strategy.tsx doesn't re-analyze.
+  referencePanels?: PhotoPanel[];
+  referenceZones?: ReferenceZone[];
+  /** One entry per detected panel; Generate is blocked while any is unassigned. */
+  panelSlots?: PanelSlot[];
 }
 
 export interface FullStrategyInputs {
@@ -243,6 +254,10 @@ export type StrategyResult =
       // zones instead of baking text into the image.
       textOverlayMode?: boolean;
       zones?: import('../../lib/reference-style').ReferenceZone[];
+      // V5 — explicit per-photo-section assignment. Present only when panels
+      // were detected and every slot was resolved; drives
+      // buildPanelAssignmentDirective in place of the generic replacement rule.
+      panelAssignment?: { panels: PhotoPanel[]; slots: PanelSlot[] };
     }
   | {
       type: 'full';

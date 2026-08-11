@@ -9,6 +9,7 @@ import { supabase } from './supabase';
 import { getOrgId } from './constants';
 import { aiCall } from './ai-service';
 import { getBrandProvider, getMediaProvider } from './providers';
+import { panelPositionLabel, type PhotoPanel, type PanelSlot } from './reference-style';
 
 // ============================================================
 // TYPES
@@ -1523,6 +1524,9 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
 export function buildReplicatePrompt(
   copy: { headline?: string; subheadline?: string; price?: string; cta?: string; location?: string; contact?: string; amenities?: string[] },
   buildingViews = 1,
+  // V5: when the user assigned detected panels, the explicit per-section
+  // mapping REPLACES the generic photo-replacement rule.
+  assignment?: { panels: PhotoPanel[]; slots: PanelSlot[] },
 ): string {
   const amenityLine = copy.amenities?.filter((a) => a?.trim()).map((a) => a.trim());
   const textLines = [
@@ -1541,7 +1545,9 @@ export function buildReplicatePrompt(
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     buildingAngleDirective(buildingViews),
-    buildPhotoReplacementDirective(),
+    assignment?.panels.length
+      ? buildPanelAssignmentDirective(assignment.panels, assignment.slots)
+      : buildPhotoReplacementDirective(),
     textLines
       ? `CHANGE (b) — text: replace the text CONTENT inside the existing zones with this project's copy — use these EXACT strings (in quotes), keeping each zone's exact position, shape, colour and styling:\n${textLines}`
       : 'CHANGE (b) — text: keep the existing text zones exactly in place (shape, position, styling).',
@@ -1581,11 +1587,59 @@ export function buildingAngleDirective(buildingViews: number): string {
  * RB-P10 (Finding A) — replace EVERY photograph in image 1 with our project media;
  * never retain the reference's imagery. Shared by both replicate directives.
  */
+/**
+ * V5 — EXPLICIT per-panel assignment, replacing buildPhotoReplacementDirective's
+ * generic "one image per photo zone, empty the rest" for references where the
+ * panels were detected and the user assigned them.
+ *
+ * Why this exists: RB-P10 STEP 3 proved the run-out→emptied-block half of the
+ * generic rule is a soft preference the model silently ignores — with no
+ * additional media it invented plausible amenity photos instead. Naming each
+ * section and stating its fate individually ("section 3 → EMPTY") converts that
+ * preference into a per-slot instruction, which is the whole point of V5.
+ *
+ * Image numbering must match the payload exactly: IMAGE 1 = layout reference,
+ * IMAGE 2 = hero, then slot-ordered media from IMAGE 3. Callers build the
+ * payload with slotMediaInOrder() so the two agree by construction.
+ */
+export function buildPanelAssignmentDirective(panels: PhotoPanel[], slots: PanelSlot[]): string {
+  if (!panels.length || !slots.length) return '';
+  let nextImage = 3;
+  const lines: string[] = [];
+  const emptied: number[] = [];
+
+  for (const p of [...panels].sort((a, b) => a.index - b.index)) {
+    const slot = slots.find((s) => s.panelIndex === p.index);
+    const where = `photo section ${p.index} (${panelPositionLabel(p)}, ${p.shapeHint})`;
+    if (slot?.source === 'hero') {
+      lines.push(`- ${where} → IMAGE 2 (the building). Fit it to that section's exact shape and crop.`);
+    } else if (slot?.source === 'media' && slot.mediaUrl) {
+      lines.push(`- ${where} → IMAGE ${nextImage}. Fit it to that section's exact shape and crop.`);
+      nextImage += 1;
+    } else {
+      lines.push(`- ${where} → EMPTY: render it as a flat, empty design block in the layout's own palette. No photograph of any kind.`);
+      emptied.push(p.index);
+    }
+  }
+
+  return [
+    `CHANGE (a2) — PHOTO SECTION ASSIGNMENT (explicit, per section). Image 1's layout contains ${panels.length} photo section${panels.length === 1 ? '' : 's'}, assigned as follows:`,
+    lines.join('\n'),
+    'NEVER retain, reuse, or reproduce ANY photograph, person, face, human figure, or property imagery from IMAGE 1 — image 1 supplies the LAYOUT ONLY.',
+    emptied.length
+      ? `ABSOLUTE — sections ${emptied.map((i) => `#${i}`).join(', ')} are marked EMPTY: do NOT invent, generate, imagine, or substitute ANY photograph for them, and do NOT copy image 1's photo into them. An empty section must render as a plain colour block. This is a hard requirement, not a preference.`
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
 export function buildPhotoReplacementDirective(): string {
   return "CHANGE (a2) — REPLACE ALL PHOTOGRAPHY: every photograph in image 1 MUST be replaced with this project's own images. The MAIN building photo → the building from the hero photo (IMAGE 2). Any OTHER photo zone (amenity thumbnail, interior shot, lifestyle/facility photo, a photo card in a strip or grid) → the ADDITIONAL project images provided after the hero (IMAGES 3..N), one image per photo zone, fitted to that zone's exact shape and crop. If the provided images run out, render the remaining photo zones as EMPTIED design blocks in the layout's own palette (a flat/soft-coloured placeholder, NOT a copied photo). NEVER retain, keep, reuse, or reproduce ANY photograph, person, face, human figure, or property imagery from image 1 — image 1 supplies the LAYOUT ONLY.";
 }
 
-export function buildReplicateLayoutPrompt(buildingViews = 1): string {
+export function buildReplicateLayoutPrompt(
+  buildingViews = 1,
+  assignment?: { panels: PhotoPanel[]; slots: PanelSlot[] },
+): string {
   // RB-P6 STEP 3 — INVARIANT pattern (replaces the RB-P5 shape-ban, which caused
   // layout drift by asking the model to remove panels). The layout is FIXED; only
   // the building and the text CHANGE. Blank mode empties the lettering out of the
@@ -1595,7 +1649,9 @@ export function buildReplicateLayoutPrompt(buildingViews = 1): string {
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     buildingAngleDirective(buildingViews),
-    buildPhotoReplacementDirective(),
+    assignment?.panels.length
+      ? buildPanelAssignmentDirective(assignment.panels, assignment.slots)
+      : buildPhotoReplacementDirective(),
     'CHANGE (b) — text, remove ALL lettering, glyphs, numbers, words, wordmarks and readable characters of ANY script (Latin, Devanagari, Arabic, CJK — none). Handle it in TWO cases by whether the text has a container behind it:',
     'CASE 1 — text INSIDE a panel, band, pill, badge, button, card or coloured plate: REMOVE the text but KEEP that container exactly as it is (same shape, fill, colour, opacity, position), now EMPTY. Do NOT collapse, shrink, delete or fill-in the container because its text is gone — the app composites real copy back into it.',
     'CASE 2 — text sitting DIRECTLY on the background or photo (a floating headline, a caption over the sky, free-standing digits with NO container behind them): REMOVE it ENTIRELY and let the background continue SEAMLESSLY through where it was. Do NOT leave behind a pill, plate, box, bar or coloured patch where floating text used to be — that area becomes clean background, as if text were never there.',

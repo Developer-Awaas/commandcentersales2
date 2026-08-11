@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, type ReferenceAnalysis, type ReferenceZone } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, orderPhotoPanels, isValidPhotoPanel, primaryPanelIndex, buildDefaultSlots, unresolvedPanels, slotsResolved, slotMediaInOrder, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel } from './reference-style';
 
 const valid: ReferenceAnalysis = {
   palette: ['#0A2540', '#F5F5F5'],
@@ -114,5 +114,105 @@ describe('buildReferenceStyleBlock', () => {
     const block = buildReferenceStyleBlock(valid, [], null);
     expect(block).not.toMatch(/Depict THIS project, per/);
     expect(block).not.toMatch(/Include the brand logo/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V5 — photo-panel detection + per-panel assignment.
+//
+// The behaviour under test is the one RB-P10 STEP 3 proved the MODEL will not
+// honour on its own: with no image left for a photo section it invented a
+// plausible amenity photo instead of emptying the block. V5 makes each
+// section's fate explicit, so these tests pin the ordering, the slot state
+// machine, and the payload/directive agreement that make that possible.
+// ---------------------------------------------------------------------------
+describe('photo panels — ordering and validation', () => {
+  const panel = (bbox: [number, number, number, number], extra: Partial<PhotoPanel> = {}): PhotoPanel => ({
+    index: 0, bbox, shapeHint: 'rect', approxArea: bbox[2] * bbox[3], ...extra,
+  });
+
+  it('orders reading-order: top-left → bottom-right, re-indexing from 1', () => {
+    const ordered = orderPhotoPanels([
+      panel([0.6, 0.7, 0.3, 0.2]),  // bottom-right
+      panel([0.1, 0.1, 0.5, 0.3]),  // top-left
+      panel([0.1, 0.7, 0.3, 0.2]),  // bottom-left
+    ]);
+    expect(ordered.map((p) => p.index)).toEqual([1, 2, 3]);
+    expect(ordered[0].bbox[1]).toBeCloseTo(0.1);
+    expect(ordered[1].bbox[0]).toBeCloseTo(0.1);
+    expect(ordered[2].bbox[0]).toBeCloseTo(0.6);
+  });
+
+  it('treats a small vertical offset as the SAME row and sorts by x', () => {
+    // Without the row tolerance these would number top-to-bottom, and the
+    // badges would disagree with how a human reads the ad.
+    const ordered = orderPhotoPanels([
+      panel([0.55, 0.42, 0.3, 0.2]),
+      panel([0.10, 0.40, 0.3, 0.2]),
+    ]);
+    expect(ordered[0].bbox[0]).toBeCloseTo(0.10);
+    expect(ordered[1].bbox[0]).toBeCloseTo(0.55);
+  });
+
+  it('rejects a panel with a bad shape hint but keeps valid siblings', () => {
+    expect(isValidPhotoPanel(panel([0, 0, 1, 1]))).toBe(true);
+    expect(isValidPhotoPanel({ ...panel([0, 0, 1, 1]), shapeHint: 'blob' })).toBe(false);
+    expect(isValidPhotoPanel({ bbox: [0, 0, 1], shapeHint: 'rect' })).toBe(false);
+  });
+
+  it('picks the tagged building panel as primary, not merely the largest', () => {
+    const panels = orderPhotoPanels([
+      panel([0.0, 0.0, 1.0, 0.5], { approxArea: 0.5 }),
+      panel([0.1, 0.6, 0.2, 0.2], { approxArea: 0.04, isBuilding: true }),
+    ]);
+    const primary = primaryPanelIndex(panels);
+    expect(panels.find((p) => p.index === primary)?.isBuilding).toBe(true);
+  });
+});
+
+describe('panel slots — the Generate gate', () => {
+  const panels = orderPhotoPanels([
+    { index: 0, bbox: [0, 0, 1, 0.5], shapeHint: 'rect', approxArea: 0.5, isBuilding: true },
+    { index: 0, bbox: [0, 0.6, 0.4, 0.2], shapeHint: 'circle', approxArea: 0.08 },
+    { index: 0, bbox: [0.5, 0.6, 0.4, 0.2], shapeHint: 'wedge', approxArea: 0.08 },
+  ]);
+
+  it('auto-binds the hero to the building panel and leaves the rest unassigned', () => {
+    const slots = buildDefaultSlots(panels);
+    expect(slots.filter((s) => s.source === 'hero')).toHaveLength(1);
+    expect(slots.find((s) => s.source === 'hero')?.panelIndex).toBe(1);
+    expect(unresolvedPanels(slots)).toEqual([2, 3]);
+    expect(slotsResolved(slots)).toBe(false);
+  });
+
+  it('counts an explicit "leave empty" as resolved — it is a real choice', () => {
+    const slots = buildDefaultSlots(panels).map((s) =>
+      s.source === 'unassigned' ? { ...s, source: 'empty' as const } : s);
+    expect(slotsResolved(slots)).toBe(true);
+    expect(unresolvedPanels(slots)).toEqual([]);
+  });
+
+  it('treats a media slot with no url as still unresolved', () => {
+    const slots = buildDefaultSlots(panels).map((s) =>
+      s.panelIndex === 2 ? { ...s, source: 'media' as const } : s);
+    expect(unresolvedPanels(slots)).toContain(2);
+  });
+
+  it('emits media in panel order, excluding hero and empty slots', () => {
+    // This ordering IS the contract with the directive's "section N → IMAGE k"
+    // mapping — if it drifts, images land in the wrong sections silently.
+    const slots = [
+      { panelIndex: 3, source: 'media' as const, mediaUrl: 'https://x/three.png' },
+      { panelIndex: 1, source: 'hero' as const },
+      { panelIndex: 2, source: 'empty' as const },
+    ];
+    expect(slotMediaInOrder(slots)).toEqual(['https://x/three.png']);
+
+    const both = [
+      { panelIndex: 3, source: 'media' as const, mediaUrl: 'https://x/three.png' },
+      { panelIndex: 2, source: 'media' as const, mediaUrl: 'https://x/two.png' },
+      { panelIndex: 1, source: 'hero' as const },
+    ];
+    expect(slotMediaInOrder(both)).toEqual(['https://x/two.png', 'https://x/three.png']);
   });
 });

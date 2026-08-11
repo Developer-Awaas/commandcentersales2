@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -10,6 +11,10 @@ import {
 } from '../../components/CreativeInputs';
 import { ProjectMediaPicker } from '../../components/ProjectMediaPicker';
 import { getOrgId } from '../../lib/constants';
+import { supabase } from '../../lib/supabase';
+import { analyzeReferenceZones } from '../../lib/ai-service';
+import { buildDefaultSlots, orderPhotoPanels, type PanelSlot, type PhotoPanel } from '../../lib/reference-style';
+import PhotoPanelAssigner, { type MediaOption } from './PhotoPanelAssigner';
 import { type QuickGenerateInputs, type StrategyProject } from './types';
 
 const OBJECTIVE_OPTIONS = [
@@ -62,6 +67,118 @@ export function QuickGenerateForm({
   const isMeta = inputs.adPlatform.toLowerCase().includes('meta');
   // Replicate mode is active when a reference carries the Style-reference role.
   const replicateActive = inputs.quickRefs.some((r) => r.role_hint === 'replicate_creative');
+  const replicateRef = inputs.quickRefs.find((r) => r.role_hint === 'replicate_creative');
+
+  // The detection effect fires on the reference's id only, so it must not close
+  // over a stale `inputs` when it merges its result back.
+  const inputsRef = useRef(inputs);
+  inputsRef.current = inputs;
+
+  const [detecting, setDetecting] = useState(false);
+  const analyzedIdRef = useRef<string | null>(null);
+  const [projectMedia, setProjectMedia] = useState<{ id: string; url: string; label: string }[]>([]);
+
+  // V5 STEP 1 — panel detection runs ONCE per reference, here at upload time
+  // rather than at submit, because the assignment UI has to exist before the
+  // user can press Generate. The result (zones AND panels) is cached into
+  // inputs so Strategy.tsx reuses it instead of making a second vision call.
+  useEffect(() => {
+    if (!replicateRef) {
+      analyzedIdRef.current = null;
+      if (inputsRef.current.referencePanels) {
+        onChange({ ...inputsRef.current, referencePanels: undefined, referenceZones: undefined, panelSlots: undefined });
+      }
+      return;
+    }
+    if (analyzedIdRef.current === replicateRef.id) return;
+    analyzedIdRef.current = replicateRef.id;
+
+    let cancelled = false;
+    (async () => {
+      setDetecting(true);
+      try {
+        const res = await analyzeReferenceZones({ base64: replicateRef.base64, mimeType: replicateRef.mimeType });
+        if (cancelled) return;
+        const panels = res?.photoPanels ?? [];
+        onChange({
+          ...inputsRef.current,
+          referencePanels: panels,
+          referenceZones: res?.zones,
+          panelSlots: panels.length ? buildDefaultSlots(panels) : undefined,
+        });
+      } finally {
+        if (!cancelled) setDetecting(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replicateRef?.id]);
+
+  // Assignable media = the project photos the user actually selected above.
+  useEffect(() => {
+    if (isCustom || !inputs.projectId) { setProjectMedia([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('project_assets')
+        .select('id, asset_url, asset_type')
+        .eq('project_id', inputs.projectId);
+      if (cancelled) return;
+      setProjectMedia(
+        ((data ?? []) as { id: string; asset_url?: string; asset_type?: string }[])
+          .filter((r) => !!r.asset_url)
+          .map((r) => ({ id: r.id, url: r.asset_url as string, label: (r.asset_type ?? 'photo').replace(/_/g, ' ') })),
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [inputs.projectId, isCustom]);
+
+  const mediaOptions: MediaOption[] = useMemo(
+    () => projectMedia.filter((m) => inputs.projectMediaIds.includes(m.id)),
+    [projectMedia, inputs.projectMediaIds],
+  );
+
+  const panels = inputs.referencePanels ?? [];
+  const showAssigner = replicateActive && panels.length >= 2;
+
+  /** Stepper: grow with synthetic panels, shrink from the end. Slots follow. */
+  function handleCountChange(next: number) {
+    const current = inputs.referencePanels ?? [];
+    let resized: PhotoPanel[];
+    if (next < current.length) {
+      resized = current.slice(0, next);
+    } else {
+      const extra: PhotoPanel[] = Array.from({ length: next - current.length }, (_, i) => ({
+        index: current.length + i + 1,
+        // Placed bottom-centre; the user knows the real position, the model is
+        // told by slot number, and an approximate badge beats a missing slot.
+        bbox: [0.35, 0.82, 0.3, 0.12] as [number, number, number, number],
+        shapeHint: 'rect' as const,
+        approxArea: 0.036,
+      }));
+      resized = [...current, ...extra];
+    }
+    const ordered = orderPhotoPanels(resized);
+    const prior = inputs.panelSlots ?? [];
+    onChange({
+      ...inputs,
+      referencePanels: ordered,
+      panelSlots: ordered.map((p) => prior.find((s) => s.panelIndex === p.index) ?? { panelIndex: p.index, source: 'unassigned' as const }),
+    });
+  }
+
+  function handleSlotChange(panelIndex: number, next: PanelSlot) {
+    const prior = inputs.panelSlots ?? buildDefaultSlots(panels);
+    onChange({
+      ...inputs,
+      // Only one panel can hold the hero — rebinding it elsewhere releases the old one.
+      panelSlots: prior.map((s) => {
+        if (s.panelIndex === panelIndex) return next;
+        if (next.source === 'hero' && s.source === 'hero') return { ...s, source: 'unassigned' as const };
+        return s;
+      }),
+    });
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -221,8 +338,25 @@ export function QuickGenerateForm({
                 REPLACE the reference's other photo zones — the reference's own imagery
                 is never retained; unfilled photo zones become empty design blocks. */}
             <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the <strong>main building</strong> (one photo → locked to that angle; several exterior photos → best-fitting view, never invents unseen sides). Your <strong>other project photos (amenities, interiors) replace the reference's OTHER photo zones</strong> — the reference's own photos are never kept. Photo zones with no image become empty design blocks.</p>
-            {replicateActive && inputs.projectMediaIds.length === 0 && (
+            {replicateActive && inputs.projectMediaIds.length === 0 && !showAssigner && (
               <p className="text-[11px] text-amber-400 -mt-1">💡 This reference may have amenity/interior photo sections. Select project photos above so <strong>your</strong> images fill them — otherwise those zones render as empty blocks.</p>
+            )}
+            {detecting && (
+              <p className="text-[11px] text-text-tertiary -mt-1 flex items-center gap-2">
+                <Spinner size="sm" /> Locating the reference’s photo sections…
+              </p>
+            )}
+            {/* V5 STEP 2 — per-panel assignment. Only for multi-panel references;
+                single-panel/none leaves the previous flow exactly as it was. */}
+            {showAssigner && replicateRef && (
+              <PhotoPanelAssigner
+                previewUrl={replicateRef.preview_url}
+                panels={panels}
+                slots={inputs.panelSlots ?? buildDefaultSlots(panels)}
+                mediaOptions={mediaOptions}
+                onCountChange={handleCountChange}
+                onSlotChange={handleSlotChange}
+              />
             )}
             <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer -mt-1">
               <input

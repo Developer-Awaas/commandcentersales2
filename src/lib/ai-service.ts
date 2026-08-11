@@ -2,7 +2,16 @@ import { supabase } from './supabase';
 import { ADMIN_EMAIL } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
-import { isValidReferenceAnalysis, sanitizePalette, isValidReferenceZone, dedupeZones, clampBbox, type ReferenceAnalysis, type ReferenceZone } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, isValidReferenceZone, dedupeZones, clampBbox, isValidPhotoPanel, orderPhotoPanels, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel } from './reference-style';
+
+/**
+ * V5 — zones AND photo panels from one vision pass. Panels are what the
+ * assignment UI binds project media to; zones remain the text-overlay input.
+ */
+export interface ReferenceZoneAnalysis {
+  zones: ReferenceZone[];
+  photoPanels: PhotoPanel[];
+}
 import { recordApiCost } from './api-cost';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
@@ -529,10 +538,18 @@ export async function analyzeReferenceStyle(
 const ZONE_VISION_MODEL = 'claude-sonnet-4-6';
 const ZONE_PROMPT =
   'You are a layout-analysis tool. Analyze this real-estate ad and return the position of every distinct ZONE as STRICT JSON. ' +
-  'Output ONLY: {"zones":[{"role":"headline|subheadline|price|cta|badge|checklist|logo|photo|footer|other","bbox":[x,y,w,h],"align":"left|center|right","font_scale":number,"weight":"normal|bold","color":"#rrggbb"}]}. ' +
+  'Output ONLY: {"zones":[{"role":"headline|subheadline|price|cta|badge|checklist|logo|photo|footer|other","bbox":[x,y,w,h],"align":"left|center|right","font_scale":number,"weight":"normal|bold","color":"#rrggbb"}],' +
+  '"photo_panels":[{"bbox":[x,y,w,h],"shape_hint":"rect|circle|wedge|diagonal","approx_area":number,"is_building":boolean}]}. ' +
   'bbox is NORMALIZED 0..1 with x,y = top-left corner and w,h = width,height as fractions of the full image. ' +
   'font_scale = approximate text cap-height as a fraction of image height (0 for photo/logo). ' +
   'Include EVERY text block, each badge/stat cell as a SEPARATE zone, each bullet/checklist group as ONE zone, the logo zone(s), and the main photo zone. ' +
+  // V5 — photo_panels drives per-panel image assignment, so it must enumerate
+  // EVERY photographic section separately (the zones[] 'photo' role tends to
+  // collapse a photo strip into one box, which is useless for assignment).
+  'photo_panels: list EVERY distinct section of the layout that contains a PHOTOGRAPH — the main building shot AND every secondary amenity/interior/lifestyle thumbnail, each cell of a photo strip or grid, each circular or angled photo inset — as a SEPARATE entry. ' +
+  'shape_hint describes the panel\'s crop shape: "rect" for a rectangle/square, "circle" for a circular or oval inset, "wedge" for a triangular/pie/chevron slice, "diagonal" for a rectangle cut by a slanted edge. ' +
+  'approx_area = the panel\'s area as a fraction of the full image (0..1). is_building = true for the ONE panel holding the main building/property hero shot, false for all others. ' +
+  'If the layout contains no photographs at all, return "photo_panels":[]. ' +
   'Do NOT name the building, company, or location. Output only the JSON object.';
 
 /**
@@ -543,15 +560,23 @@ const ZONE_PROMPT =
  */
 export async function analyzeReferenceZones(
   image: string | { base64: string; mimeType: string },
-): Promise<ReferenceZone[] | null> {
+): Promise<ReferenceZoneAnalysis | null> {
   if (MOCK_AI_ENABLED) {
-    return [
-      { role: 'logo', bbox: [0.40, 0.03, 0.20, 0.08], align: 'center', fontScale: 0, weight: 'normal', color: '#c9a961' },
-      { role: 'headline', bbox: [0.08, 0.12, 0.84, 0.12], align: 'center', fontScale: 0.09, weight: 'bold', color: '#ffffff' },
-      { role: 'price', bbox: [0.08, 0.28, 0.5, 0.06], align: 'left', fontScale: 0.04, weight: 'bold', color: '#f59e0b' },
-      { role: 'photo', bbox: [0.0, 0.38, 1.0, 0.5], align: 'center', fontScale: 0, weight: 'normal', color: '#000000' },
-      { role: 'cta', bbox: [0.08, 0.9, 0.4, 0.06], align: 'left', fontScale: 0.035, weight: 'bold', color: '#ffffff' },
-    ];
+    return {
+      zones: [
+        { role: 'logo', bbox: [0.40, 0.03, 0.20, 0.08], align: 'center', fontScale: 0, weight: 'normal', color: '#c9a961' },
+        { role: 'headline', bbox: [0.08, 0.12, 0.84, 0.12], align: 'center', fontScale: 0.09, weight: 'bold', color: '#ffffff' },
+        { role: 'price', bbox: [0.08, 0.28, 0.5, 0.06], align: 'left', fontScale: 0.04, weight: 'bold', color: '#f59e0b' },
+        { role: 'photo', bbox: [0.0, 0.38, 1.0, 0.5], align: 'center', fontScale: 0, weight: 'normal', color: '#000000' },
+        { role: 'cta', bbox: [0.08, 0.9, 0.4, 0.06], align: 'left', fontScale: 0.035, weight: 'bold', color: '#ffffff' },
+      ],
+      // 3 panels so the assignment UI (>= 2) is exercised under VITE_MOCK_AI.
+      photoPanels: orderPhotoPanels([
+        { index: 0, bbox: [0.0, 0.38, 1.0, 0.34], shapeHint: 'rect', approxArea: 0.34, isBuilding: true },
+        { index: 0, bbox: [0.06, 0.74, 0.40, 0.12], shapeHint: 'circle', approxArea: 0.05 },
+        { index: 0, bbox: [0.54, 0.74, 0.40, 0.12], shapeHint: 'wedge', approxArea: 0.05 },
+      ]),
+    };
   }
 
   const imageSource = typeof image === 'string'
@@ -571,7 +596,7 @@ export async function analyzeReferenceZones(
       logToLangfuse('claude-vision-reference-zones', { model: ZONE_VISION_MODEL, level: 'ERROR', statusMessage: outcome.error });
       return null;
     }
-    const parsed = extractJson(outcome.result.text) as { zones?: unknown[] } | null;
+    const parsed = extractJson(outcome.result.text) as { zones?: unknown[]; photo_panels?: unknown[] } | null;
     logToLangfuse('claude-vision-reference-zones', {
       output: JSON.stringify(parsed), model: ZONE_VISION_MODEL,
       inputTokens: outcome.result.inputTokens, outputTokens: outcome.result.outputTokens,
@@ -585,7 +610,26 @@ export async function analyzeReferenceZones(
     });
     const valid = normalized.filter(isValidReferenceZone).map((z) => ({ ...z, bbox: clampBbox(z.bbox) }));
     if (!valid.length) return null;
-    return dedupeZones(valid);
+
+    // V5 — photo panels ride on the SAME vision call (no extra spend). Panels
+    // failing validation are dropped individually rather than voiding the whole
+    // analysis: zones are still useful on their own, and an empty panel list
+    // simply means the assignment UI stays hidden (current flow unchanged).
+    const rawPanels = Array.isArray(parsed.photo_panels) ? parsed.photo_panels : [];
+    const panels = rawPanels
+      .map((p) => {
+        const o = p as Record<string, unknown>;
+        return {
+          index: 0,
+          bbox: o.bbox as [number, number, number, number],
+          shapeHint: (typeof o.shapeHint === 'string' ? o.shapeHint : o.shape_hint) as PhotoPanel['shapeHint'],
+          approxArea: typeof o.approxArea === 'number' ? o.approxArea : (typeof o.approx_area === 'number' ? o.approx_area : 0),
+          isBuilding: Boolean(o.isBuilding ?? o.is_building),
+        };
+      })
+      .filter(isValidPhotoPanel);
+
+    return { zones: dedupeZones(valid), photoPanels: orderPhotoPanels(panels) };
   } catch (err) {
     logToLangfuse('claude-vision-reference-zones', { model: ZONE_VISION_MODEL, level: 'ERROR', statusMessage: err instanceof Error ? err.message : 'Unknown error' });
     return null;

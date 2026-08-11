@@ -6,6 +6,7 @@ import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants
 import { getBrandProvider } from '../lib/providers';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, isAiEnabled, describeImageForFlux, analyzeReferenceZones } from '../lib/ai-service';
+import { unresolvedPanels, slotMediaInOrder } from '../lib/reference-style';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
 import { useNavigation } from '../contexts/NavigationContext';
@@ -127,6 +128,9 @@ export function Strategy() {
 
   const [submitting, setSubmitting] = useState(false);
   const [geminiActive, setGeminiActive] = useState(false);
+  // V5 — Generate is blocked while any detected photo section is unassigned.
+  // Empty when no panels were detected, so the normal flow is never gated.
+  const unassignedPanels = unresolvedPanels(quickInputs.panelSlots ?? []);
   const [result, setResult] = useState<StrategyResult>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
@@ -468,6 +472,13 @@ export function Strategy() {
         // differ (handled in StrategyResult). Overrides any hero selection.
         let replicateAspect: RefAspect | undefined;
         let overlayZones: import('../lib/reference-style').ReferenceZone[] | undefined;
+        // V5 STEP 3/4 — the explicit per-section assignment, present only when
+        // panels were detected AND the user resolved every slot. Undefined here
+        // means the generic RB-P10 photo-replacement rule still applies.
+        const panelAssignment =
+          quickInputs.referencePanels?.length && quickInputs.panelSlots?.length
+            ? { panels: quickInputs.referencePanels, slots: quickInputs.panelSlots }
+            : undefined;
         const replicateRef = findStyleReference(quickInputs.quickRefs);
         if (replicateRef && quickInputs.projectId && quickInputs.projectId !== 'custom') {
           // Building subject = the asset the user flagged ★ Hero at generate-click
@@ -510,16 +521,27 @@ export function Strategy() {
             // blocks sooner — the deliberate trade. Raise only with a fresh
             // latency measurement.
             const heroUrl = 'url' in heroSubject ? heroSubject.url : undefined;
-            const { data: mediaRows } = await supabase
-              .from('project_assets')
-              .select('asset_url, asset_type')
-              .eq('project_id', quickInputs.projectId);
-            const rows = ((mediaRows ?? []) as { asset_url?: string; asset_type?: string }[])
-              .filter((r): r is { asset_url: string; asset_type?: string } => !!r.asset_url && r.asset_url !== heroUrl);
-            const isExterior = (t?: string) => !!t && /exterior|building/i.test(t);
-            const ordered = [...rows.filter((r) => isExterior(r.asset_type)), ...rows.filter((r) => !isExterior(r.asset_type))];
-            const additionalMedia = [...new Set(ordered.map((r) => r.asset_url))].slice(0, 2);
-            if (additionalMedia.length) heroImages.push(...additionalMedia.map((url) => ({ url })));
+            // V5 STEP 3 — when panels were detected AND assigned, the payload is
+            // the slot order, nothing else: IMAGE 2 = hero, then exactly the
+            // media the user bound, in panel order. The directive's
+            // "section N → IMAGE k" mapping is only true if this matches, so
+            // both sides derive from slotMediaInOrder().
+            const assignedSlots = quickInputs.panelSlots;
+            if (panelAssignment) {
+              const slotMedia = slotMediaInOrder(assignedSlots ?? []);
+              if (slotMedia.length) heroImages.push(...slotMedia.map((url) => ({ url })));
+            } else {
+              const { data: mediaRows } = await supabase
+                .from('project_assets')
+                .select('asset_url, asset_type')
+                .eq('project_id', quickInputs.projectId);
+              const rows = ((mediaRows ?? []) as { asset_url?: string; asset_type?: string }[])
+                .filter((r): r is { asset_url: string; asset_type?: string } => !!r.asset_url && r.asset_url !== heroUrl);
+              const isExterior = (t?: string) => !!t && /exterior|building/i.test(t);
+              const ordered = [...rows.filter((r) => isExterior(r.asset_type)), ...rows.filter((r) => !isExterior(r.asset_type))];
+              const additionalMedia = [...new Set(ordered.map((r) => r.asset_url))].slice(0, 2);
+              if (additionalMedia.length) heroImages.push(...additionalMedia.map((url) => ({ url })));
+            }
             // Evidence log (RB-P2 Step 3 / H1): prove the style-reference asset
             // actually reaches the generation payload — if this shows styleRef:true
             // the reference IS wired; a "model free-composes" report then means the
@@ -534,8 +556,14 @@ export function Strategy() {
             });
             // Text-overlay mode (beta): locate the reference's zones now so
             // StrategyResult can composite crisp copy per zone onto a clean template.
+            // V5 — QuickGenerateForm already ran this vision pass at upload time
+            // (it needs the panels to render the assignment UI), so reuse its
+            // cached zones. Only analyze here if that cache is somehow absent —
+            // otherwise this would be a second, duplicate paid call.
             if (quickInputs.textOverlayMode) {
-              overlayZones = (await analyzeReferenceZones({ base64: replicateRef.base64, mimeType: replicateRef.mimeType })) ?? undefined;
+              overlayZones = quickInputs.referenceZones
+                ?? (await analyzeReferenceZones({ base64: replicateRef.base64, mimeType: replicateRef.mimeType }))?.zones
+                ?? undefined;
               if (!overlayZones) showToast('Could not locate the reference layout zones — generating the standard replicate instead.', 'info');
             }
           } else {
@@ -622,7 +650,11 @@ export function Strategy() {
           primary_text: parsed.ad_copy?.[`primary_text_${primaryLang}`] ?? '',
           cta: parsed.ad_copy?.cta ?? 'Send WhatsApp Message',
           nano_prompt: parsed.nanobanana_prompt_main ?? '',
-          senior_designer_brief: parsed,
+          // V5 STEP 4 — panel assignment rides inside the existing jsonb brief
+          // (no new column, no migration). The bug-#45 DB resume already
+          // reconstructs from senior_designer_brief, so a reload — and any
+          // later regenerate — keeps the user's slot assignments.
+          senior_designer_brief: panelAssignment ? { ...parsed, panel_assignment: panelAssignment } : parsed,
           reference_image_manifest: parsed.reference_image_manifest ?? [],
           design_dna_tags: parsed.design_dna_tags ?? {},
           languages: quickInputs.languages,
@@ -662,7 +694,7 @@ export function Strategy() {
 
         if (updatePricesInDb) await savePriceUpdates();
 
-        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages, replicateAspect, textOverlayMode: !!overlayZones, zones: overlayZones });
+        setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages, replicateAspect, textOverlayMode: !!overlayZones, zones: overlayZones, panelAssignment });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';
       showToast('Generation failed. Check console.', 'error');
@@ -1139,14 +1171,24 @@ export function Strategy() {
       )}
 
       {mode === 'quick' && (
-        <button
-          onClick={handleQuickSubmit}
-          disabled={submitting || geminiActive}
-          className="mt-4 w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-        >
-          {submitting ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-          {submitting ? 'Crafting strategy…' : geminiActive ? 'Generating images…' : 'Quick Generate Ad'}
-        </button>
+        <>
+          <button
+            onClick={handleQuickSubmit}
+            disabled={submitting || geminiActive || unassignedPanels.length > 0}
+            className="mt-4 w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            {submitting ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
+            {submitting ? 'Crafting strategy…' : geminiActive ? 'Generating images…' : 'Quick Generate Ad'}
+          </button>
+          {/* V5 STEP 2 — the button says WHY it's disabled. A dead button with no
+              reason is the failure mode this replaces. */}
+          {unassignedPanels.length > 0 && !submitting && !geminiActive && (
+            <p className="mt-2 text-center text-xs text-amber-400">
+              {unassignedPanels.length} photo {unassignedPanels.length === 1 ? 'section' : 'sections'} unassigned
+              {' '}(#{unassignedPanels.join(', #')}) — assign an image or mark “leave empty” above.
+            </p>
+          )}
+        </>
       )}
 
       {/* Two-phase generation progress indicator */}

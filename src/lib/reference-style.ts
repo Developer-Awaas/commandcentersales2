@@ -53,6 +53,125 @@ export interface ReferenceZone {
   color: string;
 }
 
+/**
+ * A distinct PHOTO section of the reference layout (V5). Separate from
+ * ReferenceZone's 'photo' role because assignment needs more than a box: the
+ * shape drives how the model must crop into it (a wedge/circle crop reads very
+ * differently from a rect), and `index` is a stable, user-visible handle that
+ * the badge overlay, the slot list, and the generation directive all agree on.
+ *
+ * `index` is 1-based and assigned in READING ORDER (top-left → bottom-right)
+ * by orderPhotoPanels — never trust the vision pass's own ordering.
+ */
+export interface PhotoPanel {
+  index: number;
+  bbox: [number, number, number, number];
+  shapeHint: 'rect' | 'circle' | 'wedge' | 'diagonal';
+  approxArea: number;
+  /** The vision pass's guess at which panel holds the main building shot. */
+  isBuilding?: boolean;
+}
+
+const SHAPE_HINTS = ['rect', 'circle', 'wedge', 'diagonal'] as const;
+
+export function isValidPhotoPanel(x: unknown): x is PhotoPanel {
+  if (!x || typeof x !== 'object') return false;
+  const o = x as Record<string, unknown>;
+  if (!Array.isArray(o.bbox) || o.bbox.length !== 4) return false;
+  if (!o.bbox.every((n) => typeof n === 'number' && n >= -0.05 && n <= 1.05)) return false;
+  return (SHAPE_HINTS as readonly string[]).includes(o.shapeHint as string);
+}
+
+/**
+ * Reading order: top-left → bottom-right, with a row tolerance so panels whose
+ * tops differ by a few pixels still count as the same row and sort by x. Without
+ * the tolerance, a side-by-side pair with a 1% vertical offset would number
+ * top-to-bottom and the badges would disagree with how a human reads the ad.
+ * Re-indexes 1..N; the input's own index field is ignored.
+ */
+export function orderPhotoPanels(panels: PhotoPanel[], rowTolerance = 0.08): PhotoPanel[] {
+  return [...panels]
+    .sort((a, b) => {
+      const dy = a.bbox[1] - b.bbox[1];
+      if (Math.abs(dy) > rowTolerance) return dy;
+      return a.bbox[0] - b.bbox[0];
+    })
+    .map((p, i) => ({ ...p, index: i + 1, bbox: clampBbox(p.bbox) }));
+}
+
+/**
+ * Human/model-readable position ("top-left", "middle-centre"). Shared by the
+ * assignment UI and the generation directive on purpose: the badge the user
+ * clicks and the section the model is told about must be described identically,
+ * or a misassignment becomes impossible to diagnose from either side.
+ */
+export function panelPositionLabel(p: PhotoPanel): string {
+  const [x, y, w, h] = p.bbox;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const v = cy < 0.34 ? 'top' : cy > 0.66 ? 'bottom' : 'middle';
+  const hz = cx < 0.34 ? 'left' : cx > 0.66 ? 'right' : 'centre';
+  return `${v}-${hz}`;
+}
+
+/** Largest panel, preferring one the vision pass tagged as the building. */
+export function primaryPanelIndex(panels: PhotoPanel[]): number | null {
+  if (!panels.length) return null;
+  const tagged = panels.filter((p) => p.isBuilding);
+  const pool = tagged.length ? tagged : panels;
+  return pool.reduce((best, p) => (p.approxArea > best.approxArea ? p : best), pool[0]).index;
+}
+
+/**
+ * What the user bound to one detected panel. 'unassigned' is a real state, not a
+ * placeholder — Generate stays disabled while any slot is in it, because an
+ * unassigned panel is precisely the case where the model previously invented an
+ * amenity photo (RB-P10's soft run-out rule). 'empty' is an explicit, positive
+ * choice to render a blank design block there.
+ */
+export type PanelSlotSource = 'hero' | 'media' | 'empty' | 'unassigned';
+
+export interface PanelSlot {
+  panelIndex: number;
+  source: PanelSlotSource;
+  /** Set only when source === 'media'. */
+  mediaUrl?: string;
+}
+
+/** Slot 1..N with the primary/building panel pre-bound to the ★ hero. */
+export function buildDefaultSlots(panels: PhotoPanel[], heroPanelIndex?: number | null): PanelSlot[] {
+  const hero = heroPanelIndex ?? primaryPanelIndex(panels);
+  return panels.map((p) => ({
+    panelIndex: p.index,
+    source: p.index === hero ? ('hero' as const) : ('unassigned' as const),
+  }));
+}
+
+/** Panel indices still awaiting a decision (drives the disabled-button subtitle). */
+export function unresolvedPanels(slots: PanelSlot[]): number[] {
+  return slots
+    .filter((s) => s.source === 'unassigned' || (s.source === 'media' && !s.mediaUrl))
+    .map((s) => s.panelIndex);
+}
+
+export function slotsResolved(slots: PanelSlot[]): boolean {
+  return unresolvedPanels(slots).length === 0;
+}
+
+/**
+ * Media URLs in slot order, excluding the hero (which is always IMAGE 2 and is
+ * pushed by the caller first) and excluding empty/unassigned slots. This is the
+ * exact order the generation payload must attach them in for the directive's
+ * "section N → image N+1" mapping to be true.
+ */
+export function slotMediaInOrder(slots: PanelSlot[]): string[] {
+  return slots
+    .slice()
+    .sort((a, b) => a.panelIndex - b.panelIndex)
+    .filter((s) => s.source === 'media' && !!s.mediaUrl)
+    .map((s) => s.mediaUrl as string);
+}
+
 const ZONE_ROLES: ZoneRole[] = ['headline','subheadline','price','cta','badge','checklist','logo','photo','footer','other'];
 
 export function isValidReferenceZone(x: unknown): x is ReferenceZone {

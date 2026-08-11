@@ -1317,7 +1317,7 @@ function FullStrategyPlaceholder({ inputs, projects }: { inputs: FullStrategyInp
 
 
 
-function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange, resumedGalleryImages, heroImages, replicateAspect, textOverlayMode, zones }: {
+function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project, projectId, funnelStage, onGeminiStateChange, resumedGalleryImages, heroImages, replicateAspect, textOverlayMode, zones, panelAssignment }: {
   data: SeniorDesignerResult;
   languages: string[];
   onRetry?: () => void;
@@ -1336,6 +1336,10 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
   // project hero] and we generate ONE image at this aspect using
   // buildReplicatePrompt instead of the 3-up hero/from-scratch path.
   replicateAspect?: '1:1' | '4:5' | '9:16';
+  // V5 — explicit per-photo-section assignment (panels + the user's slots).
+  // When present it REPLACES the generic photo-replacement directive, and the
+  // payload's image order was built from the same slots.
+  panelAssignment?: { panels: import('../../lib/reference-style').PhotoPanel[]; slots: import('../../lib/reference-style').PanelSlot[] };
   // Text-overlay mode (RB-P0 STEP 3): compose crisp copy per `zones` onto a clean
   // template instead of baking text into the model image.
   textOverlayMode?: boolean;
@@ -1532,7 +1536,7 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
       // style ref are the building photos (angle-lock at 1, view-bounded at 2+).
       const buildingViews = Math.max(1, (heroImages?.length ?? 2) - 1);
       const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = replicateAspect
-        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt(buildingViews) : buildReplicatePrompt(aiCopy, buildingViews)]]
+        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt(buildingViews, panelAssignment) : buildReplicatePrompt(aiCopy, buildingViews, panelAssignment)]]
         : [
             ['1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
             ['4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],
@@ -2046,6 +2050,7 @@ export function StrategyResultPanel({ result, onRetry, onSaveQuick, onSaveFull, 
             resumedGalleryImages={result.resumedGalleryImages}
             heroImages={result.heroImages}
             replicateAspect={result.replicateAspect}
+            panelAssignment={result.panelAssignment}
             textOverlayMode={result.textOverlayMode}
             zones={result.zones}
           />;
