@@ -216,11 +216,14 @@ export function QuickGenerateForm({
         {replicateActive && (
           <>
             <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — layout copied from the style reference; this hero appears as the building. Produces one image at the reference's aspect ratio. Assign a project photo the ★ Hero role above.</p>
-            {/* RB-P9 hero-hint: the ★ hero anchors the building; up to 2 more
-                exterior/building photos (different angles of the SAME building) are
-                auto-included so the AI can pick the best-fitting VIEW — it never
-                invents unseen sides. Amenity/interior photos aren't used here. */}
-            <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the building into the reference's photo area. Add more <strong>exterior photos of the same building from different angles</strong> and the AI picks the best-fitting view (it never invents unseen sides — with one photo it locks to that exact angle). Amenity/interior photos aren't used in Replicate mode.</p>
+            {/* RB-P10 hero-hint: hero anchors the main building (angle-locked to one
+                photo, view-bounded across several); ALL other project photos now
+                REPLACE the reference's other photo zones — the reference's own imagery
+                is never retained; unfilled photo zones become empty design blocks. */}
+            <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the <strong>main building</strong> (one photo → locked to that angle; several exterior photos → best-fitting view, never invents unseen sides). Your <strong>other project photos (amenities, interiors) replace the reference's OTHER photo zones</strong> — the reference's own photos are never kept. Photo zones with no image become empty design blocks.</p>
+            {replicateActive && inputs.projectMediaIds.length === 0 && (
+              <p className="text-[11px] text-amber-400 -mt-1">💡 This reference may have amenity/interior photo sections. Select project photos above so <strong>your</strong> images fill them — otherwise those zones render as empty blocks.</p>
+            )}
             <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer -mt-1">
               <input
                 type="checkbox"

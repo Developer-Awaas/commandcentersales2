@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildingAngleDirective, buildReplicateLayoutPrompt, buildReplicatePrompt } from './senior-designer-prompts';
+import { buildingAngleDirective, buildPhotoReplacementDirective, buildReplicateLayoutPrompt, buildReplicatePrompt } from './senior-designer-prompts';
 
 describe('RB-P9 — two-tier building-angle policy', () => {
   it('1 view → ANGLE-LOCK (exact viewpoint, never invent unseen sides)', () => {
@@ -10,16 +10,33 @@ describe('RB-P9 — two-tier building-angle policy', () => {
     expect(d).not.toMatch(/VIEW-BOUNDED/);
   });
 
-  it('2+ views → VIEW-BOUNDED (pick best-fit, never blend, never invent), labels 2..N', () => {
-    const d3 = buildingAngleDirective(3); // hero + 2 extra → IMAGES 2..4
-    expect(d3).toMatch(/VIEW-BOUNDED/);
-    expect(d3).toMatch(/IMAGES 2 through 4/);
-    expect(d3).toMatch(/best fits/i);
-    expect(d3).toMatch(/do not blend/i);
-    expect(d3).toMatch(/never invent/i);
+  it('2+ views → VIEW-BOUNDED (pick best-fit, never blend, never invent), robust to mixed media', () => {
+    const d = buildingAngleDirective(3);
+    expect(d).toMatch(/VIEW-BOUNDED/);
+    expect(d).toMatch(/IMAGE 2 is the building/);
+    expect(d).toMatch(/additional exterior views/i); // doesn't claim ALL images are the building
+    expect(d).toMatch(/best fits/i);
+    expect(d).toMatch(/do not blend/i);
+    expect(d).toMatch(/never invent/i);
+  });
 
-    const d2 = buildingAngleDirective(2); // hero + 1 extra → IMAGES 2..3
-    expect(d2).toMatch(/IMAGES 2 through 3/);
+  it('replace-all-photography directive: never retain image-1 imagery, run-out → emptied blocks', () => {
+    const d = buildPhotoReplacementDirective();
+    expect(d).toMatch(/REPLACE ALL PHOTOGRAPHY/);
+    expect(d).toMatch(/NEVER retain/i);
+    expect(d).toMatch(/person|face|human/i);
+    expect(d).toMatch(/EMPTIED design blocks/i);
+    // both directives embed it
+    expect(buildReplicateLayoutPrompt(1)).toMatch(/REPLACE ALL PHOTOGRAPHY/);
+    expect(buildReplicatePrompt({ headline: 'H' }, 1)).toMatch(/REPLACE ALL PHOTOGRAPHY/);
+  });
+
+  it('AI copy map carries subheadline/contact/amenities and dissolves uncopied zones', () => {
+    const p = buildReplicatePrompt({ headline: 'H', subheadline: 'Sub', contact: '+91 98x', amenities: ['Pool', 'Gym'] }, 1);
+    expect(p).toMatch(/"Sub"/);
+    expect(p).toMatch(/"\+91 98x"/);
+    expect(p).toMatch(/"Pool", "Gym"/);
+    expect(p).toMatch(/DISSOLVE it/); // AI empty rule: remove uncopied containers
   });
 
   it('both replicate directives embed the angle policy and switch on view count', () => {

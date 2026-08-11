@@ -1520,12 +1520,19 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
 // `nanobanana_prompt_main` to leak in here. The model preserves the reference's
 // exact layout instead of re-imagining a scene from a 9-section brief. The only
 // project-specific text injected is the ad copy ({headline, price, cta}).
-export function buildReplicatePrompt(copy: { headline?: string; price?: string; cta?: string; location?: string }, buildingViews = 1): string {
+export function buildReplicatePrompt(
+  copy: { headline?: string; subheadline?: string; price?: string; cta?: string; location?: string; contact?: string; amenities?: string[] },
+  buildingViews = 1,
+): string {
+  const amenityLine = copy.amenities?.filter((a) => a?.trim()).map((a) => a.trim());
   const textLines = [
-    copy.headline?.trim() ? `- Headline text: "${copy.headline.trim()}"` : '',
-    copy.price?.trim()    ? `- Price text: "${copy.price.trim()}"`       : '',
-    copy.location?.trim() ? `- Location text: "${copy.location.trim()}"` : '',
-    copy.cta?.trim()      ? `- Call-to-action text: "${copy.cta.trim()}"` : '',
+    copy.headline?.trim()    ? `- Headline text: "${copy.headline.trim()}"` : '',
+    copy.subheadline?.trim() ? `- Subheadline text: "${copy.subheadline.trim()}"` : '',
+    copy.price?.trim()       ? `- Price text: "${copy.price.trim()}"` : '',
+    copy.location?.trim()    ? `- Location text: "${copy.location.trim()}"` : '',
+    copy.contact?.trim()     ? `- Contact text: "${copy.contact.trim()}"` : '',
+    copy.cta?.trim()         ? `- Call-to-action text: "${copy.cta.trim()}"` : '',
+    amenityLine?.length      ? `- Amenity/detail labels (assign in order to the badge/stat/checklist cells): ${amenityLine.map((a) => `"${a}"`).join(', ')}` : '',
   ].filter(Boolean).join('\n');
 
   // RB-P6/P8 — INVARIANT pattern (same as the blank variant, but text is REPLACED
@@ -1534,13 +1541,17 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     buildingAngleDirective(buildingViews),
+    buildPhotoReplacementDirective(),
     textLines
       ? `CHANGE (b) — text: replace the text CONTENT inside the existing zones with this project's copy — use these EXACT strings (in quotes), keeping each zone's exact position, shape, colour and styling:\n${textLines}`
       : 'CHANGE (b) — text: keep the existing text zones exactly in place (shape, position, styling).',
     // RB-P8 STEP 2 — copy integrity: prevents the SCHEDD-33 leak class (the reference
     // ad's own headline/price/phone bleeding through into our output).
-    'COPY INTEGRITY — ABSOLUTE: every readable character in the output MUST come from the EXACT strings above and nothing else. NEVER reproduce, paraphrase, or leave any text from image 1 (its headline, price, digits, phone, tagline, company name — none). Any zone that has NO corresponding string above must be rendered as an EMPTY container (if it has a panel/band/pill behind it) or seamless background (if the text floated) — never filled with reference text or invented text.',
-    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and its specific phone-number digits — but LEAVE THE ZONE that held each in place (price callout, contact/footer strip, CTA band stay in their original position/shape/colour), cleared of the competitor\'s values. This project supplies its own logo/price/contact separately; never copy them from image 1.',
+    'COPY INTEGRITY — ABSOLUTE: every readable character in the output MUST come from the EXACT strings above and nothing else. NEVER reproduce, paraphrase, or leave any text from image 1 (its headline, price, digits, phone, tagline, company name — none).',
+    // RB-P10 STEP 2 — AI-designed empty rule: DISSOLVE uncopied text containers
+    // (unlike blank mode, which keeps them empty as chip targets).
+    'For any text zone that has NO corresponding string above: DISSOLVE it — REMOVE that container/panel/band/pill entirely and let the surrounding design/background continue seamlessly through where it was. Do NOT leave an empty panel, and NEVER fill it with reference text or invented text. (Only zones that receive one of the exact strings above keep their container.)',
+    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and its specific phone-number digits. This project supplies its own logo/price/contact via the strings above; never copy them from image 1.',
     'Change nothing else — no new elements, no extra text, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }
@@ -1559,10 +1570,19 @@ export function buildReplicatePrompt(copy: { headline?: string; price?: string; 
  */
 export function buildingAngleDirective(buildingViews: number): string {
   if (buildingViews >= 2) {
-    const lastN = buildingViews + 1; // IMAGE 2 .. IMAGE (buildingViews + 1)
-    return `CHANGE (a) — building, VIEW-BOUNDED: IMAGES 2 through ${lastN} are the SAME building photographed from DIFFERENT angles. Render the building ONLY as it appears in these views — SELECT the single provided view that best fits image 1's photo area and use it faithfully. Do NOT blend, merge, or interpolate the views into a new or composite structure, and NEVER invent a side, face, wing, or floor not visible in any provided view. Image 1 supplies the LAYOUT only; images 2..${lastN} supply the BUILDING.`;
+    // Robust to mixed additional media (RB-P10): IMAGE 2 is the building; extra
+    // exterior views of it MAY be among the provided images — don't assume ALL are.
+    return "CHANGE (a) — building, VIEW-BOUNDED: IMAGE 2 is the building; one or more ADDITIONAL exterior views of the SAME building may also be among the provided images. When rendering the building, use ONLY a provided true view of it — SELECT the view that best fits image 1's photo area and use it faithfully. Do NOT blend, merge, or interpolate views into a new or composite structure, and NEVER invent a side, face, wing, or floor not visible in any provided view.";
   }
   return "CHANGE (a) — building, ANGLE-LOCK: only ONE view of the building is provided (IMAGE 2). Render the building from IMAGE 2's EXACT viewpoint and angle — do NOT rotate it, show a different side, or invent any face, wing, or side not visible in IMAGE 2. Adapt the surrounding scene (sky, ground, landscaping, lighting) around that fixed view. Image 1 supplies the LAYOUT only; image 2 supplies the BUILDING at its one true angle.";
+}
+
+/**
+ * RB-P10 (Finding A) — replace EVERY photograph in image 1 with our project media;
+ * never retain the reference's imagery. Shared by both replicate directives.
+ */
+export function buildPhotoReplacementDirective(): string {
+  return "CHANGE (a2) — REPLACE ALL PHOTOGRAPHY: every photograph in image 1 MUST be replaced with this project's own images. The MAIN building photo → the building from the hero photo (IMAGE 2). Any OTHER photo zone (amenity thumbnail, interior shot, lifestyle/facility photo, a photo card in a strip or grid) → the ADDITIONAL project images provided after the hero (IMAGES 3..N), one image per photo zone, fitted to that zone's exact shape and crop. If the provided images run out, render the remaining photo zones as EMPTIED design blocks in the layout's own palette (a flat/soft-coloured placeholder, NOT a copied photo). NEVER retain, keep, reuse, or reproduce ANY photograph, person, face, human figure, or property imagery from image 1 — image 1 supplies the LAYOUT ONLY.";
 }
 
 export function buildReplicateLayoutPrompt(buildingViews = 1): string {
@@ -1575,6 +1595,7 @@ export function buildReplicateLayoutPrompt(buildingViews = 1): string {
     'You are EDITING using two attached images — do not create from scratch.',
     'INVARIANT — preserve the ENTIRE layout of IMAGE 1 EXACTLY: its zone structure, every panel, band, frame, card, strip, badge, button and decorative element, all of its colour blocks, its aspect ratio, and its composition geometry (relative positions, proportions, alignment). Do NOT move, resize, add, remove, or restyle any shape or zone. The composition is FIXED.',
     buildingAngleDirective(buildingViews),
+    buildPhotoReplacementDirective(),
     'CHANGE (b) — text, remove ALL lettering, glyphs, numbers, words, wordmarks and readable characters of ANY script (Latin, Devanagari, Arabic, CJK — none). Handle it in TWO cases by whether the text has a container behind it:',
     'CASE 1 — text INSIDE a panel, band, pill, badge, button, card or coloured plate: REMOVE the text but KEEP that container exactly as it is (same shape, fill, colour, opacity, position), now EMPTY. Do NOT collapse, shrink, delete or fill-in the container because its text is gone — the app composites real copy back into it.',
     'CASE 2 — text sitting DIRECTLY on the background or photo (a floating headline, a caption over the sky, free-standing digits with NO container behind them): REMOVE it ENTIRELY and let the background continue SEAMLESSLY through where it was. Do NOT leave behind a pill, plate, box, bar or coloured patch where floating text used to be — that area becomes clean background, as if text were never there.',

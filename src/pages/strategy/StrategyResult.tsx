@@ -1490,32 +1490,49 @@ function SeniorDesignerResultPanel({ data, languages, onRetry, savedId, project,
         location = p?.locality?.trim() || undefined;
         priceFallback = p?.price_display?.trim() || undefined;
       }
-      if (overlayOn) {
+      // Brand kit for BOTH modes (RB-P10): contact feeds the AI copy map + the blank
+      // footer chip; logo/colours are used only by the blank composite.
+      if (replicateAspect) {
         const { data: bk } = await supabase
           .from('brand_kits')
           .select('logo_white_url, logo_color_url, logo_dark_url, primary_color, accent_color, whatsapp_number, phone_display')
           .maybeSingle();
         const kit = bk as { logo_white_url?: string; logo_color_url?: string; logo_dark_url?: string; primary_color?: string; accent_color?: string; whatsapp_number?: string; phone_display?: string } | null;
-        brandLogoUrl = kit?.logo_white_url ?? kit?.logo_color_url ?? kit?.logo_dark_url ?? undefined;
-        if (kit?.primary_color && kit?.accent_color) brandColors = { primary: kit.primary_color, accent: kit.accent_color };
         contactStrip = [kit?.phone_display, kit?.whatsapp_number].map((s) => s?.trim()).filter(Boolean).join('   ·   ') || undefined;
+        if (overlayOn) {
+          brandLogoUrl = kit?.logo_white_url ?? kit?.logo_color_url ?? kit?.logo_dark_url ?? undefined;
+          if (kit?.primary_color && kit?.accent_color) brandColors = { primary: kit.primary_color, accent: kit.accent_color };
+        }
       }
+      const subheadline = data.ad_copy?.[`primary_text_${primaryLang}`] ?? data.ad_copy?.subheadline;
+      const amenities = Array.isArray(data.ad_copy?.amenities) ? (data.ad_copy!.amenities as string[])
+        : Array.isArray(data.ad_copy?.features) ? (data.ad_copy!.features as string[]) : undefined;
       // Text-overlay copy: price falls back to projects.price_display; the contact
       // strip (footer zone) comes from the brand kit. A zone with no value is
       // skipped by buildLayersFromZones — never rendered as a blank block (Fix 3).
       const overlayCopy = {
         ...replicateCopy,
         price: replicateCopy.price?.trim() || priceFallback,
-        subheadline: data.ad_copy?.[`primary_text_${primaryLang}`] ?? data.ad_copy?.subheadline,
+        subheadline,
         footer: data.ad_copy?.footer?.trim() || contactStrip,
         location,
+      };
+      // RB-P10 — full copy map for the AI-designed replicate directive.
+      const aiCopy = {
+        headline: replicateCopy.headline,
+        subheadline,
+        price: replicateCopy.price?.trim() || priceFallback,
+        location,
+        cta: replicateCopy.cta,
+        contact: contactStrip,
+        amenities,
       };
       // RB-P9 — building-view count drives the two-tier angle policy. In replicate
       // mode heroImages = [styleRef, building, ...extraViews]; the views after the
       // style ref are the building photos (angle-lock at 1, view-bounded at 2+).
       const buildingViews = Math.max(1, (heroImages?.length ?? 2) - 1);
       const slots: ['1:1' | '4:5' | '9:16', string, string, string][] = replicateAspect
-        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt(buildingViews) : buildReplicatePrompt({ ...replicateCopy, location }, buildingViews)]]
+        ? [[replicateAspect, ASPECT_LABEL[replicateAspect], 'replicate', overlayOn ? buildReplicateLayoutPrompt(buildingViews) : buildReplicatePrompt(aiCopy, buildingViews)]]
         : [
             ['1:1',  'Feed (1080×1080)',          'feed',     promptFeed],
             ['4:5',  'Portrait Feed (1080×1350)', 'portrait', promptPortrait],

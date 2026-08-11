@@ -494,23 +494,23 @@ export function Strategy() {
               { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
               heroSubject,
             ];
-            // RB-P9 — extra building VIEWS (up to 2 more of the SAME building from
-            // different angles) enable view-bounded angle freedom. Auto-included
-            // from exterior/building-category project media, sent AFTER the hero
-            // (labeled IMAGE 3..N in the directive). More images ⇒ more input tokens,
-            // which the ledger picks up automatically.
+            // RB-P10 (Finding A) — send ADDITIONAL PROJECT MEDIA (cap 4, after the
+            // hero) so the directive can REPLACE image 1's other photo zones with OUR
+            // photos and NEVER retain the reference's imagery. Exteriors first (they
+            // also feed the RB-P9 building-angle policy), then amenities/interiors for
+            // the other photo zones. Labeled IMAGE 3..N. Ledger picks up the extra
+            // input tokens automatically (more refs ⇒ higher per-call cost).
             const heroUrl = 'url' in heroSubject ? heroSubject.url : undefined;
-            const { data: viewRows } = await supabase
+            const { data: mediaRows } = await supabase
               .from('project_assets')
               .select('asset_url, asset_type')
-              .eq('project_id', quickInputs.projectId)
-              .or('asset_type.ilike.%exterior%,asset_type.ilike.%building%');
-            const extraViews = [...new Set(
-              ((viewRows ?? []) as { asset_url?: string }[])
-                .map((r) => r.asset_url)
-                .filter((u): u is string => !!u && u !== heroUrl)
-            )].slice(0, 2);
-            if (extraViews.length) heroImages.push(...extraViews.map((url) => ({ url })));
+              .eq('project_id', quickInputs.projectId);
+            const rows = ((mediaRows ?? []) as { asset_url?: string; asset_type?: string }[])
+              .filter((r): r is { asset_url: string; asset_type?: string } => !!r.asset_url && r.asset_url !== heroUrl);
+            const isExterior = (t?: string) => !!t && /exterior|building/i.test(t);
+            const ordered = [...rows.filter((r) => isExterior(r.asset_type)), ...rows.filter((r) => !isExterior(r.asset_type))];
+            const additionalMedia = [...new Set(ordered.map((r) => r.asset_url))].slice(0, 4);
+            if (additionalMedia.length) heroImages.push(...additionalMedia.map((url) => ({ url })));
             // Evidence log (RB-P2 Step 3 / H1): prove the style-reference asset
             // actually reaches the generation payload — if this shows styleRef:true
             // the reference IS wired; a "model free-composes" report then means the
