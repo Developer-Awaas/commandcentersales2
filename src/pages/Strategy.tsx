@@ -494,12 +494,21 @@ export function Strategy() {
               { base64: replicateRef.base64, mimeType: replicateRef.mimeType },
               heroSubject,
             ];
-            // RB-P10 (Finding A) — send ADDITIONAL PROJECT MEDIA (cap 4, after the
+            // RB-P10 (Finding A) — send ADDITIONAL PROJECT MEDIA (cap 2, after the
             // hero) so the directive can REPLACE image 1's other photo zones with OUR
             // photos and NEVER retain the reference's imagery. Exteriors first (they
             // also feed the RB-P9 building-angle policy), then amenities/interiors for
             // the other photo zones. Labeled IMAGE 3..N. Ledger picks up the extra
             // input tokens automatically (more refs ⇒ higher per-call cost).
+            //
+            // Cap lowered 4 → 2 (20260811): reference count is the dominant
+            // wall-clock lever on this path. Measured on TEST — 5 refs at
+            // quality:'high' = 129.4s against a 150s ceiling, vs 4 refs at
+            // 'medium' = 53.8s. Async generation removes the 504, but staying
+            // well inside the wall clock is what keeps jobs actually finishing
+            // on a 150s plan. Layouts with 4+ photo zones fall back to emptied
+            // blocks sooner — the deliberate trade. Raise only with a fresh
+            // latency measurement.
             const heroUrl = 'url' in heroSubject ? heroSubject.url : undefined;
             const { data: mediaRows } = await supabase
               .from('project_assets')
@@ -509,7 +518,7 @@ export function Strategy() {
               .filter((r): r is { asset_url: string; asset_type?: string } => !!r.asset_url && r.asset_url !== heroUrl);
             const isExterior = (t?: string) => !!t && /exterior|building/i.test(t);
             const ordered = [...rows.filter((r) => isExterior(r.asset_type)), ...rows.filter((r) => !isExterior(r.asset_type))];
-            const additionalMedia = [...new Set(ordered.map((r) => r.asset_url))].slice(0, 4);
+            const additionalMedia = [...new Set(ordered.map((r) => r.asset_url))].slice(0, 2);
             if (additionalMedia.length) heroImages.push(...additionalMedia.map((url) => ({ url })));
             // Evidence log (RB-P2 Step 3 / H1): prove the style-reference asset
             // actually reaches the generation payload — if this shows styleRef:true

@@ -92,6 +92,18 @@ function resolveProvider(hint?: ImageProvider): ImageProvider {
 
 // Exponential back-off on 429 rate-limit errors. Reads Retry-After when
 // available (OpenAI/Gemini both set it); otherwise uses binary-exp backoff
+// Wall-clock bound for a single provider call. Until 20260811 none of the
+// fetches below had a signal at all, so a slow OpenAI response ran until
+// Supabase's 150s request ceiling killed it — surfacing to the browser as a
+// 504 on a request that never completed. Same class as bugs #35/#41.
+//
+// 135s sits above the measured worst case (129.4s: gpt-image-2, quality
+// 'high', 5 reference images) and below the 150s wall clock, so the call
+// fails as a clean, reportable error rather than the isolate being killed
+// mid-flight with no terminal state written. It WILL abort a genuinely
+// slower-than-measured call — deliberate: a clean failure beats a hung one.
+export const IMAGE_FETCH_TIMEOUT_MS = 135_000
+
 // capped at 60s. Retries are intentionally limited to 2 (3 total attempts)
 // so a genuinely broken key fails fast rather than burning wall-clock time.
 async function withRetry<T>(
@@ -206,6 +218,7 @@ async function generateWithOpenAI(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ model, prompt: safePrompt, n: 1, size, quality }),
+      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -269,6 +282,7 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}` },
       body: form,
+      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -328,6 +342,7 @@ async function generateWithGemini(
           imageConfig: { aspectRatio },
         },
       }),
+      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
     })
 
     if (!res.ok) {

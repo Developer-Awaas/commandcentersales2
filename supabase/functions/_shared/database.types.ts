@@ -1456,6 +1456,42 @@ export interface Database {
         Relationships: Rel[]
       }
 
+      // Async image generation handoff (20260811120000). Written service-role
+      // only, from generate-image's async branch; src/ reads it via Realtime.
+      image_jobs: {
+        Row: {
+          id: string
+          org_id: string
+          user_id: string | null
+          status: 'queued' | 'done' | 'failed'
+          storage_path: string | null
+          error: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          user_id?: string | null
+          status?: 'queued' | 'done' | 'failed'
+          storage_path?: string | null
+          error?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          user_id?: string | null
+          status?: 'queued' | 'done' | 'failed'
+          storage_path?: string | null
+          error?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Relationships: Rel[]
+      }
+
       agent_turns: {
         Row: {
           id: string

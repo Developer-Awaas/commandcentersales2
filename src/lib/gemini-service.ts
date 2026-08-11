@@ -78,6 +78,86 @@ export interface ImageCostMeta {
   projectId?: string | null;
 }
 
+const JOB_BUCKET = 'brand-assets';
+const JOB_POLL_MS = 3_000;
+// Generous: the wall-clock ceiling and the 10-minute server-side reaper are the
+// real bounds. This only stops the UI hanging forever if BOTH Realtime and the
+// poll are somehow dead.
+const JOB_TIMEOUT_MS = 6 * 60 * 1000;
+
+type ImageJobRow = { status: string; storage_path: string | null; error: string | null };
+
+/**
+ * Waits for an async generate-image job and resolves with its storage path.
+ *
+ * Realtime is the fast path, but a dropped socket is silent — so a 3s poll runs
+ * alongside it and either can settle the promise. Without the poll a lost
+ * subscription would hang the generation until the 6-minute cap, which is
+ * exactly the "request that never completes" symptom async was built to remove.
+ */
+async function waitForImageJob(jobId: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+
+    const check = (row: ImageJobRow | null | undefined) => {
+      if (settled || !row) return;
+      if (row.status === 'done' && row.storage_path) {
+        settled = true;
+        cleanup();
+        resolve(row.storage_path);
+      } else if (row.status === 'failed') {
+        settled = true;
+        cleanup();
+        reject(new Error(row.error || 'Image generation failed'));
+      }
+    };
+
+    const channel = supabase
+      .channel(`image-job-${jobId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'image_jobs', filter: `id=eq.${jobId}` },
+        (payload: { new: ImageJobRow }) => check(payload.new),
+      )
+      .subscribe();
+
+    const poll = setInterval(async () => {
+      const { data } = await supabase
+        .from('image_jobs')
+        .select('status, storage_path, error')
+        .eq('id', jobId)
+        .maybeSingle();
+      check(data as ImageJobRow | null);
+    }, JOB_POLL_MS);
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('Image generation timed out. Please try again.'));
+    }, JOB_TIMEOUT_MS);
+
+    function cleanup() {
+      clearInterval(poll);
+      clearTimeout(timer);
+      supabase.removeChannel(channel);
+    }
+  });
+}
+
+/** Storage blob → base64 payload, matching the sync path's return shape. */
+async function downloadJobImage(path: string): Promise<GeminiGeneratedImage> {
+  const { data, error } = await supabase.storage.from(JOB_BUCKET).download(path);
+  if (error || !data) throw new Error(`Could not download generated image: ${error?.message ?? 'no data'}`);
+  const dataUrl: string = await new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = () => res(String(reader.result));
+    reader.onerror = () => rej(new Error('Could not read generated image'));
+    reader.readAsDataURL(data);
+  });
+  return { base64: dataUrl.split(',')[1] ?? '', mimeType: data.type || 'image/png' };
+}
+
 export async function generateImageWithGemini(
   prompt: string,
   aspectRatio: '1:1' | '9:16' | '4:5' = '1:1',
@@ -117,6 +197,16 @@ export async function generateImageWithGemini(
   body.feature = costMeta?.feature ?? 'creatives';
   if (costMeta?.projectId) body.projectId = costMeta.projectId;
 
+  // Async: the edge fn returns a jobId in <1s and finishes in the background,
+  // so generation is no longer racing Supabase's 150s request ceiling (which a
+  // 129s high-quality multi-reference edit was losing intermittently — 504 with
+  // the request stuck pending). The await below keeps this function's contract
+  // identical, so every caller is unchanged.
+  // orgId is required server-side to create the job row; without one, fall back
+  // to the sync path rather than failing outright.
+  const useAsync = Boolean(body.orgId);
+  if (useAsync) body.async = true;
+
   const { data, error } = await supabase.functions.invoke('generate-image', {
     body,
   });
@@ -129,6 +219,13 @@ export async function generateImageWithGemini(
     } catch { /* ignore */ }
     throw new Error(detail);
   }
+
+  if (useAsync) {
+    if (!data?.jobId) throw new Error(data?.error ?? 'Generation service did not return a job id');
+    const path = await waitForImageJob(data.jobId as string);
+    return [await downloadJobImage(path)];
+  }
+
   if (!data?.base64) throw new Error(data?.error ?? 'No image returned from generation service');
 
   return [{ base64: data.base64 as string, mimeType: (data.mimeType as string) ?? 'image/jpeg' }];

@@ -6,8 +6,18 @@
  *
  * Requires env secret: OPENAI_API_KEY
  *
- * Input:  { prompt: string, width?: number, height?: number, heroImage?, supportingImages? }
- * Output: { base64: string, mimeType: string }
+ * Input:  { prompt: string, width?: number, height?: number, heroImage?, supportingImages?, async? }
+ * Output: { base64: string, mimeType: string }   (sync, the default)
+ *         { jobId: string }                      (async: true)
+ *
+ * ASYNC MODE (20260811120000): Supabase returns 504 if a function hasn't
+ * responded within 150s, and a gpt-image-2 edit at quality:'high' with 5
+ * reference images measures 129.4s — ~20s of slack, lost the moment a 429
+ * triggers withRetry's full re-run. With `async: true` this returns a job id
+ * in <1s and finishes in EdgeRuntime.waitUntil(): the PNG lands in Storage and
+ * the image_jobs row flips to done/failed, which the client watches over
+ * Realtime. The SYNC path is unchanged and remains the default, so aanya.ts
+ * and every other server-side caller is untouched.
  *
  * GPT-Image-1 supported sizes:
  *   Square    (1:1)        → 1024×1024
@@ -33,12 +43,38 @@
  */
 
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import type { Database } from '../_shared/database.types.ts'
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
-import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity } from '../_shared/image-provider.ts'
+import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
+
+/** Bucket + prefix the async job writes its finished PNG to. */
+const JOB_BUCKET = 'brand-assets'
+
+// Supabase's background-task API: keeps the isolate alive after the response
+// is sent, until the promise settles (subject to the wall-clock limit).
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
+let _admin: SupabaseClient<Database> | null = null
+function adminClient(): SupabaseClient<Database> {
+  if (_admin) return _admin
+  _admin = createClient<Database>(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  )
+  return _admin
+}
+
+/** Carries the HTTP status the sync path should report for this failure. */
+class ImageGenError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
 
 type ImageRef = { base64: string; mimeType: string } | { url: string }
 
@@ -100,6 +136,9 @@ Deno.serve(async (req: Request) => {
     model?: string
     // RB-P7 guard target: transparent background is unsupported on gpt-image-2.
     background?: string
+    // 20260811120000 — return a jobId immediately and finish in the background,
+    // instead of holding the request open past Supabase's 150s 504 ceiling.
+    async?: boolean
   }
   try {
     body = await req.json()
@@ -128,55 +167,197 @@ Deno.serve(async (req: Request) => {
 
   const safePrompt = prompt.slice(0, 4000)
 
-  // Hero reference image path — true image-to-image edit, real photo bytes
-  // preserved. editImage() (image-provider.ts) reserves its own budget
-  // internally, so this branch must stay BEFORE the generic reservation
-  // below — reserving here too would silently double-count every hero-mode
-  // generation against the review-build cap.
-  if (heroImage) {
+  // The single generation body, shared by the sync and async paths — extracted
+  // rather than duplicated so the two can never drift. Returns the image or
+  // throws; the caller decides whether that becomes an HTTP status or a
+  // terminal image_jobs row.
+  const generateOnce = async (): Promise<{ base64: string; mimeType: string }> => {
+    // Hero reference image path — true image-to-image edit, real photo bytes
+    // preserved. editImage() (image-provider.ts) reserves its own budget
+    // internally, so this branch must stay BEFORE the generic reservation
+    // below — reserving here too would silently double-count every hero-mode
+    // generation against the review-build cap.
+    if (heroImage) {
+      try {
+        const resolvedHero = await resolveImageRef(heroImage)
+        const resolvedSupporting = await Promise.all(supportingImages.map(resolveImageRef))
+        const result = await editImage({
+          prompt: safePrompt,
+          size,
+          quality,
+          images: [resolvedHero, ...resolvedSupporting],
+          observationName: 'openai-image-edit',
+          model,
+        })
+        if (orgId) {
+          await recordApiCost({
+            orgId, userId: userId ?? null,
+            provider: 'openai', callType: 'image_edit', feature: feature ?? 'creatives',
+            // inputRefs = hero + supporting building views (multi-view bills more input tokens).
+            model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model), inputRefs: 1 + supportingImages.length }),
+            projectId: projectId ?? null,
+          })
+        }
+        return { base64: result.imageBase64, mimeType: result.mimeType }
+      } catch (err) {
+        if (err instanceof ImageBudgetExceededError) throw err
+        // Preserve the pre-existing 502 for any hero-path failure.
+        throw new ImageGenError(err instanceof Error ? err.message : String(err), 502)
+      }
+    }
+
+    // review-build only: server-enforced global image cap, reserved BEFORE
+    // the paid OpenAI call — never bill-then-reject. This function doesn't
+    // route through image-provider.ts's generateImage() (a pre-existing
+    // inconsistency, out of scope here), so the same check is duplicated
+    // at this second entry point rather than left uncovered.
+    await reserveImageBudget(openaiImageUnitCost(model, quality))
+
+    const traceId = `generate-image-${crypto.randomUUID()}`
+    await langfuseTrace(traceId, {
+      name: 'generate-image',
+      tags: ['image-gen', model],
+      metadata: { size, quality },
+      input: { prompt: safePrompt },
+    })
+
     try {
-      const resolvedHero = await resolveImageRef(heroImage)
-      const resolvedSupporting = await Promise.all(supportingImages.map(resolveImageRef))
-      const result = await editImage({
-        prompt: safePrompt,
-        size,
-        quality,
-        images: [resolvedHero, ...resolvedSupporting],
-        observationName: 'openai-image-edit',
-        model,
+      const imageRes = await fetch(OPENAI_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          prompt: safePrompt,
+          n: 1,
+          size,
+          quality, // low | medium | high — caller sets per aspect ratio
+        }),
+        // Nothing else bounds this call; without it the gateway (or the
+        // wall-clock limit, in async mode) is the only thing that stops a
+        // slow response. Bugs #35/#41, same class.
+        signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
       })
+
+      if (!imageRes.ok) {
+        const errText = await imageRes.text().catch(() => imageRes.statusText)
+        await langfuseGeneration(traceId, {
+          name: model,
+          model,
+          input: { prompt: safePrompt, size, quality },
+          level: 'ERROR',
+          statusMessage: `OpenAI API error ${imageRes.status}: ${errText}`,
+        })
+        throw new ImageGenError(`OpenAI API error ${imageRes.status}: ${errText}`, 502)
+      }
+
+      const result = await imageRes.json() as { data?: { b64_json?: string }[] }
+      const base64 = result.data?.[0]?.b64_json
+      if (!base64) {
+        await langfuseGeneration(traceId, {
+          name: model,
+          model,
+          input: { prompt: safePrompt, size, quality },
+          level: 'ERROR',
+          statusMessage: 'No image returned from OpenAI API',
+        })
+        throw new ImageGenError('No image returned from OpenAI API', 502)
+      }
+
+      await langfuseGeneration(traceId, {
+        name: model,
+        model,
+        input: { prompt: safePrompt, size, quality },
+        output: { imageGenerated: true, mimeType: 'image/png' },
+      })
+
       if (orgId) {
         await recordApiCost({
           orgId, userId: userId ?? null,
-          provider: 'openai', callType: 'image_edit', feature: feature ?? 'creatives',
-          // inputRefs = hero + supporting building views (multi-view bills more input tokens).
-          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality, { inputFidelityHigh: supportsInputFidelity(model), inputRefs: 1 + supportingImages.length }),
-          projectId: projectId ?? null,
+          provider: 'openai', callType: 'image_gen', feature: feature ?? 'creatives',
+          model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality),
+          projectId: projectId ?? null, traceId,
         })
       }
-      return new Response(
-        JSON.stringify({ base64: result.imageBase64, mimeType: result.mimeType }),
-        { headers: corsHeaders() }
-      )
-    } catch (err) {
-      if (err instanceof ImageBudgetExceededError) {
-        return new Response(
-          JSON.stringify({ error: 'review budget reached' }),
-          { status: 429, headers: corsHeaders() }
-        )
-      }
+
+      return { base64, mimeType: 'image/png' }
+    } catch (err: unknown) {
+      if (err instanceof ImageGenError || err instanceof ImageBudgetExceededError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      return new Response(JSON.stringify({ error: message }), { status: 502, headers: corsHeaders() })
+      await langfuseGeneration(traceId, {
+        name: model,
+        model,
+        input: { prompt: safePrompt, size, quality },
+        level: 'ERROR',
+        statusMessage: message,
+      })
+      throw new ImageGenError(message, 500)
     }
   }
 
-  // review-build only: server-enforced global image cap, reserved BEFORE
-  // the paid OpenAI call — never bill-then-reject. This function doesn't
-  // route through image-provider.ts's generateImage() (a pre-existing
-  // inconsistency, out of scope here), so the same check is duplicated
-  // at this second entry point rather than left uncovered.
+  // --- async mode: respond now, finish in the background -------------------
+  if (body.async) {
+    // org_id is NOT NULL on image_jobs, and without it the client has no
+    // RLS-visible row to watch — fail loudly rather than silently sync.
+    if (!orgId) {
+      return new Response(
+        JSON.stringify({ error: 'orgId is required for async generation' }),
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
+    const db = adminClient()
+    const { data: job, error: jobErr } = await db
+      .from('image_jobs')
+      .insert({ org_id: orgId, user_id: userId ?? null, status: 'queued' })
+      .select('id')
+      .single()
+
+    // A wrong/renamed column returns { error } rather than throwing (bugs
+    // #47/#48), so the insert result is checked, never assumed.
+    if (jobErr || !job) {
+      return new Response(
+        JSON.stringify({ error: `Could not queue image job: ${jobErr?.message ?? 'no row returned'}` }),
+        { status: 500, headers: corsHeaders() }
+      )
+    }
+
+    const jobId = job.id
+    EdgeRuntime.waitUntil((async () => {
+      try {
+        const { base64, mimeType } = await generateOnce()
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+        const path = `image-jobs/${orgId}/${jobId}.png`
+        const { error: upErr } = await db.storage
+          .from(JOB_BUCKET)
+          .upload(path, bytes, { contentType: mimeType, upsert: true })
+        if (upErr) throw new Error(`Storage upload failed: ${upErr.message}`)
+
+        await db.from('image_jobs')
+          .update({ status: 'done', storage_path: path, completed_at: new Date().toISOString() })
+          .eq('id', jobId)
+      } catch (err) {
+        const message = err instanceof ImageBudgetExceededError
+          ? 'review budget reached'
+          : err instanceof Error ? err.message : String(err)
+        // Terminal state is mandatory: without it the client waits on a row
+        // that never changes until the 10-minute reaper catches it.
+        await db.from('image_jobs')
+          .update({ status: 'failed', error: message, completed_at: new Date().toISOString() })
+          .eq('id', jobId)
+        console.error(`image job ${jobId} failed:`, message)
+      }
+    })())
+
+    return new Response(JSON.stringify({ jobId }), { headers: corsHeaders() })
+  }
+
+  // --- sync mode (default, unchanged behaviour) ----------------------------
   try {
-    await reserveImageBudget(openaiImageUnitCost(model, quality))
+    const { base64, mimeType } = await generateOnce()
+    return new Response(JSON.stringify({ base64, mimeType }), { headers: corsHeaders() })
   } catch (err) {
     if (err instanceof ImageBudgetExceededError) {
       return new Response(
@@ -184,96 +365,10 @@ Deno.serve(async (req: Request) => {
         { status: 429, headers: corsHeaders() }
       )
     }
-    throw err
-  }
-
-  const traceId = `generate-image-${crypto.randomUUID()}`
-  await langfuseTrace(traceId, {
-    name: 'generate-image',
-    tags: ['image-gen', model],
-    metadata: { size, quality },
-    input: { prompt: safePrompt },
-  })
-
-  try {
-    const imageRes = await fetch(OPENAI_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        prompt: safePrompt,
-        n: 1,
-        size,
-        quality, // low | medium | high — caller sets per aspect ratio
-      }),
-    })
-
-    if (!imageRes.ok) {
-      const errText = await imageRes.text().catch(() => imageRes.statusText)
-      await langfuseGeneration(traceId, {
-        name: model,
-        model,
-        input: { prompt: safePrompt, size, quality },
-        level: 'ERROR',
-        statusMessage: `OpenAI API error ${imageRes.status}: ${errText}`,
-      })
-      return new Response(
-        JSON.stringify({ error: `OpenAI API error ${imageRes.status}: ${errText}` }),
-        { status: 502, headers: corsHeaders() }
-      )
-    }
-
-    const result = await imageRes.json() as { data?: { b64_json?: string }[] }
-    const base64 = result.data?.[0]?.b64_json
-    if (!base64) {
-      await langfuseGeneration(traceId, {
-        name: model,
-        model,
-        input: { prompt: safePrompt, size, quality },
-        level: 'ERROR',
-        statusMessage: 'No image returned from OpenAI API',
-      })
-      return new Response(
-        JSON.stringify({ error: 'No image returned from OpenAI API' }),
-        { status: 502, headers: corsHeaders() }
-      )
-    }
-
-    await langfuseGeneration(traceId, {
-      name: model,
-      model,
-      input: { prompt: safePrompt, size, quality },
-      output: { imageGenerated: true, mimeType: 'image/png' },
-    })
-
-    if (orgId) {
-      await recordApiCost({
-        orgId, userId: userId ?? null,
-        provider: 'openai', callType: 'image_gen', feature: feature ?? 'creatives',
-        model, imageCount: 1, unitCostUsd: openaiImageUnitCost(model, quality),
-        projectId: projectId ?? null, traceId,
-      })
-    }
-
+    const status = err instanceof ImageGenError ? err.status : 500
     return new Response(
-      JSON.stringify({ base64, mimeType: 'image/png' }),
-      { headers: corsHeaders() }
-    )
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    await langfuseGeneration(traceId, {
-      name: model,
-      model,
-      input: { prompt: safePrompt, size, quality },
-      level: 'ERROR',
-      statusMessage: message,
-    })
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: corsHeaders() }
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status, headers: corsHeaders() }
     )
   }
 })
