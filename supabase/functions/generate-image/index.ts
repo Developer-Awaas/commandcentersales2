@@ -52,8 +52,17 @@ import { recordApiCost } from '../_shared/api-cost.ts'
 
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
 
-/** Bucket + prefix the async job writes its finished PNG to. */
-const JOB_BUCKET = 'brand-assets'
+/**
+ * Bucket the async job writes its finished PNG to. Must stay in sync with
+ * gemini-service.ts's JOB_BUCKET, which downloads from it.
+ *
+ * NOT brand-assets: this repo already infers a storage path's bucket as
+ * `path.startsWith('generated-creatives/') ? 'brand-assets' : 'creative-assets'`
+ * (creative-history.ts, history-service.ts, canva-sync-design). An
+ * `image-jobs/…` path in brand-assets contradicts that rule, so any future
+ * cleanup/delete path that inherits a job path would look in the wrong bucket.
+ */
+const JOB_BUCKET = 'creative-assets'
 
 // Supabase's background-task API: keeps the isolate alive after the response
 // is sent, until the promise settles (subject to the wall-clock limit).

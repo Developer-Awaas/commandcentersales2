@@ -78,7 +78,9 @@ export interface ImageCostMeta {
   projectId?: string | null;
 }
 
-const JOB_BUCKET = 'brand-assets';
+// Must match generate-image/index.ts's JOB_BUCKET (see the bucket-inference
+// rule documented there — an `image-jobs/…` path belongs in creative-assets).
+const JOB_BUCKET = 'creative-assets';
 const JOB_POLL_MS = 3_000;
 // Generous: the wall-clock ceiling and the 10-minute server-side reaper are the
 // real bounds. This only stops the UI hanging forever if BOTH Realtime and the

@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import { viteEnv } from './env';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const supabaseUrl = viteEnv.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = viteEnv.VITE_SUPABASE_ANON_KEY as string;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 

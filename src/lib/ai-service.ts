@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { viteEnv } from './env';
 import { ADMIN_EMAIL } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
@@ -292,8 +293,8 @@ export type ClaudeStreamOutcome =
  * anon key when signed out, matching invoke()'s own fallback).
  */
 export async function callClaudeProxyStream(payload: Record<string, unknown>): Promise<ClaudeStreamOutcome> {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const supabaseUrl = viteEnv.VITE_SUPABASE_URL as string;
+  const anonKey = viteEnv.VITE_SUPABASE_ANON_KEY as string;
   const { data: sessionData } = await supabase.auth.getSession();
   const authToken = sessionData.session?.access_token ?? anonKey;
 
