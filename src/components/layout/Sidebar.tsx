@@ -14,6 +14,7 @@ import {
   Users,
   Settings,
   LogOut,
+  ShieldCheck,
   Clock,
   Calendar,
   CalendarDays,
@@ -337,6 +338,23 @@ export function Sidebar({
             </p>
           </div>
         </div>
+
+        {/* RB-PP — discoverable privacy policy. Reviewers (and Meta's app
+            review) look for a link in the product, not just a URL that happens
+            to resolve.
+
+            A plain <a>, deliberately NOT the app's navigate(): /privacy.html is
+            a static file in public/, unknown to the client router, so routing
+            it in-app would render the SPA shell instead of the document. */}
+        <a
+          href="/privacy.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium text-text-tertiary hover:bg-surface-2 hover:text-text-secondary transition-colors duration-150"
+        >
+          <ShieldCheck size={16} />
+          Privacy
+        </a>
 
         <button
           onClick={handleSignOut}
