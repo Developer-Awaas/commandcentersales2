@@ -126,7 +126,24 @@ export default function PhotoPanelAssigner({
                 {positionLabel(p)} · {SHAPE_LABEL[p.shapeHint]}
               </span>
               {source === 'hero' && <span className="text-amber-400 flex-1">★ Hero — the building</span>}
-              {source === 'media' && <span className="text-sky-300 flex-1">{labelForUrl(slot?.mediaUrl)}</span>}
+              {source === 'media' && (
+                <span className="flex-1 flex items-center gap-1.5">
+                  <span className={slot?.suggested ? 'text-sky-300/80' : 'text-sky-300'}>
+                    {labelForUrl(slot?.mediaUrl)}
+                  </span>
+                  {/* Inferred, not chosen — the user must be able to tell the
+                      difference at a glance, or an auto-match reads as their
+                      own decision when they scan the form. */}
+                  {slot?.suggested && (
+                    <span
+                      className="px-1 py-px rounded border border-dashed border-sky-500/60 text-[9px] uppercase tracking-wide text-sky-300/80"
+                      title="Matched automatically from the reference — change it if that's wrong"
+                    >
+                      suggested
+                    </span>
+                  )}
+                </span>
+              )}
               {source === 'empty' && (
                 <span className="flex-1 flex items-center gap-2 text-text-tertiary">
                   Left empty (blank design block)

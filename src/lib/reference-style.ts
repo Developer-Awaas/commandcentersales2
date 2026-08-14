@@ -71,14 +71,32 @@ export interface PhotoPanel {
   /** The vision pass's guess at which panel holds the main building shot. */
   isBuilding?: boolean;
   /**
-   * Short free-text noun for what the reference shows in this panel ("swimming
-   * pool", "gym", "living room"). Emitted by the SAME vision call that returns
-   * the panels — no extra spend — and used only to PRE-BIND a matching project
-   * photo (autoMatchSlots). Deliberately not an enum: a rigid vocabulary gets
-   * violated by the model and then matches nothing, whereas keyword scoring
-   * degrades gracefully to "no match" and the gate still forces a decision.
+   * What this panel DEPICTS — never what should be assigned to it. The vision
+   * pass reports a fact; autoMatchSlots owns the decision. Keeping that line
+   * sharp is what makes the matching logic testable without a model.
+   *
+   * A closed enum, not free text: "azure aquatic amenity" turns matching into
+   * a fuzzy-string problem, whereas an enum makes it a lookup. Emitted by the
+   * SAME vision call that returns the panels — no extra spend. Absent on
+   * references analysed before this existed, which simply means no auto-match.
    */
-  contentHint?: string;
+  contentHint?: PanelContentHint;
+}
+
+/**
+ * Closed vocabulary for panel content. 'other' is the honest bucket for a
+ * wedge the model genuinely cannot categorise — it never auto-matches, because
+ * "I don't know" must not resolve to a binding.
+ */
+export const PANEL_CONTENT_HINTS = [
+  'building', 'pool', 'gym', 'interior', 'clubhouse',
+  'garden', 'terrace', 'lobby', 'playground', 'other',
+] as const;
+
+export type PanelContentHint = typeof PANEL_CONTENT_HINTS[number];
+
+export function isPanelContentHint(x: unknown): x is PanelContentHint {
+  return typeof x === 'string' && (PANEL_CONTENT_HINTS as readonly string[]).includes(x);
 }
 
 const SHAPE_HINTS = ['rect', 'circle', 'wedge', 'diagonal'] as const;
@@ -145,6 +163,14 @@ export interface PanelSlot {
   source: PanelSlotSource;
   /** Set only when source === 'media'. */
   mediaUrl?: string;
+  /**
+   * True when autoMatchSlots inferred this binding rather than the user
+   * choosing it. Drives the "suggested" badge — the user must be able to tell
+   * what was inferred from what they decided, or an auto-match is
+   * indistinguishable from their own intent when they scan the form.
+   * Cleared the moment they pick something themselves.
+   */
+  suggested?: boolean;
 }
 
 /** Slot 1..N with the primary/building panel pre-bound to the ★ hero. */
@@ -188,62 +214,66 @@ export interface MediaTile {
   url: string;
   /** project_assets.asset_type, e.g. 'amenity_pool', 'interior_living'. */
   assetType: string;
+  /** Human label as shown on the tile, e.g. 'Rooftop pool'. Free text. */
+  label?: string;
 }
 
 /**
- * Synonyms per asset_type token. The vision pass writes what it SEES ("swimming
- * pool"), the picker stores what the user FILED it as ('amenity_pool') — these
- * two vocabularies only overlap by luck, so the bridge is explicit.
- */
-const HINT_SYNONYMS: Record<string, string[]> = {
-  exterior: ['exterior', 'building', 'facade', 'tower', 'elevation', 'block', 'apartment'],
-  night: ['night', 'dusk', 'evening', 'lit'],
-  living: ['living', 'lounge', 'drawing', 'sofa'],
-  kitchen: ['kitchen', 'modular', 'counter'],
-  bedroom: ['bedroom', 'bed'],
-  bathroom: ['bathroom', 'bath', 'washroom', 'shower'],
-  pool: ['pool', 'swimming'],
-  gym: ['gym', 'fitness', 'workout', 'treadmill'],
-  terrace: ['terrace', 'rooftop', 'deck', 'balcony'],
-  garden: ['garden', 'park', 'lawn', 'landscape', 'green'],
-  lobby: ['lobby', 'reception', 'entrance', 'foyer'],
-  clubhouse: ['clubhouse', 'club'],
-  plan: ['plan', 'layout', 'floorplan', 'floor plan'],
-  map: ['map', 'location', 'connectivity'],
-  family: ['family', 'people', 'couple', 'children', 'lifestyle'],
-};
-
-/**
- * How well a panel's content hint matches a project photo's asset_type.
- * 0 = no evidence. Exported for the unit test — an auto-binding that silently
- * pairs the pool photo with the gym's section is worse than no binding at all,
- * because the user has no reason to look twice at a slot that looks decided.
- */
-export function panelTileScore(panel: PhotoPanel, assetType: string): number {
-  const hint = (panel.contentHint ?? '').toLowerCase();
-  if (!hint) return 0;
-  // 'amenity_pool' → ['amenity','pool']; the family prefix is dropped because
-  // 'amenity' matches every amenity hint and would flatten the ranking.
-  const tokens = assetType.toLowerCase().split('_').filter((t) => t && t !== 'amenity' && t !== 'hero' && t !== 'interior' && t !== 'lifestyle');
-  let score = 0;
-  for (const token of tokens) {
-    for (const kw of HINT_SYNONYMS[token] ?? [token]) {
-      if (hint.includes(kw)) score += 1;
-    }
-  }
-  return score;
-}
-
-/**
- * Pre-bind slots from the detected panels and the photos the user actually
- * selected: the ★ hero takes the building panel, and every other panel takes
- * the best-matching unused photo BY CONTENT, never by mere ordering.
+ * Media label → the SAME closed vocabulary the vision pass emits.
  *
- * A panel with no positive match stays 'unassigned' on purpose. Filling it
- * with "whatever is left over" would satisfy the gate while pairing images
- * arbitrarily — the failure this whole flow exists to prevent (RB-P10's
- * invented amenity photos) is precisely a plausible-looking wrong answer.
- * Existing explicit choices in `prior` are never overwritten.
+ * Both sides have to speak one language before matching is a lookup rather
+ * than a guess. Tile text is free-form — 'amenity_pool', 'Rooftop pool',
+ * 'Hero Exterior (day)' — so this is the one place the two vocabularies meet.
+ *
+ * Order matters: the first pattern that matches wins, so the specific
+ * ('clubhouse') is listed before anything that would also catch it ('club').
+ * Anything unmapped returns null and therefore never auto-matches.
+ */
+const LABEL_PATTERNS: [PanelContentHint, string[]][] = [
+  ['pool', ['pool', 'swim']],
+  ['gym', ['gym', 'fitness', 'workout', 'treadmill']],
+  ['clubhouse', ['clubhouse', 'club house', 'club']],
+  ['playground', ['playground', 'play area', 'kids', 'children']],
+  ['terrace', ['terrace', 'rooftop', 'roof top', 'deck', 'balcony']],
+  ['garden', ['garden', 'lawn', 'park', 'landscape']],
+  ['lobby', ['lobby', 'reception', 'foyer', 'entrance']],
+  ['interior', ['interior', 'living', 'kitchen', 'bedroom', 'bathroom', 'dining']],
+  ['building', ['building', 'exterior', 'facade', 'elevation', 'tower']],
+];
+
+/**
+ * Normalise a photo's asset_type + label into the panel vocabulary.
+ * Case-insensitive substring match; unmapped → null (no auto-match).
+ * Deterministic and model-free, so the matching side is fully unit-testable.
+ */
+export function normalizeMediaHint(tile: Pick<MediaTile, 'assetType' | 'label'>): PanelContentHint | null {
+  const hay = `${tile.assetType ?? ''} ${tile.label ?? ''}`.toLowerCase().replace(/_/g, ' ');
+  if (!hay.trim()) return null;
+  for (const [hint, needles] of LABEL_PATTERNS) {
+    if (needles.some((n) => hay.includes(n))) return hint;
+  }
+  return null;
+}
+
+/**
+ * Pre-bind slots from the detected panels and the photos the user selected.
+ *
+ * CONFIDENCE DISCIPLINE — a panel is auto-assigned only when the pairing is
+ * unambiguous in BOTH directions: exactly one selected photo carries that
+ * hint, AND exactly one panel wants it. Two pool photos for one pool wedge is
+ * ambiguous; so is one pool photo for two pool wedges, where "first panel
+ * wins" would be an arbitrary choice wearing the same badge as a real match.
+ * Either way the panel is left open.
+ *
+ * A wrong silent guess costs more trust than an unassigned slot costs effort:
+ * the user has no reason to look twice at a slot that already looks decided,
+ * which is how RB-P10's invented-photo failure reappears in a new place.
+ * Auto-assignments are flagged `suggested` so the UI can show what was
+ * inferred rather than chosen. Explicit prior choices are never overwritten.
+ *
+ * 'building' is excluded — that panel is the ★ hero's, bound separately.
+ * 'other' is excluded because it means "cannot categorise", and an admission
+ * of uncertainty must not resolve into a binding.
  */
 export function autoMatchSlots(
   panels: PhotoPanel[],
@@ -252,26 +282,49 @@ export function autoMatchSlots(
   prior: PanelSlot[] = [],
 ): PanelSlot[] {
   const hero = heroPanelIndex ?? primaryPanelIndex(panels);
-  const taken = new Set<string>();
-  // Anything the user already decided is authoritative and locks its photo.
-  for (const s of prior) {
-    if (s.source === 'media' && s.mediaUrl) taken.add(s.mediaUrl);
+  const decided = new Map(prior.filter((s) => s.source !== 'unassigned').map((s) => [s.panelIndex, s]));
+  const takenUrls = new Set(
+    prior.filter((s) => s.source === 'media' && s.mediaUrl).map((s) => s.mediaUrl as string),
+  );
+
+  const matchable = (h: PanelContentHint | null | undefined): h is PanelContentHint =>
+    !!h && h !== 'other' && h !== 'building';
+
+  // Count demand (panels still needing a photo) and supply (unclaimed photos)
+  // per hint BEFORE assigning anything, so the decision cannot depend on the
+  // order panels happen to be iterated in.
+  const openPanels = panels.filter((p) => !decided.has(p.index) && p.index !== hero);
+  const demand = new Map<PanelContentHint, number>();
+  for (const p of openPanels) {
+    if (matchable(p.contentHint)) demand.set(p.contentHint, (demand.get(p.contentHint) ?? 0) + 1);
+  }
+
+  const supply = new Map<PanelContentHint, MediaTile[]>();
+  for (const t of tiles) {
+    if (takenUrls.has(t.url)) continue;
+    const h = normalizeMediaHint(t);
+    if (matchable(h)) (supply.get(h) ?? supply.set(h, []).get(h)!).push(t);
   }
 
   return panels.map((p) => {
-    const existing = prior.find((s) => s.panelIndex === p.index);
-    if (existing && existing.source !== 'unassigned') return existing;
+    const existing = decided.get(p.index);
+    if (existing) return existing;
     if (p.index === hero) return { panelIndex: p.index, source: 'hero' as const };
 
-    let best: { tile: MediaTile; score: number } | null = null;
-    for (const t of tiles) {
-      if (taken.has(t.url)) continue;
-      const score = panelTileScore(p, t.assetType);
-      if (score > 0 && (!best || score > best.score)) best = { tile: t, score };
+    const hint = p.contentHint;
+    if (!matchable(hint)) return { panelIndex: p.index, source: 'unassigned' as const };
+
+    const candidates = supply.get(hint) ?? [];
+    // Unambiguous means one-to-one. Anything else stays open.
+    if (candidates.length !== 1 || demand.get(hint) !== 1) {
+      return { panelIndex: p.index, source: 'unassigned' as const };
     }
-    if (!best) return { panelIndex: p.index, source: 'unassigned' as const };
-    taken.add(best.tile.url);
-    return { panelIndex: p.index, source: 'media' as const, mediaUrl: best.tile.url };
+    return {
+      panelIndex: p.index,
+      source: 'media' as const,
+      mediaUrl: candidates[0].url,
+      suggested: true,
+    };
   });
 }
 

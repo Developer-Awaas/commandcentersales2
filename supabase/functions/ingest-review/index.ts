@@ -64,10 +64,29 @@ function digestOps(ops: unknown): Record<string, number> | null {
   return Object.keys(out).length ? out : null
 }
 
-/** Layout tags from whatever the creative recorded about its own design. */
-function layoutTagsFrom(row: Record<string, unknown> | null): Json | null {
-  if (!row) return null
-  return (row.reference_analysis ?? row.design_dna_tags ?? null) as Json | null
+/**
+ * Layout tags for the training row: the reference's per-panel content_hints
+ * plus whatever design DNA the parent creative recorded.
+ *
+ * The hints live on `creatives.senior_designer_brief.panel_assignment.panels`
+ * (V5 chose that jsonb over a new column), NOT on creative_assets — an earlier
+ * draft of this function selected `reference_analysis`/`design_dna_tags`
+ * straight off creative_assets, where neither column exists. PostgREST answers
+ * a bad column with `{error}` and a null `data`, so that version would have
+ * silently skipped every creative review rather than failing loudly. Exactly
+ * the bug #47/#48 shape, on a select instead of an insert.
+ */
+function layoutTagsFrom(brief: Record<string, unknown> | null, designDna: unknown): Json | null {
+  const assignment = (brief?.panel_assignment ?? null) as { panels?: { index?: number; contentHint?: string }[] } | null
+  const hints = (assignment?.panels ?? [])
+    .filter((p) => typeof p?.contentHint === 'string' && p.contentHint !== 'other')
+    .map((p) => ({ section: p.index ?? null, depicts: p.contentHint }))
+
+  if (!hints.length && !designDna) return null
+  return {
+    ...(hints.length ? { panel_content: hints } : {}),
+    ...(designDna ? { design_dna: designDna } : {}),
+  } as Json
 }
 
 Deno.serve(async (req: Request) => {
@@ -138,14 +157,32 @@ Deno.serve(async (req: Request) => {
     try {
       if (r.subject_type === 'creative') {
         // creative_assets.id → storage_path → the training row distilled from it.
-        const { data: asset } = await admin
+        // Only real columns are selected here (see layoutTagsFrom's note), and
+        // the error is checked rather than assumed away.
+        const { data: asset, error: assetErr } = await admin
           .from('creative_assets')
-          .select('storage_path, reference_analysis, design_dna_tags, project_id')
+          .select('storage_path, creative_id')
           .eq('id', r.subject_id)
           .eq('org_id', orgId)
           .maybeSingle()
+        if (assetErr) { failures.push(`asset ${r.id}: ${assetErr.message}`); continue }
         const storagePath = (asset as { storage_path?: string } | null)?.storage_path
         if (!storagePath) continue
+
+        // Design context lives on the PARENT creatives row, not the asset.
+        const creativeId = (asset as { creative_id?: string | null } | null)?.creative_id
+        let brief: Record<string, unknown> | null = null
+        let designDna: unknown = null
+        if (creativeId) {
+          const { data: parent } = await admin
+            .from('creatives')
+            .select('senior_designer_brief, design_dna_tags')
+            .eq('id', creativeId)
+            .eq('org_id', orgId)
+            .maybeSingle()
+          brief = ((parent as { senior_designer_brief?: Record<string, unknown> } | null)?.senior_designer_brief) ?? null
+          designDna = (parent as { design_dna_tags?: unknown } | null)?.design_dna_tags ?? null
+        }
 
         const patch = {
           designer_rating: r.ratings?.strategy_fit ?? null,
@@ -154,7 +191,7 @@ Deno.serve(async (req: Request) => {
           editor_ops_digest: digestOps(r.editor_ops) as Json | null,
           strategy_type: r.strategy_type,
           ad_platform: r.platform,
-          layout_tags: layoutTagsFrom(asset as Record<string, unknown> | null),
+          layout_tags: layoutTagsFrom(brief, designDna),
         }
 
         // UPDATE, not upsert: a training row exists only once the campaign has

@@ -148,7 +148,9 @@ export function QuickGenerateForm({
   const mediaTiles: MediaTile[] = useMemo(
     () => projectMedia
       .filter((m) => inputs.projectMediaIds.includes(m.id))
-      .map((m) => ({ id: m.id, url: m.url, assetType: m.assetType })),
+      // label rides along: tile text is free-form ('Rooftop pool') and is
+      // often the only place the amenity is actually named.
+      .map((m) => ({ id: m.id, url: m.url, assetType: m.assetType, label: m.label })),
     [projectMedia, inputs.projectMediaIds],
   );
 
@@ -184,6 +186,8 @@ export function QuickGenerateForm({
           return { panelIndex: s.panelIndex, source: 'unassigned' as const };
         }
         if (s.panelIndex === panelIndex) {
+          // No `suggested` — the user chose this one, so it must stop being
+          // badged as inferred.
           return { panelIndex: s.panelIndex, source: 'media' as const, mediaUrl: assetUrl };
         }
         return s;

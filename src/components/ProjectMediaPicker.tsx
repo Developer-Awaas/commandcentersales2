@@ -56,10 +56,14 @@ export function projectAssetRoleHint(assetType: string): string {
   return 'reference_design';
 }
 
-/** "Section 2 — swimming pool", falling back to position when no hint exists. */
+/**
+ * "Section 2 — pool", falling back to the bare number when the panel carries no
+ * usable hint. 'other' is skipped deliberately: it means the vision pass could
+ * not categorise the panel, and printing it would read as a category.
+ */
 export function panelOptionLabel(p: PhotoPanel): string {
-  const hint = (p.contentHint ?? '').trim();
-  return hint && hint !== 'photo' ? `Section ${p.index} — ${hint}` : `Section ${p.index}`;
+  const hint = p.contentHint;
+  return hint && hint !== 'other' ? `Section ${p.index} — ${hint}` : `Section ${p.index}`;
 }
 
 export function ProjectMediaPicker({
@@ -121,6 +125,9 @@ export function ProjectMediaPicker({
   /** Which section (if any) a given photo URL currently fills. */
   const sectionOf = (url: string): number | null =>
     slots?.find((s) => s.source === 'media' && s.mediaUrl === url)?.panelIndex ?? null;
+  /** True when that binding was inferred by auto-match, not chosen. */
+  const isSuggested = (url: string): boolean =>
+    !!slots?.find((s) => s.source === 'media' && s.mediaUrl === url)?.suggested;
 
   function toggle(id: string) {
     const willDeselect = selectedIds.includes(id);
@@ -223,7 +230,16 @@ export function ProjectMediaPicker({
                     assignmentMode && sectionOf(a.asset_url) !== null ? (
                       // Mirrors the numbered badge drawn over the reference, so
                       // "section 3" means the same thing in both places.
-                      <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-sky-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      <span
+                        className={`absolute top-1 right-1 w-4 h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center ${
+                          isSuggested(a.asset_url)
+                            ? 'bg-sky-500/70 ring-1 ring-dashed ring-white/80'
+                            : 'bg-sky-500'
+                        }`}
+                        title={isSuggested(a.asset_url)
+                          ? `Suggested for section ${sectionOf(a.asset_url)} — change it if that's wrong`
+                          : `Section ${sectionOf(a.asset_url)}`}
+                      >
                         {sectionOf(a.asset_url)}
                       </span>
                     ) : (
@@ -252,7 +268,10 @@ export function ProjectMediaPicker({
                       }}
                       className={`mt-0.5 w-full text-[9px] font-medium rounded bg-surface-sunken border px-1 py-0.5 ${
                         isHero ? 'text-amber-400 border-border'
-                          : sectionOf(a.asset_url) !== null ? 'text-sky-300 border-sky-500/50'
+                          : sectionOf(a.asset_url) !== null
+                            ? (isSuggested(a.asset_url)
+                                ? 'text-sky-300/80 border-dashed border-sky-500/50'
+                                : 'text-sky-300 border-sky-500/50')
                           : 'text-text-tertiary border-border'
                       }`}
                       title="Which section of the reference this photo fills"

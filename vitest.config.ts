@@ -7,16 +7,25 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,
-    // Vitest's 5s default is measured wall-clock, and with this many jsdom
-    // files the environment setup — not the test body — is what consumes it
-    // on a loaded machine. The React render tests (CampaignWizard,
-    // StrategyGenerator) each execute in ~1.3s in isolation but intermittently
-    // tripped 5s in a full run: four consecutive full runs gave 215/215, 214,
-    // 211, 215, while the same suite at 20s passed 215/215 twice.
+    // The suite was intermittently red, and the cause was CONTENTION, not any
+    // individual test. Vitest runs test files in parallel workers; jsdom
+    // environment setup dominates the wall clock here (~53s of a ~75s run,
+    // against ~3.7s of actual test execution), so under load the timing-
+    // sensitive files — gemini-service.async (fake timers + poll interval) and
+    // the React render tests — lose their races. Different tests failed on
+    // each run: 220, 218, 219 across three consecutive parallel runs, all
+    // passing 5/5 and 1/1 in isolation.
     //
-    // This masks nothing — a genuinely hung test still fails, just after 20s
-    // instead of 5. Raised rather than left flaky because a red run nobody
-    // believes is worse than a slow one.
+    // Sequential file execution fixes it deterministically: 220/220 on three
+    // consecutive runs. The cost is ~78s vs ~37s, which is a trivial price for
+    // a required CI check — a red run nobody believes is worse than a slow one.
+    //
+    // If this is ever revisited, the real win is not re-enabling parallelism
+    // but dropping jsdom for the pure-logic files (most of the include list
+    // below needs no DOM at all); that removes the contention at its source.
+    fileParallelism: false,
+    // Kept alongside the above: the heaviest render test runs ~1.3s, so 5s was
+    // tight even sequentially. Masks nothing — a hung test still fails, later.
     testTimeout: 20_000,
     // Explicit include (not the default repo-wide glob): this branch only
     // owns the test files listed here. Other *.test.ts files may exist in a

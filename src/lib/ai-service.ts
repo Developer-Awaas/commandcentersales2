@@ -3,7 +3,7 @@ import { viteEnv } from './env';
 import { ADMIN_EMAIL } from './constants';
 import { MOCK_AI_ENABLED } from './feature-flags';
 import { MOCK_STRATEGY_JSON } from '../mocks/ai-fixtures';
-import { isValidReferenceAnalysis, sanitizePalette, isValidReferenceZone, dedupeZones, clampBbox, isValidPhotoPanel, orderPhotoPanels, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, isValidReferenceZone, dedupeZones, clampBbox, isValidPhotoPanel, orderPhotoPanels, isPanelContentHint, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel } from './reference-style';
 
 /**
  * V5 — zones AND photo panels from one vision pass. Panels are what the
@@ -550,10 +550,17 @@ const ZONE_PROMPT =
   'photo_panels: list EVERY distinct section of the layout that contains a PHOTOGRAPH — the main building shot AND every secondary amenity/interior/lifestyle thumbnail, each cell of a photo strip or grid, each circular or angled photo inset — as a SEPARATE entry. ' +
   'shape_hint describes the panel\'s crop shape: "rect" for a rectangle/square, "circle" for a circular or oval inset, "wedge" for a triangular/pie/chevron slice, "diagonal" for a rectangle cut by a slanted edge. ' +
   'approx_area = the panel\'s area as a fraction of the full image (0..1). is_building = true for the ONE panel holding the main building/property hero shot, false for all others. ' +
-  // Used ONLY to pre-select which of the user's own photos to offer for this
-  // section — never fed to the image model, so it costs nothing to be wrong and
-  // an honest "photo" beats an invented specific.
-  'content_hint = two or three lowercase words naming WHAT THE PHOTO SHOWS, e.g. "swimming pool", "gym", "living room", "building exterior", "rooftop garden", "floor plan". If you cannot tell, use "photo". ' +
+  // Closed enum, not free text: a fuzzy phrase ("azure aquatic amenity") turns
+  // matching into a string-similarity problem, whereas an enum makes it a
+  // lookup. Never fed to the image model — UI/matching only.
+  //
+  // The boundary is deliberate: content_hint states what the panel DEPICTS,
+  // never what should be placed there. The app owns the assignment decision;
+  // letting the model advise on it would make that logic untestable.
+  'content_hint = EXACTLY ONE value from this closed list describing WHAT THE PANEL DEPICTS: "building" | "pool" | "gym" | "interior" | "clubhouse" | "garden" | "terrace" | "lobby" | "playground" | "other". ' +
+  'Use "building" for the main property/exterior shot, "interior" for any indoor room (living room, kitchen, bedroom, bathroom). ' +
+  'Use "other" whenever you are unsure or nothing on the list fits — do NOT guess a specific amenity, and do NOT invent values outside this list. ' +
+  'Describe only what is shown; do not suggest what should replace it. ' +
   'If the layout contains no photographs at all, return "photo_panels":[]. ' +
   'Do NOT name the building, company, or location. Output only the JSON object.';
 
@@ -630,12 +637,14 @@ export async function analyzeReferenceZones(
           shapeHint: (typeof o.shapeHint === 'string' ? o.shapeHint : o.shape_hint) as PhotoPanel['shapeHint'],
           approxArea: typeof o.approxArea === 'number' ? o.approxArea : (typeof o.approx_area === 'number' ? o.approx_area : 0),
           isBuilding: Boolean(o.isBuilding ?? o.is_building),
-          // Free-text; only ever used to PRE-BIND a matching project photo, so a
-          // missing or unrecognised hint degrades to "no auto-match", never to a
-          // wrong one. Trimmed/capped because it reaches no prompt — UI only.
-          contentHint: typeof (o.contentHint ?? o.content_hint) === 'string'
-            ? String(o.contentHint ?? o.content_hint).trim().slice(0, 40)
-            : undefined,
+          // Validated against the closed vocabulary — an off-list value the
+          // model invented is dropped to undefined, which means "no auto-match"
+          // rather than a binding built on a word nothing else understands.
+          contentHint: (() => {
+            const raw = o.contentHint ?? o.content_hint;
+            const norm = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+            return isPanelContentHint(norm) ? norm : undefined;
+          })(),
         };
       })
       .filter(isValidPhotoPanel);
