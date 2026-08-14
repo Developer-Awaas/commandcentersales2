@@ -5,6 +5,7 @@ import {
   resolveImageModel, openaiImageUnitCost, supportsInputFidelity,
   OPENAI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD, OPENAI_IMAGE_2_COST_USD,
   INPUT_FIDELITY_HIGH_SURCHARGE_USD, IMAGE_INPUT_REF_COST_USD,
+  imageFetchTimeoutMs, IMAGE_FETCH_TIMEOUT_MS,
 } from './image-provider.ts'
 
 Deno.test('resolveImageModel: request override > IMAGE_MODEL env > default (gpt-image-2)', () => {
@@ -44,4 +45,33 @@ Deno.test('openaiImageUnitCost: per-input-ref cost scales multi-view edits (RB-P
   assertEquals(openaiImageUnitCost('gpt-image-2', 'medium', { inputRefs: 3 }), OPENAI_IMAGE_2_COST_USD.medium + 3 * IMAGE_INPUT_REF_COST_USD)
   // gen (no refs) is unchanged
   assertEquals(openaiImageUnitCost('gpt-image-2', 'medium'), OPENAI_IMAGE_2_COST_USD.medium)
+})
+
+// P2.13 — the bound scales with input images. The sync clamp is the load-bearing
+// part: async runs in EdgeRuntime.waitUntil (nothing waiting on the response),
+// but a SYNC call that outlives Supabase's 150s request ceiling is killed
+// mid-flight with no terminal state written — the exact failure the flat 135s
+// constant was introduced to prevent.
+Deno.test('imageFetchTimeoutMs: 90s base + 15s per input image', () => {
+  assertEquals(imageFetchTimeoutMs(0, { async: true }), 90_000)
+  assertEquals(imageFetchTimeoutMs(1, { async: true }), 105_000)
+  assertEquals(imageFetchTimeoutMs(5, { async: true }), 165_000)
+})
+
+Deno.test('imageFetchTimeoutMs: async caps at 300s', () => {
+  assertEquals(imageFetchTimeoutMs(14, { async: true }), 300_000)
+  assertEquals(imageFetchTimeoutMs(99, { async: true }), 300_000)
+})
+
+Deno.test('imageFetchTimeoutMs: sync never exceeds the 150s wall clock', () => {
+  // 8 images would scale to 210s; sync must clamp back to the proven ceiling.
+  assertEquals(imageFetchTimeoutMs(8), IMAGE_FETCH_TIMEOUT_MS)
+  assertEquals(imageFetchTimeoutMs(99), IMAGE_FETCH_TIMEOUT_MS)
+  // Below the clamp, sync still scales.
+  assertEquals(imageFetchTimeoutMs(1), 105_000)
+})
+
+Deno.test('imageFetchTimeoutMs: a negative/absent count degrades to the base', () => {
+  assertEquals(imageFetchTimeoutMs(-3, { async: true }), 90_000)
+  assertEquals(imageFetchTimeoutMs(undefined, { async: true }), 90_000)
 })

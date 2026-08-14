@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, orderPhotoPanels, isValidPhotoPanel, primaryPanelIndex, buildDefaultSlots, unresolvedPanels, slotsResolved, slotMediaInOrder, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, orderPhotoPanels, isValidPhotoPanel, primaryPanelIndex, buildDefaultSlots, unresolvedPanels, slotsResolved, slotMediaInOrder, panelTileScore, autoMatchSlots, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel, type MediaTile } from './reference-style';
 
 const valid: ReferenceAnalysis = {
   palette: ['#0A2540', '#F5F5F5'],
@@ -214,5 +214,66 @@ describe('panel slots — the Generate gate', () => {
       { panelIndex: 1, source: 'hero' as const },
     ];
     expect(slotMediaInOrder(both)).toEqual(['https://x/two.png', 'https://x/three.png']);
+  });
+});
+
+describe('label auto-match (P2.13)', () => {
+  const panel = (index: number, contentHint?: string, isBuilding = false): PhotoPanel => ({
+    index,
+    bbox: [0.1 * index, 0.1 * index, 0.2, 0.2],
+    shapeHint: 'rect',
+    approxArea: 0.04,
+    isBuilding,
+    contentHint,
+  });
+  const tile = (id: string, assetType: string): MediaTile => ({ id, url: `https://x/${id}.png`, assetType });
+
+  it('scores a hint against the asset_type it describes, and only that one', () => {
+    expect(panelTileScore(panel(2, 'swimming pool'), 'amenity_pool')).toBeGreaterThan(0);
+    expect(panelTileScore(panel(2, 'swimming pool'), 'amenity_gym')).toBe(0);
+    expect(panelTileScore(panel(2, 'modular kitchen'), 'interior_kitchen')).toBeGreaterThan(0);
+  });
+
+  it('scores 0 when the hint is missing or uninformative', () => {
+    // The vision pass is told to fall back to "photo" when it cannot tell.
+    expect(panelTileScore(panel(2, undefined), 'amenity_pool')).toBe(0);
+    expect(panelTileScore(panel(2, 'photo'), 'amenity_pool')).toBe(0);
+  });
+
+  it('binds each section to the photo that matches it, not to picker order', () => {
+    // Tiles are deliberately supplied in the WRONG order for a positional fill:
+    // order-based assignment would put the gym in the pool's section.
+    const panels = [panel(1, 'building exterior', true), panel(2, 'swimming pool'), panel(3, 'gym')];
+    const tiles = [tile('gym', 'amenity_gym'), tile('pool', 'amenity_pool')];
+    const slots = autoMatchSlots(panels, tiles, null, []);
+    expect(slots.find((s) => s.panelIndex === 1)?.source).toBe('hero');
+    expect(slots.find((s) => s.panelIndex === 2)?.mediaUrl).toBe('https://x/pool.png');
+    expect(slots.find((s) => s.panelIndex === 3)?.mediaUrl).toBe('https://x/gym.png');
+  });
+
+  it('leaves a section unassigned rather than filling it with a leftover', () => {
+    // The whole point of the gate: a decided-looking slot must mean someone
+    // decided it. A wrong-but-plausible binding is the RB-P10 failure again.
+    const panels = [panel(1, 'building exterior', true), panel(2, 'swimming pool'), panel(3, 'kids play area')];
+    const slots = autoMatchSlots(panels, [tile('pool', 'amenity_pool')], null, []);
+    expect(slots.find((s) => s.panelIndex === 3)?.source).toBe('unassigned');
+    expect(unresolvedPanels(slots)).toEqual([3]);
+  });
+
+  it('never reuses one photo for two sections', () => {
+    const panels = [panel(1, 'building exterior', true), panel(2, 'swimming pool'), panel(3, 'pool deck')];
+    const slots = autoMatchSlots(panels, [tile('pool', 'amenity_pool')], null, []);
+    const used = slots.filter((s) => s.source === 'media').map((s) => s.mediaUrl);
+    expect(new Set(used).size).toBe(used.length);
+  });
+
+  it('never overwrites a choice the user already made', () => {
+    const panels = [panel(1, 'building exterior', true), panel(2, 'swimming pool')];
+    const prior = [
+      { panelIndex: 1, source: 'hero' as const },
+      { panelIndex: 2, source: 'empty' as const },
+    ];
+    const slots = autoMatchSlots(panels, [tile('pool', 'amenity_pool')], null, prior);
+    expect(slots.find((s) => s.panelIndex === 2)?.source).toBe('empty');
   });
 });

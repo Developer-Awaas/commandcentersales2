@@ -70,6 +70,15 @@ export interface PhotoPanel {
   approxArea: number;
   /** The vision pass's guess at which panel holds the main building shot. */
   isBuilding?: boolean;
+  /**
+   * Short free-text noun for what the reference shows in this panel ("swimming
+   * pool", "gym", "living room"). Emitted by the SAME vision call that returns
+   * the panels — no extra spend — and used only to PRE-BIND a matching project
+   * photo (autoMatchSlots). Deliberately not an enum: a rigid vocabulary gets
+   * violated by the model and then matches nothing, whereas keyword scoring
+   * degrades gracefully to "no match" and the gate still forces a decision.
+   */
+  contentHint?: string;
 }
 
 const SHAPE_HINTS = ['rect', 'circle', 'wedge', 'diagonal'] as const;
@@ -145,6 +154,99 @@ export function buildDefaultSlots(panels: PhotoPanel[], heroPanelIndex?: number 
     panelIndex: p.index,
     source: p.index === hero ? ('hero' as const) : ('unassigned' as const),
   }));
+}
+
+/** A selected project photo, as the assignment UI sees it. */
+export interface MediaTile {
+  id: string;
+  url: string;
+  /** project_assets.asset_type, e.g. 'amenity_pool', 'interior_living'. */
+  assetType: string;
+}
+
+/**
+ * Synonyms per asset_type token. The vision pass writes what it SEES ("swimming
+ * pool"), the picker stores what the user FILED it as ('amenity_pool') — these
+ * two vocabularies only overlap by luck, so the bridge is explicit.
+ */
+const HINT_SYNONYMS: Record<string, string[]> = {
+  exterior: ['exterior', 'building', 'facade', 'tower', 'elevation', 'block', 'apartment'],
+  night: ['night', 'dusk', 'evening', 'lit'],
+  living: ['living', 'lounge', 'drawing', 'sofa'],
+  kitchen: ['kitchen', 'modular', 'counter'],
+  bedroom: ['bedroom', 'bed'],
+  bathroom: ['bathroom', 'bath', 'washroom', 'shower'],
+  pool: ['pool', 'swimming'],
+  gym: ['gym', 'fitness', 'workout', 'treadmill'],
+  terrace: ['terrace', 'rooftop', 'deck', 'balcony'],
+  garden: ['garden', 'park', 'lawn', 'landscape', 'green'],
+  lobby: ['lobby', 'reception', 'entrance', 'foyer'],
+  clubhouse: ['clubhouse', 'club'],
+  plan: ['plan', 'layout', 'floorplan', 'floor plan'],
+  map: ['map', 'location', 'connectivity'],
+  family: ['family', 'people', 'couple', 'children', 'lifestyle'],
+};
+
+/**
+ * How well a panel's content hint matches a project photo's asset_type.
+ * 0 = no evidence. Exported for the unit test — an auto-binding that silently
+ * pairs the pool photo with the gym's section is worse than no binding at all,
+ * because the user has no reason to look twice at a slot that looks decided.
+ */
+export function panelTileScore(panel: PhotoPanel, assetType: string): number {
+  const hint = (panel.contentHint ?? '').toLowerCase();
+  if (!hint) return 0;
+  // 'amenity_pool' → ['amenity','pool']; the family prefix is dropped because
+  // 'amenity' matches every amenity hint and would flatten the ranking.
+  const tokens = assetType.toLowerCase().split('_').filter((t) => t && t !== 'amenity' && t !== 'hero' && t !== 'interior' && t !== 'lifestyle');
+  let score = 0;
+  for (const token of tokens) {
+    for (const kw of HINT_SYNONYMS[token] ?? [token]) {
+      if (hint.includes(kw)) score += 1;
+    }
+  }
+  return score;
+}
+
+/**
+ * Pre-bind slots from the detected panels and the photos the user actually
+ * selected: the ★ hero takes the building panel, and every other panel takes
+ * the best-matching unused photo BY CONTENT, never by mere ordering.
+ *
+ * A panel with no positive match stays 'unassigned' on purpose. Filling it
+ * with "whatever is left over" would satisfy the gate while pairing images
+ * arbitrarily — the failure this whole flow exists to prevent (RB-P10's
+ * invented amenity photos) is precisely a plausible-looking wrong answer.
+ * Existing explicit choices in `prior` are never overwritten.
+ */
+export function autoMatchSlots(
+  panels: PhotoPanel[],
+  tiles: MediaTile[],
+  heroPanelIndex?: number | null,
+  prior: PanelSlot[] = [],
+): PanelSlot[] {
+  const hero = heroPanelIndex ?? primaryPanelIndex(panels);
+  const taken = new Set<string>();
+  // Anything the user already decided is authoritative and locks its photo.
+  for (const s of prior) {
+    if (s.source === 'media' && s.mediaUrl) taken.add(s.mediaUrl);
+  }
+
+  return panels.map((p) => {
+    const existing = prior.find((s) => s.panelIndex === p.index);
+    if (existing && existing.source !== 'unassigned') return existing;
+    if (p.index === hero) return { panelIndex: p.index, source: 'hero' as const };
+
+    let best: { tile: MediaTile; score: number } | null = null;
+    for (const t of tiles) {
+      if (taken.has(t.url)) continue;
+      const score = panelTileScore(p, t.assetType);
+      if (score > 0 && (!best || score > best.score)) best = { tile: t, score };
+    }
+    if (!best) return { panelIndex: p.index, source: 'unassigned' as const };
+    taken.add(best.tile.url);
+    return { panelIndex: p.index, source: 'media' as const, mediaUrl: best.tile.url };
+  });
 }
 
 /** Panel indices still awaiting a decision (drives the disabled-button subtitle). */

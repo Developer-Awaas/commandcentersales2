@@ -46,7 +46,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
-import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS } from '../_shared/image-provider.ts'
+import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS, imageFetchTimeoutMs } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
@@ -197,6 +197,11 @@ Deno.serve(async (req: Request) => {
           images: [resolvedHero, ...resolvedSupporting],
           observationName: 'openai-image-edit',
           model,
+          // Replicate mode makes the input count user-driven (reference + hero
+          // + one photo per assigned panel), so the bound has to scale with it.
+          // Only the async path can exceed 135s — nothing is waiting on the
+          // response there, so the 150s request ceiling doesn't apply.
+          timeoutMs: imageFetchTimeoutMs(1 + resolvedSupporting.length, { async: !!body.async }),
         })
         if (orgId) {
           await recordApiCost({

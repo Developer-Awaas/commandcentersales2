@@ -540,7 +540,7 @@ const ZONE_VISION_MODEL = 'claude-sonnet-4-6';
 const ZONE_PROMPT =
   'You are a layout-analysis tool. Analyze this real-estate ad and return the position of every distinct ZONE as STRICT JSON. ' +
   'Output ONLY: {"zones":[{"role":"headline|subheadline|price|cta|badge|checklist|logo|photo|footer|other","bbox":[x,y,w,h],"align":"left|center|right","font_scale":number,"weight":"normal|bold","color":"#rrggbb"}],' +
-  '"photo_panels":[{"bbox":[x,y,w,h],"shape_hint":"rect|circle|wedge|diagonal","approx_area":number,"is_building":boolean}]}. ' +
+  '"photo_panels":[{"bbox":[x,y,w,h],"shape_hint":"rect|circle|wedge|diagonal","approx_area":number,"is_building":boolean,"content_hint":"string"}]}. ' +
   'bbox is NORMALIZED 0..1 with x,y = top-left corner and w,h = width,height as fractions of the full image. ' +
   'font_scale = approximate text cap-height as a fraction of image height (0 for photo/logo). ' +
   'Include EVERY text block, each badge/stat cell as a SEPARATE zone, each bullet/checklist group as ONE zone, the logo zone(s), and the main photo zone. ' +
@@ -550,6 +550,10 @@ const ZONE_PROMPT =
   'photo_panels: list EVERY distinct section of the layout that contains a PHOTOGRAPH — the main building shot AND every secondary amenity/interior/lifestyle thumbnail, each cell of a photo strip or grid, each circular or angled photo inset — as a SEPARATE entry. ' +
   'shape_hint describes the panel\'s crop shape: "rect" for a rectangle/square, "circle" for a circular or oval inset, "wedge" for a triangular/pie/chevron slice, "diagonal" for a rectangle cut by a slanted edge. ' +
   'approx_area = the panel\'s area as a fraction of the full image (0..1). is_building = true for the ONE panel holding the main building/property hero shot, false for all others. ' +
+  // Used ONLY to pre-select which of the user's own photos to offer for this
+  // section — never fed to the image model, so it costs nothing to be wrong and
+  // an honest "photo" beats an invented specific.
+  'content_hint = two or three lowercase words naming WHAT THE PHOTO SHOWS, e.g. "swimming pool", "gym", "living room", "building exterior", "rooftop garden", "floor plan". If you cannot tell, use "photo". ' +
   'If the layout contains no photographs at all, return "photo_panels":[]. ' +
   'Do NOT name the building, company, or location. Output only the JSON object.';
 
@@ -626,6 +630,12 @@ export async function analyzeReferenceZones(
           shapeHint: (typeof o.shapeHint === 'string' ? o.shapeHint : o.shape_hint) as PhotoPanel['shapeHint'],
           approxArea: typeof o.approxArea === 'number' ? o.approxArea : (typeof o.approx_area === 'number' ? o.approx_area : 0),
           isBuilding: Boolean(o.isBuilding ?? o.is_building),
+          // Free-text; only ever used to PRE-BIND a matching project photo, so a
+          // missing or unrecognised hint degrades to "no auto-match", never to a
+          // wrong one. Trimmed/capped because it reaches no prompt — UI only.
+          contentHint: typeof (o.contentHint ?? o.content_hint) === 'string'
+            ? String(o.contentHint ?? o.content_hint).trim().slice(0, 40)
+            : undefined,
         };
       })
       .filter(isValidPhotoPanel);

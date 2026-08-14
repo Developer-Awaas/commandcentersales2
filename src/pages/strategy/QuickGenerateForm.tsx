@@ -13,7 +13,7 @@ import { ProjectMediaPicker } from '../../components/ProjectMediaPicker';
 import { getOrgId } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
 import { analyzeReferenceZones } from '../../lib/ai-service';
-import { buildDefaultSlots, orderPhotoPanels, type PanelSlot, type PhotoPanel } from '../../lib/reference-style';
+import { autoMatchSlots, buildDefaultSlots, orderPhotoPanels, type MediaTile, type PanelSlot, type PhotoPanel } from '../../lib/reference-style';
 import PhotoPanelAssigner, { type MediaOption } from './PhotoPanelAssigner';
 import { type QuickGenerateInputs, type StrategyProject } from './types';
 
@@ -76,7 +76,7 @@ export function QuickGenerateForm({
 
   const [detecting, setDetecting] = useState(false);
   const analyzedIdRef = useRef<string | null>(null);
-  const [projectMedia, setProjectMedia] = useState<{ id: string; url: string; label: string }[]>([]);
+  const [projectMedia, setProjectMedia] = useState<{ id: string; url: string; label: string; assetType: string }[]>([]);
 
   // V5 STEP 1 — panel detection runs ONCE per reference, here at upload time
   // rather than at submit, because the assignment UI has to exist before the
@@ -127,7 +127,12 @@ export function QuickGenerateForm({
       setProjectMedia(
         ((data ?? []) as { id: string; asset_url?: string; asset_type?: string }[])
           .filter((r) => !!r.asset_url)
-          .map((r) => ({ id: r.id, url: r.asset_url as string, label: (r.asset_type ?? 'photo').replace(/_/g, ' ') })),
+          .map((r) => ({
+            id: r.id,
+            url: r.asset_url as string,
+            label: (r.asset_type ?? 'photo').replace(/_/g, ' '),
+            assetType: r.asset_type ?? 'other',
+          })),
       );
     })();
     return () => { cancelled = true; };
@@ -140,6 +145,52 @@ export function QuickGenerateForm({
 
   const panels = inputs.referencePanels ?? [];
   const showAssigner = replicateActive && panels.length >= 2;
+
+  const mediaTiles: MediaTile[] = useMemo(
+    () => projectMedia
+      .filter((m) => inputs.projectMediaIds.includes(m.id))
+      .map((m) => ({ id: m.id, url: m.url, assetType: m.assetType })),
+    [projectMedia, inputs.projectMediaIds],
+  );
+
+  // P2.13 — label auto-match. Each detected section is pre-bound to the project
+  // photo whose asset_type matches the section's content_hint ("swimming pool"
+  // → amenity_pool). Runs whenever the panel set or the selection changes, and
+  // never overwrites a slot the user set by hand (autoMatchSlots takes prior).
+  //
+  // A section with no confident match stays 'unassigned' rather than taking
+  // whatever is left over: the gate below is only worth having if a decided
+  // slot means someone actually decided it.
+  const matchKey = `${panels.map((p) => `${p.index}:${p.contentHint ?? ''}`).join('|')}__${mediaTiles.map((t) => t.id).join(',')}`;
+  const lastMatchRef = useRef<string>('');
+  useEffect(() => {
+    if (!showAssigner) return;
+    if (lastMatchRef.current === matchKey) return;
+    lastMatchRef.current = matchKey;
+    const prior = inputsRef.current.panelSlots ?? [];
+    const next = autoMatchSlots(panels, mediaTiles, null, prior);
+    if (JSON.stringify(next) === JSON.stringify(prior)) return;
+    onChange({ ...inputsRef.current, panelSlots: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchKey, showAssigner]);
+
+  /** Tile dropdown → slots. `null` releases whatever section the photo held. */
+  function handleAssignSection(assetUrl: string, panelIndex: number | null) {
+    const prior = inputs.panelSlots ?? buildDefaultSlots(panels);
+    onChange({
+      ...inputs,
+      panelSlots: prior.map((s) => {
+        // One photo fills at most one section — moving it releases the old one.
+        if (s.source === 'media' && s.mediaUrl === assetUrl && s.panelIndex !== panelIndex) {
+          return { panelIndex: s.panelIndex, source: 'unassigned' as const };
+        }
+        if (s.panelIndex === panelIndex) {
+          return { panelIndex: s.panelIndex, source: 'media' as const, mediaUrl: assetUrl };
+        }
+        return s;
+      }),
+    });
+  }
 
   /** Stepper: grow with synthetic panels, shrink from the end. Slots follow. */
   function handleCountChange(next: number) {
@@ -312,6 +363,9 @@ export function QuickGenerateForm({
             onChange={(ids) => set('projectMediaIds', ids)}
             heroId={inputs.heroRefKey}
             onSetHero={(id) => set('heroRefKey', id)}
+            panels={showAssigner ? panels : undefined}
+            slots={showAssigner ? (inputs.panelSlots ?? buildDefaultSlots(panels)) : undefined}
+            onAssignSection={showAssigner ? handleAssignSection : undefined}
           />
         ) : (
           <p className="text-xs text-text-disabled">Select a saved project above to pick from its uploaded photos.</p>

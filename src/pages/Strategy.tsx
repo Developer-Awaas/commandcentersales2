@@ -131,6 +131,12 @@ export function Strategy() {
   // V5 — Generate is blocked while any detected photo section is unassigned.
   // Empty when no panels were detected, so the normal flow is never gated.
   const unassignedPanels = unresolvedPanels(quickInputs.panelSlots ?? []);
+  // Drives the progress overlay's wording + time expectation. Replicate sends
+  // reference + hero + one photo per filled section, and each input image adds
+  // real provider time — see imageFetchTimeoutMs (image-provider.ts).
+  const replicateInFlight = quickInputs.quickRefs.some((r) => r.role_hint === 'replicate_creative');
+  const replicateInputCount =
+    1 + (quickInputs.heroRefKey ? 1 : 0) + slotMediaInOrder(quickInputs.panelSlots ?? []).length;
   const [result, setResult] = useState<StrategyResult>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
@@ -1213,9 +1219,30 @@ export function Strategy() {
                 ? <Loader2 size={12} className="animate-spin text-amber-400" />
                 : <div className="w-2 h-2 rounded-full bg-border" />}
             </div>
-            <p className={`text-xs font-medium ${geminiActive ? 'text-text-primary' : 'text-text-tertiary'}`}>
-              {geminiActive ? 'Generating Feed + Story images with FLUX…' : 'Image generation — starts after strategy'}
-            </p>
+            <div>
+              <p className={`text-xs font-medium ${geminiActive ? 'text-text-primary' : 'text-text-tertiary'}`}>
+                {/* Was "…with FLUX", which has been wrong since the provider
+                    moved off NVIDIA FLUX (dbab464) — and wrong twice over in
+                    replicate mode, which produces ONE image, not Feed+Story. */}
+                {!geminiActive
+                  ? 'Image generation — starts after strategy'
+                  : replicateInFlight
+                    ? 'Replicating the reference layout with your photos…'
+                    : 'Generating Feed + Portrait + Story images…'}
+              </p>
+              {/* Expectation, not a promise: the server-side ceiling now scales
+                  with the number of input photos (90s + 15s each, up to 300s),
+                  so a fully-assigned multi-panel replicate legitimately runs far
+                  longer than a plain 3-image run. Users cancelled mid-flight
+                  when the only cue was a spinner that looked stuck. */}
+              {geminiActive && (
+                <p className="text-[11px] text-text-tertiary mt-0.5">
+                  {replicateInFlight
+                    ? `${replicateInputCount} photo${replicateInputCount === 1 ? '' : 's'} going in — typically 1–2 min, up to ~4 min. Leaving this page cancels it.`
+                    : 'Typically 40–90 s for all three. Leaving this page cancels it.'}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

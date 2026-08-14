@@ -12,6 +12,16 @@ import { unresolvedPanels, panelPositionLabel } from '../../lib/reference-style'
  * instead (RB-P10 STEP 3, ai_single). Naming each panel and stating its fate
  * explicitly turns that preference into a per-slot instruction.
  *
+ * P2.13 — this is no longer where assignment HAPPENS. Choosing which photo
+ * fills a section now lives on the photo itself, in ProjectMediaPicker's tile
+ * dropdown: the user picks the destination while looking at the image, instead
+ * of re-identifying it from a filename in a second list that repeated every
+ * thumbnail already on screen. What remains here is the half a tile cannot do:
+ *   - the numbered map, so "Section 3" has a visible location on the reference;
+ *   - a count stepper, because the vision pass can miscount panels;
+ *   - "leave empty" for sections no photo was assigned to — the one decision
+ *     with no tile to hang off, and the one the gate blocks on.
+ *
  * Rendered only when >= 2 panels are detected; a single-panel or panel-less
  * reference keeps the previous flow untouched.
  */
@@ -46,6 +56,7 @@ export default function PhotoPanelAssigner({
 }: Props) {
   const pending = useMemo(() => unresolvedPanels(slots), [slots]);
   const slotFor = (index: number) => slots.find((s) => s.panelIndex === index);
+  const labelForUrl = (url?: string) => mediaOptions.find((m) => m.url === url)?.label ?? 'selected photo';
 
   return (
     <div className="flex flex-col gap-3 pt-1">
@@ -77,69 +88,64 @@ export default function PhotoPanelAssigner({
       {/* Reference thumbnail with a numbered badge pinned over each panel. */}
       <div className="relative inline-block self-start rounded-lg overflow-hidden border border-border max-w-[260px]">
         <img src={previewUrl} alt="Reference layout" className="block w-full h-auto" />
-        {panels.map((p) => (
-          <span
-            key={p.index}
-            className="absolute flex items-center justify-center w-6 h-6 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-500 text-white text-xs font-bold shadow ring-2 ring-white/70"
-            style={{
-              left: `${(p.bbox[0] + p.bbox[2] / 2) * 100}%`,
-              top: `${(p.bbox[1] + p.bbox[3] / 2) * 100}%`,
-            }}
-            title={`Section ${p.index} — ${SHAPE_LABEL[p.shapeHint]}, ${positionLabel(p)}`}
-          >
-            {p.index}
-          </span>
-        ))}
+        {panels.map((p) => {
+          const s = slotFor(p.index);
+          const resolved = s && s.source !== 'unassigned';
+          return (
+            <span
+              key={p.index}
+              className={`absolute flex items-center justify-center w-6 h-6 -translate-x-1/2 -translate-y-1/2 rounded-full text-white text-xs font-bold shadow ring-2 ring-white/70 ${
+                resolved ? 'bg-sky-500' : 'bg-amber-500'
+              }`}
+              style={{
+                left: `${(p.bbox[0] + p.bbox[2] / 2) * 100}%`,
+                top: `${(p.bbox[1] + p.bbox[3] / 2) * 100}%`,
+              }}
+              title={`Section ${p.index} — ${SHAPE_LABEL[p.shapeHint]}, ${positionLabel(p)}`}
+            >
+              {p.index}
+            </span>
+          );
+        })}
       </div>
 
-      <div className="flex flex-col gap-2">
+      {/* Status per section. Assignment happens on the photo tiles above; the
+          only control here is the one a tile can't express — "leave empty". */}
+      <div className="flex flex-col gap-1.5">
         {panels.map((p) => {
           const slot = slotFor(p.index);
-          const isHero = slot?.source === 'hero';
+          const source = slot?.source ?? 'unassigned';
           return (
             <div key={p.index} className="flex items-center gap-2 text-xs">
-              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-500/20 text-sky-300 font-bold shrink-0">
+              <span className={`flex items-center justify-center w-5 h-5 rounded-full font-bold shrink-0 ${
+                source === 'unassigned' ? 'bg-amber-500/20 text-amber-300' : 'bg-sky-500/20 text-sky-300'
+              }`}>
                 {p.index}
               </span>
               <span className="text-text-tertiary w-28 shrink-0">
                 {positionLabel(p)} · {SHAPE_LABEL[p.shapeHint]}
               </span>
-              {isHero ? (
-                // Slot 1 auto-binds the ★ hero, but stays rebindable — the
-                // vision pass's is_building guess is a guess.
-                <select
-                  value="hero"
-                  onChange={(e) => onSlotChange(p.index, {
-                    panelIndex: p.index,
-                    source: e.target.value === 'hero' ? 'hero' : e.target.value === 'empty' ? 'empty' : 'media',
-                    mediaUrl: e.target.value.startsWith('http') ? e.target.value : undefined,
-                  })}
-                  className="flex-1 bg-surface-2 border border-border rounded px-2 py-1 text-text-primary"
-                >
-                  <option value="hero">★ Hero — the building</option>
-                  <option value="empty">Leave empty</option>
-                  {mediaOptions.map((m) => <option key={m.id} value={m.url}>{m.label}</option>)}
-                </select>
-              ) : (
-                <select
-                  value={slot?.source === 'empty' ? 'empty' : slot?.mediaUrl ?? ''}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    onSlotChange(p.index, {
-                      panelIndex: p.index,
-                      source: v === '' ? 'unassigned' : v === 'empty' ? 'empty' : v === 'hero' ? 'hero' : 'media',
-                      mediaUrl: v.startsWith('http') ? v : undefined,
-                    });
-                  }}
-                  className={`flex-1 bg-surface-2 border rounded px-2 py-1 text-text-primary ${
-                    slot?.source === 'unassigned' ? 'border-amber-500/60' : 'border-border'
-                  }`}
-                >
-                  <option value="">— choose —</option>
-                  <option value="empty">Leave empty (blank design block)</option>
-                  <option value="hero">★ Hero — the building</option>
-                  {mediaOptions.map((m) => <option key={m.id} value={m.url}>{m.label}</option>)}
-                </select>
+              {source === 'hero' && <span className="text-amber-400 flex-1">★ Hero — the building</span>}
+              {source === 'media' && <span className="text-sky-300 flex-1">{labelForUrl(slot?.mediaUrl)}</span>}
+              {source === 'empty' && (
+                <span className="flex-1 flex items-center gap-2 text-text-tertiary">
+                  Left empty (blank design block)
+                  <button
+                    type="button"
+                    onClick={() => onSlotChange(p.index, { panelIndex: p.index, source: 'unassigned' })}
+                    className="underline hover:text-text-secondary"
+                  >undo</button>
+                </span>
+              )}
+              {source === 'unassigned' && (
+                <span className="flex-1 flex items-center gap-2">
+                  <span className="text-amber-400">No photo assigned</span>
+                  <button
+                    type="button"
+                    onClick={() => onSlotChange(p.index, { panelIndex: p.index, source: 'empty' })}
+                    className="px-1.5 py-0.5 rounded border border-border text-text-secondary hover:bg-surface-2"
+                  >Leave empty</button>
+                </span>
               )}
             </div>
           );
@@ -149,7 +155,7 @@ export default function PhotoPanelAssigner({
       {pending.length > 0 ? (
         <p className="text-[11px] text-amber-400">
           {pending.length} {pending.length === 1 ? 'section' : 'sections'} unassigned
-          {' '}(#{pending.join(', #')}) — every section needs an image or “leave empty” before you can generate.
+          {' '}(#{pending.join(', #')}) — assign a photo above, or mark it “leave empty”, before generating.
         </p>
       ) : (
         <p className="text-[11px] text-emerald-400">All sections assigned.</p>

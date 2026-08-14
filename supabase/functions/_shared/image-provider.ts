@@ -56,6 +56,9 @@ export interface GenerateImageInput {
   observationName?: string
   // RB-P6: per-request model override (spike matrix). Omit → IMAGE_MODEL env / default.
   model?: string
+  // Wall-clock bound for the provider call. Omit → the SYNC ceiling for a
+  // text-only (zero input image) call.
+  timeoutMs?: number
 }
 
 export interface ImageCostMeta {
@@ -84,6 +87,9 @@ export interface EditImageInput {
   observationName?: string
   // RB-P6: per-request model override (spike matrix). Omit → IMAGE_MODEL env / default.
   model?: string
+  // Wall-clock bound for the provider call. Omit → scaled from images.length
+  // for the SYNC ceiling. Async callers pass imageFetchTimeoutMs(n,{async:true}).
+  timeoutMs?: number
 }
 
 function resolveProvider(hint?: ImageProvider): ImageProvider {
@@ -102,7 +108,42 @@ function resolveProvider(hint?: ImageProvider): ImageProvider {
 // fails as a clean, reportable error rather than the isolate being killed
 // mid-flight with no terminal state written. It WILL abort a genuinely
 // slower-than-measured call — deliberate: a clean failure beats a hung one.
+//
+// This remains the SYNC ceiling specifically because the 150s request wall
+// clock still applies there. It is no longer the only bound — see below.
 export const IMAGE_FETCH_TIMEOUT_MS = 135_000
+
+// A flat 135s was sized for the worst case that existed when it was written
+// (5 reference images). Replicate mode's per-panel assignment (V5) makes the
+// input count user-driven — reference + hero + one photo per assigned panel —
+// and each extra input image adds real, roughly linear provider time. A flat
+// bound therefore aborts a legitimately-slow 8-image call at exactly the
+// moment the work is nearly done, and is simultaneously far too generous for
+// a 1-image call that has hung.
+//
+// Scale it instead: 90s of fixed overhead + 15s per input image, capped at
+// 300s. Measured anchor: 129.4s at 5 images sits under 90+75=165s with slack,
+// and a 1-image call now fails at 105s instead of 135s.
+//
+// The 300s cap is only reachable in ASYNC mode (EdgeRuntime.waitUntil, where
+// the 150s request ceiling no longer applies because nothing is waiting on
+// the response). In SYNC mode the result is clamped back to the 135s constant
+// above — raising it there would reintroduce the exact failure it prevents:
+// the isolate killed mid-flight at 150s with no terminal state written.
+const TIMEOUT_BASE_MS = 90_000
+const TIMEOUT_PER_IMAGE_MS = 15_000
+const TIMEOUT_ASYNC_CAP_MS = 300_000
+
+export function imageFetchTimeoutMs(
+  inputImages = 0,
+  opts: { async?: boolean } = {},
+): number {
+  const scaled = Math.min(
+    TIMEOUT_BASE_MS + TIMEOUT_PER_IMAGE_MS * Math.max(0, inputImages),
+    TIMEOUT_ASYNC_CAP_MS,
+  )
+  return opts.async ? scaled : Math.min(scaled, IMAGE_FETCH_TIMEOUT_MS)
+}
 
 // capped at 60s. Retries are intentionally limited to 2 (3 total attempts)
 // so a genuinely broken key fails fast rather than burning wall-clock time.
@@ -218,7 +259,12 @@ async function generateWithOpenAI(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ model, prompt: safePrompt, n: 1, size, quality }),
-      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+      // Text→image: no input images, so there is nothing for the per-image
+      // scaling to scale. Deliberately keeps the proven 135s ceiling rather
+      // than dropping to the 90s base — the scaling exists to RAISE the bound
+      // for multi-image edits, not to tighten an unrelated path that already
+      // works. An explicit timeoutMs still wins.
+      signal: AbortSignal.timeout(input.timeoutMs ?? IMAGE_FETCH_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -282,7 +328,10 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}` },
       body: form,
-      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+      // Scales with the input-image count — an 8-panel replicate run is
+      // legitimately slower than a 1-image edit and must not be aborted at a
+      // bound sized for the latter.
+      signal: AbortSignal.timeout(input.timeoutMs ?? imageFetchTimeoutMs(input.images.length)),
     })
 
     if (!res.ok) {
@@ -342,7 +391,12 @@ async function generateWithGemini(
           imageConfig: { aspectRatio },
         },
       }),
-      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+      // Text→image: no input images, so there is nothing for the per-image
+      // scaling to scale. Deliberately keeps the proven 135s ceiling rather
+      // than dropping to the 90s base — the scaling exists to RAISE the bound
+      // for multi-image edits, not to tighten an unrelated path that already
+      // works. An explicit timeoutMs still wins.
+      signal: AbortSignal.timeout(input.timeoutMs ?? IMAGE_FETCH_TIMEOUT_MS),
     })
 
     if (!res.ok) {
