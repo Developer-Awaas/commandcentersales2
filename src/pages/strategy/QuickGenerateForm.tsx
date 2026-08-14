@@ -13,7 +13,7 @@ import { ProjectMediaPicker } from '../../components/ProjectMediaPicker';
 import { getOrgId } from '../../lib/constants';
 import { supabase } from '../../lib/supabase';
 import { analyzeReferenceZones } from '../../lib/ai-service';
-import { autoMatchSlots, buildDefaultSlots, orderPhotoPanels, type MediaTile, type PanelSlot, type PhotoPanel } from '../../lib/reference-style';
+import { autoMatchSlots, buildDefaultSlots, orderPhotoPanels, replicateCaptionState, type MediaTile, type PanelSlot, type PhotoPanel } from '../../lib/reference-style';
 import PhotoPanelAssigner, { type MediaOption } from './PhotoPanelAssigner';
 import { type QuickGenerateInputs, type StrategyProject } from './types';
 
@@ -145,6 +145,9 @@ export function QuickGenerateForm({
 
   const panels = inputs.referencePanels ?? [];
   const showAssigner = replicateActive && panels.length >= 2;
+  // Note: inputs.referencePanels (not `panels`) — [] after a run that found
+  // nothing is a real answer, undefined before the run is not.
+  const captionState = replicateCaptionState(inputs.referencePanels, detecting);
 
   const mediaTiles: MediaTile[] = useMemo(
     () => projectMedia
@@ -387,18 +390,29 @@ export function QuickGenerateForm({
         {replicateActive && (
           <>
             <p className="text-xs text-sky-400 -mt-2">⧉ Replicate mode — layout copied from the style reference; this hero appears as the building. Produces one image at the reference's aspect ratio. Assign a project photo the ★ Hero role above.</p>
-            {/* RB-P10 hero-hint: hero anchors the main building (angle-locked to one
-                photo, view-bounded across several); ALL other project photos now
-                REPLACE the reference's other photo zones — the reference's own imagery
-                is never retained; unfilled photo zones become empty design blocks. */}
-            <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the <strong>main building</strong> (one photo → locked to that angle; several exterior photos → best-fitting view, never invents unseen sides). Your <strong>other project photos (amenities, interiors) replace the reference's OTHER photo zones</strong> — the reference's own photos are never kept. Photo zones with no image become empty design blocks.</p>
-            {replicateActive && inputs.projectMediaIds.length === 0 && !showAssigner && (
-              <p className="text-[11px] text-amber-400 -mt-1">💡 This reference may have amenity/interior photo sections. Select project photos above so <strong>your</strong> images fill them — otherwise those zones render as empty blocks.</p>
-            )}
-            {detecting && (
+
+            {/* P2.13 PART B — detection-aware. The previous copy promised that
+                the user's photos "replace the reference's OTHER photo zones"
+                and nudged them to select more, on every reference including
+                ones with no other photo zones at all: a false description of
+                what the run will do, plus a nudge for photos with nowhere to
+                go. Each state now says only what is true for it. */}
+            {captionState === 'pending' && (
               <p className="text-[11px] text-text-tertiary -mt-1 flex items-center gap-2">
-                <Spinner size="sm" /> Locating the reference’s photo sections…
+                {detecting && <Spinner size="sm" />}
+                Aanya analyses the reference’s layout and photo sections after upload.
               </p>
+            )}
+
+            {captionState === 'single' && (
+              // No mention of other photo zones, and deliberately no amber nudge.
+              <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the <strong>building at its photographed angle</strong> (one photo → locked to that angle; several exterior photos → best-fitting view, never invents unseen sides). The reference’s layout and styling are replicated around it.</p>
+            )}
+
+            {captionState === 'multi' && (
+              // The inline tile assignment below replaces what the old block
+              // spent three sentences explaining, so one pointer is enough.
+              <p className="text-[11px] text-text-tertiary -mt-1">★ Hero anchors the <strong>main building</strong>. <strong>Assign your photos to the numbered sections below</strong> — the reference’s own photos are never kept, and any section left empty becomes a blank design block.</p>
             )}
             {/* V5 STEP 2 — per-panel assignment. Only for multi-panel references;
                 single-panel/none leaves the previous flow exactly as it was. */}

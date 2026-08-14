@@ -156,6 +156,32 @@ export function buildDefaultSlots(panels: PhotoPanel[], heroPanelIndex?: number 
   }));
 }
 
+/**
+ * Which replicate-mode explanation the form should show.
+ *
+ * The old copy was written for one case and shown in all of them: it promised
+ * the user's photos would "replace the reference's OTHER photo zones" and
+ * nudged them to select more, on references that have no other photo zones at
+ * all. On a single-panel reference that is not a hint, it is a false statement
+ * about what the generation will do — and the nudge asks for photos that have
+ * nowhere to go.
+ *
+ * 'pending' is distinct from 'single' on purpose: before detection returns,
+ * nothing is known, and guessing "single" would show the hero-only promise to
+ * someone whose reference turns out to have four panels.
+ */
+export type ReplicateCaptionState = 'pending' | 'single' | 'multi';
+
+export function replicateCaptionState(
+  panels: PhotoPanel[] | undefined,
+  detecting: boolean,
+): ReplicateCaptionState {
+  // A failed analysis also lands here as [] — same user-visible truth ("no
+  // sections to assign"), and the 'single' copy is correct for both.
+  if (detecting || panels === undefined) return 'pending';
+  return panels.length >= 2 ? 'multi' : 'single';
+}
+
 /** A selected project photo, as the assignment UI sees it. */
 export interface MediaTile {
   id: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, orderPhotoPanels, isValidPhotoPanel, primaryPanelIndex, buildDefaultSlots, unresolvedPanels, slotsResolved, slotMediaInOrder, panelTileScore, autoMatchSlots, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel, type MediaTile } from './reference-style';
+import { isValidReferenceAnalysis, sanitizePalette, buildReferenceStyleBlock, referenceMode, isValidReferenceZone, clampBbox, dedupeZones, orderPhotoPanels, isValidPhotoPanel, primaryPanelIndex, buildDefaultSlots, unresolvedPanels, slotsResolved, slotMediaInOrder, panelTileScore, autoMatchSlots, replicateCaptionState, type ReferenceAnalysis, type ReferenceZone, type PhotoPanel, type MediaTile } from './reference-style';
 
 const valid: ReferenceAnalysis = {
   palette: ['#0A2540', '#F5F5F5'],
@@ -275,5 +275,31 @@ describe('label auto-match (P2.13)', () => {
     ];
     const slots = autoMatchSlots(panels, [tile('pool', 'amenity_pool')], null, prior);
     expect(slots.find((s) => s.panelIndex === 2)?.source).toBe('empty');
+  });
+});
+
+describe('replicateCaptionState (P2.13 PART B)', () => {
+  const p = (index: number): PhotoPanel => ({ index, bbox: [0, 0, 0.2, 0.2], shapeHint: 'rect', approxArea: 0.04 });
+
+  it('is pending while detecting, and before any analysis has run', () => {
+    expect(replicateCaptionState(undefined, false)).toBe('pending');
+    expect(replicateCaptionState([p(1), p(2)], true)).toBe('pending');
+  });
+
+  it('distinguishes "not analysed yet" from "analysed, found nothing"', () => {
+    // The whole reason the two are separate: guessing 'single' pre-analysis
+    // shows the hero-only promise to someone whose reference has four panels.
+    expect(replicateCaptionState(undefined, false)).toBe('pending');
+    expect(replicateCaptionState([], false)).toBe('single');
+  });
+
+  it('treats zero and one panel as the hero-only case', () => {
+    expect(replicateCaptionState([], false)).toBe('single');
+    expect(replicateCaptionState([p(1)], false)).toBe('single');
+  });
+
+  it('only promises section assignment at two or more panels', () => {
+    expect(replicateCaptionState([p(1), p(2)], false)).toBe('multi');
+    expect(replicateCaptionState([p(1), p(2), p(3)], false)).toBe('multi');
   });
 });
