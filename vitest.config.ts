@@ -7,6 +7,17 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Vitest's 5s default is measured wall-clock, and with this many jsdom
+    // files the environment setup — not the test body — is what consumes it
+    // on a loaded machine. The React render tests (CampaignWizard,
+    // StrategyGenerator) each execute in ~1.3s in isolation but intermittently
+    // tripped 5s in a full run: four consecutive full runs gave 215/215, 214,
+    // 211, 215, while the same suite at 20s passed 215/215 twice.
+    //
+    // This masks nothing — a genuinely hung test still fails, just after 20s
+    // instead of 5. Raised rather than left flaky because a red run nobody
+    // believes is worse than a slow one.
+    testTimeout: 20_000,
     // Explicit include (not the default repo-wide glob): this branch only
     // owns the test files listed here. Other *.test.ts files may exist in a
     // working tree alongside unrelated in-progress work this branch doesn't

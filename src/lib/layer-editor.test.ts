@@ -93,7 +93,7 @@ describe('editorReducer — undo stack', () => {
 describe('editor op log (P2.13 PART D)', () => {
   const layer = (id: string): TextLayer => ({
     id, text: id, xPct: 10, yPct: 10, fontSizePx: 40,
-    fontWeight: 700, color: '#fff', align: 'left',
+    fontWeight: 'bold', color: '#fff', align: 'left',
   });
 
   it('starts empty and records each mutating action in order', () => {
