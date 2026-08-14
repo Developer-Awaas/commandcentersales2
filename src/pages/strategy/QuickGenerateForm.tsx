@@ -1,3 +1,4 @@
+import { AD_PLATFORM_OPTIONS, type AdPlatform } from '../../lib/ad-platform';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -25,11 +26,6 @@ const OBJECTIVE_OPTIONS = [
   { value: 'Offer/Discount', label: 'Offer / Discount' },
   { value: 'Event/Launch', label: 'Event / Launch' },
   { value: 'Site Visit Drive', label: 'Site Visit Drive' },
-];
-
-const AD_PLATFORM_OPTIONS = [
-  { value: 'AiSensy', label: 'AiSensy' },
-  { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
 ];
 
 interface QuickGenerateFormProps {
@@ -64,7 +60,7 @@ export function QuickGenerateForm({
   ];
 
   const isCustom = inputs.projectId === 'custom';
-  const isMeta = inputs.adPlatform.toLowerCase().includes('meta');
+  const isMeta = inputs.adPlatform === 'meta';
   // Replicate mode is active when a reference carries the Style-reference role.
   const replicateActive = inputs.quickRefs.some((r) => r.role_hint === 'replicate_creative');
   const replicateRef = inputs.quickRefs.find((r) => r.role_hint === 'replicate_creative');
@@ -336,7 +332,7 @@ export function QuickGenerateForm({
           label="Ad Platform"
           options={AD_PLATFORM_OPTIONS}
           value={inputs.adPlatform}
-          onChange={(e) => set('adPlatform', e.target.value)}
+          onChange={(e) => set('adPlatform', e.target.value as AdPlatform)}
         />
         {isMeta && (
           <Select

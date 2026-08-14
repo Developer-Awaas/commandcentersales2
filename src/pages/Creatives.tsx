@@ -1,3 +1,4 @@
+import { AD_PLATFORM_OPTIONS, DEFAULT_AD_PLATFORM, type AdPlatform } from '../lib/ad-platform';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertCircle, BookOpen, ChevronDown, ChevronUp, Palette, RefreshCw, Save, Upload, X, ImageIcon } from 'lucide-react';
 import { CreativeViewer } from '../components/CreativeViewer';
@@ -78,11 +79,6 @@ export const PLATFORM_OPTIONS = [
   { value: 'Midjourney', label: 'Midjourney' },
   { value: 'Canva', label: 'Canva' },
   { value: 'Manual / Designer', label: 'Manual / Designer' },
-];
-
-const AD_PLATFORM_OPTIONS = [
-  { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
-  { value: 'AiSensy', label: 'AiSensy (WhatsApp)' },
 ];
 
 interface LibraryCreative {
@@ -329,7 +325,7 @@ export function Creatives() {
   const [projectId, setProjectId] = useState('');
   const [funnelStage, setFunnelStage] = useState('TOFU');
   const [creativePlatform] = useState(DEFAULT_CREATIVE_PLATFORM);
-  const [adPlatform, setAdPlatform] = useState<'Meta Ads Manager' | 'AiSensy'>('Meta Ads Manager');
+  const [adPlatform, setAdPlatform] = useState<AdPlatform>(DEFAULT_AD_PLATFORM);
   const [image, setImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [quickRefs, setQuickRefs] = useState<QuickReferenceUpload[]>([]);
@@ -826,7 +822,7 @@ Return ONLY a JSON object:
               <Select label="Project" options={projectOptions} value={projectId} onChange={(e) => { setProjectId(e.target.value); setResult({ status: 'idle' }); }} />
             )}
             <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnelStage} onChange={(e) => { setFunnelStage(e.target.value); setResult({ status: 'idle' }); }} />
-            <Select label="Output Ad Platform" options={AD_PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as 'Meta Ads Manager' | 'AiSensy')} />
+            <Select label="Output Ad Platform" options={AD_PLATFORM_OPTIONS} value={adPlatform} onChange={(e) => setAdPlatform(e.target.value as AdPlatform)} />
           </div>
 
           <div className="flex flex-col gap-4">

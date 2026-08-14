@@ -1,3 +1,4 @@
+import { AD_PLATFORM_OPTIONS as PLATFORM_OPTIONS, DEFAULT_AD_PLATFORM, type AdPlatform } from '../lib/ad-platform';
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckSquare, FolderKanban, RefreshCw, Settings, Square, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -35,11 +36,6 @@ const FUNNEL_OPTIONS = [
   { value: 'TOFU', label: 'TOFU — Top of Funnel' },
   { value: 'MOFU', label: 'MOFU — Middle of Funnel' },
   { value: 'BOFU', label: 'BOFU — Bottom of Funnel' },
-];
-
-const PLATFORM_OPTIONS = [
-  { value: 'AiSensy', label: 'AiSensy' },
-  { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
 ];
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -275,7 +271,7 @@ export function AdConfig() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectId, setProjectId] = useState('');
   const [funnelStage, setFunnelStage] = useState('TOFU');
-  const [platform, setPlatform] = useState('AiSensy');
+  const [platform, setPlatform] = useState<AdPlatform>(DEFAULT_AD_PLATFORM);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState>({ status: 'idle' });
   const resultRef = useRef<HTMLDivElement>(null);
@@ -350,6 +346,7 @@ export function AdConfig() {
       tool: 'ad_config',
       payload: result.data as unknown as Record<string, unknown>,
       status: 'saved',
+      platform,
     });
     setResult({ ...result, savedOutputId: output.id });
     await loadSavedConfigs();
@@ -374,7 +371,7 @@ export function AdConfig() {
         <Settings size={20} className="text-brand" />
         <div>
           <h1 className="text-xl font-semibold text-text-primary">Ad Config</h1>
-          <p className="text-text-tertiary text-xs mt-0.5">Get exact field-by-field ad configuration for Meta and AiSensy</p>
+          <p className="text-text-tertiary text-xs mt-0.5">Get exact field-by-field ad configuration for Meta and Google Ads</p>
         </div>
       </div>
 
@@ -402,7 +399,7 @@ export function AdConfig() {
             <Select label="Project" options={projectOptions} value={projectId} onChange={(e) => { setProjectId(e.target.value); setResult({ status: 'idle' }); }} />
           )}
           <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={funnelStage} onChange={(e) => { setFunnelStage(e.target.value); setResult({ status: 'idle' }); }} />
-          <Select label="Platform" options={PLATFORM_OPTIONS} value={platform} onChange={(e) => { setPlatform(e.target.value); setResult({ status: 'idle' }); }} />
+          <Select label="Platform" options={PLATFORM_OPTIONS} value={platform} onChange={(e) => { setPlatform(e.target.value as AdPlatform); setResult({ status: 'idle' }); }} />
         </div>
         <Button onClick={handleGenerate} disabled={submitting || !projectId} className="w-full py-2.5">
           {submitting ? <Spinner size="sm" /> : <Settings size={14} />}

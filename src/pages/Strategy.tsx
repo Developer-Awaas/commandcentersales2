@@ -1,3 +1,4 @@
+import { DEFAULT_AD_PLATFORM } from '../lib/ad-platform';
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Database, FolderKanban, Loader2, Zap } from 'lucide-react';
 import { useChatbot } from '../contexts/ChatbotContext';
@@ -79,7 +80,7 @@ const DEFAULT_QUICK: QuickGenerateInputs = {
   },
   objective: 'Lead Generation',
   creativePlatform: 'Nanobanana (Gemini)',
-  adPlatform: 'AiSensy',
+  adPlatform: DEFAULT_AD_PLATFORM,
   competitorAnalysis: '',
   includePerSqft: false,
   perSqftRate: '',
@@ -599,7 +600,7 @@ export function Strategy() {
           placement: 'feed_square',
           languages: quickInputs.languages,
           quick_references: allRefs,
-          ad_platform: quickInputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
+          ad_platform: quickInputs.adPlatform,
         }, replicateAspect
           // Rung 1 hard branch: in replicate mode the 9-section assembly (Stage 2)
           // MUST NOT run — `layouts: []` runs Stage 1 (concept + ad_copy) only and
@@ -817,7 +818,7 @@ export function Strategy() {
             funnel_stage: 'BOFU',
             placement: 'feed_square',
             languages,
-            ad_platform: 'Meta Ads Manager',
+            ad_platform: 'meta',
           });
 
           console.log('🎨 [AANYA-FULL] System prompt length:', aanyaSystem.length);
@@ -890,6 +891,8 @@ export function Strategy() {
       project_id: projectId,
       campaign_name: data.campaignName || `Quick Ad — ${new Date().toLocaleDateString('en-IN')}`,
       funnel_stage: 'BOFU',
+      // Normalised vocabulary (campaigns_platform_check). CTWA-ness is
+      // carried by ad_type below, not by overloading platform.
       platform: quickInputs.adPlatform,
       ad_type: data.adType || 'CTWA',
       objective: data.objective || 'Messages',
@@ -919,7 +922,7 @@ export function Strategy() {
       org_id: getOrgId(), project_id: null,
       campaign_name: String(c.project ?? 'Campaign'),
       funnel_stage: String(c.funnelStage ?? 'BOFU'),
-      platform: 'Meta', ad_type: 'CTWA',
+      platform: 'meta', ad_type: 'CTWA',
       objective: String(c.objective ?? 'Messages'),
       targeting: { audience: c.audience, ageRange: c.ageRange, locations: c.locations },
       placements: { placements: c.placements },

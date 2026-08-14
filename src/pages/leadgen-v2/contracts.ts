@@ -31,7 +31,9 @@ export interface AaravMessage {
   timestamp: string;
 }
 
-export type AdPlatform = 'Meta Ads Manager' | 'AiSensy';
+// P2.13 PART C — re-exported from the single vocabulary rather than restated.
+import type { AdPlatform } from '../../lib/ad-platform';
+export type { AdPlatform };
 export type FunnelStage = 'awareness' | 'consideration' | 'conversion';
 export type CreativeAngle = 'value' | 'lifestyle' | 'amenity';
 

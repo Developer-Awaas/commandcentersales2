@@ -1,3 +1,4 @@
+import { AD_PLATFORM_OPTIONS as PLATFORM_OPTIONS, DEFAULT_AD_PLATFORM, type AdPlatform } from '../lib/ad-platform';
 import { useEffect, useRef, useState } from 'react';
 import { CheckSquare, ChevronLeft, ChevronRight, Download, Square, Upload, Wand2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -69,11 +70,6 @@ const STEPS: { id: StepNum; label: string }[] = [
   { id: 4, label: 'Ad Config' },
   { id: 5, label: 'Checklist' },
   { id: 6, label: 'Final Plan' },
-];
-
-const PLATFORM_OPTIONS = [
-  { value: 'AiSensy', label: 'AiSensy' },
-  { value: 'Meta Ads Manager', label: 'Meta Ads Manager' },
 ];
 
 // Kept for TODO(multi-platform) re-exposure — the picker UI using this was
@@ -246,7 +242,7 @@ function StepAdConfig({ data, project, onResult }: {
   project: Project | undefined;
   onResult: (r: Record<string, unknown>) => void;
 }) {
-  const [platform, setPlatform] = useState('AiSensy');
+  const [platform, setPlatform] = useState<AdPlatform>(DEFAULT_AD_PLATFORM);
   const inheritedFunnel = data.funnelStage;
   const [funnel, setFunnel] = useState<string>(inheritedFunnel || 'BOFU');
   const [pendingFunnel, setPendingFunnel] = useState<string | null>(null);
@@ -281,6 +277,7 @@ function StepAdConfig({ data, project, onResult }: {
           campaignId: data.campaignId,
           payload: genResult.data as unknown as Record<string, unknown>,
           status: 'saved',
+          platform,
         });
       } catch (err) {
         console.warn('[Wizard StepAdConfig] tool_outputs save failed (non-fatal):', err);
@@ -295,7 +292,7 @@ function StepAdConfig({ data, project, onResult }: {
     <div className="flex flex-col gap-5">
       <p className="text-sm text-text-tertiary">Configuring ads for <span className="text-text-primary font-medium">{data.projectName || 'selected project'}</span></p>
       <div className="grid grid-cols-2 gap-4">
-        <Select label="Ad Platform" options={PLATFORM_OPTIONS} value={platform} onChange={(e) => setPlatform(e.target.value)} />
+        <Select label="Ad Platform" options={PLATFORM_OPTIONS} value={platform} onChange={(e) => setPlatform(e.target.value as AdPlatform)} />
         <Select label="Funnel Stage" options={FUNNEL_OPTIONS} value={pendingFunnel ?? funnel} onChange={(e) => handleFunnelChange(e.target.value)} />
       </div>
       {pendingFunnel && (

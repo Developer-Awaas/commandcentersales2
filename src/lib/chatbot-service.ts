@@ -92,7 +92,7 @@ export const PAGE_CONTEXTS: Record<string, string> = {
   dashboard: 'User is on the Dashboard. They can see KPIs (projects, campaigns, spend, leads, CPL, alerts), project list, recent AI sessions, and quick action buttons.',
   projects: 'User is on the Projects page. They can view, add, edit, delete projects. Each project has name, location, price, units, USPs, amenities.',
   strategy: 'User is on the Strategy page. Two modes: Quick Generate (single ad) and Full Strategy (multi-project). Quick Generate needs: description, project, objective, platform. Full Strategy needs: budget, targets, project selection.',
-  'ad-config': 'User is on Ad Config page. Generates exact field-by-field configuration for Meta Ads Manager or AiSensy. Needs: project, funnel stage, platform.',
+  'ad-config': 'User is on Ad Config page. Generates exact field-by-field configuration for Meta Ads Manager or Google Ads. Needs: project, funnel stage, platform.',
   creatives: 'User is on Creatives page. Generates 3 creative variants with ad copy + Nanobanana prompts. Has creative library below. Can upload reference image.',
   'ad-review': 'User is on Ad Review page. Upload a creative image for AI analysis. Gets score, issues, category reviews, revised prompt. Full design DNA extraction.',
   analyzer: 'User is on Lead Gen Analyzer. Enter campaign metrics (spend, leads, CPL, CTR etc.) for AI analysis. Can import CSV. Metrics history table at bottom.',

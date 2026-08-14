@@ -43,7 +43,7 @@ vi.mock('../../pages/strategy/QuickGenerateForm', () => ({
       onClick={() => onChange({
         prompt: 'test brief', projectId: 'proj1',
         customProject: { name: '', locality: '', city: '', price: '', unitsLeft: '', type: '', usps: '' },
-        objective: 'Lead Generation', creativePlatform: 'Nanobanana (Gemini)', adPlatform: 'Meta Ads Manager',
+        objective: 'Lead Generation', creativePlatform: 'Nanobanana (Gemini)', adPlatform: 'meta',
         competitorAnalysis: '', includePerSqft: false, perSqftRate: '',
         campaignGoal: 'lead_generation', languages: ['English'], quickRefs: [],
         projectMediaIds: [], heroRefKey: null,

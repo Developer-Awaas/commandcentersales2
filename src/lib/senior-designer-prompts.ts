@@ -5,6 +5,7 @@
 //
 // All these flows now route through buildSeniorDesignerCreativePrompt().
 
+import type { AdPlatform } from './ad-platform';
 import { supabase } from './supabase';
 import { getOrgId } from './constants';
 import { aiCall } from './ai-service';
@@ -30,7 +31,7 @@ export interface CreativeBriefInput {
   languages: string[]; // ['English', 'Odia'] etc
 
   // Optional
-  ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  ad_platform?: AdPlatform;
   creative_platform?: string; // 'Nanobanana (Gemini)', 'Midjourney', etc
   variant_label?: 'A' | 'B' | 'C'; // for multi-variant generation
   variant_angle?: string; // 'price_led' | 'lifestyle_led' etc
@@ -819,20 +820,20 @@ OUTPUT JSON SCHEMA:
   "nanobanana_prompt_story": "LAYOUT: TYPOGRAPHY_FORWARD (Reference C). Bold display headline dominates 40% of frame (64–76pt, NOT 96pt+), building as secondary photo card, max 3 text elements. Canvas: 1024×1792px. Nine sections, 400–600 words. Section 9 must specify 9:16 aspect ratio AND quality: high.",
   "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
   "ad_copy": {
-    ${(input.ad_platform === 'AiSensy'
+    ${(input.ad_platform === 'google'
       ? input.languages.map(lang =>
-        `"headline_${lang.toLowerCase()}": "WhatsApp template header — max 60 chars, benefit-led hook in ${lang}",
-    "subhead_${lang.toLowerCase()}": "Teaser line — max 20 words in ${lang}",
-    "primary_text_${lang.toLowerCase()}": "WhatsApp message body — conversational, emoji-rich, 300-500 chars in ${lang}. Open with a personal hook (not a broadcast). Include the key USP + soft CTA. Reads like a message from a trusted advisor, not an ad. No jargon.",
-    "description_${lang.toLowerCase()}": "WhatsApp quick-reply button label — max 20 chars in ${lang}"`)
+        `"headline_${lang.toLowerCase()}": "Max 30 chars — Google Ads headline asset in ${lang}. Benefit- or offer-led; no ALL-CAPS and no excessive punctuation (Google disapproves both).",
+    "subhead_${lang.toLowerCase()}": "Second headline asset — max 30 chars in ${lang}",
+    "primary_text_${lang.toLowerCase()}": "Google Ads description asset — max 90 chars in ${lang}. ONE complete benefit-led sentence that reads correctly on its own, because Google recombines assets in any order.",
+    "description_${lang.toLowerCase()}": "Max 30 chars — sitelink/callout label in ${lang}"`)
       : input.languages.map(lang =>
         `"headline_${lang.toLowerCase()}": "Max 40 chars — Meta feed headline in ${lang}. Punchy benefit statement.",
     "subhead_${lang.toLowerCase()}": "Max 20 words in ${lang}",
     "primary_text_${lang.toLowerCase()}": "First 125 chars MUST work as a standalone hook (visible before 'See More' on Meta). Total 125-250 chars. Emoji-led. In ${lang}. Lead with the strongest hook — price, urgency, or dream.",
     "description_${lang.toLowerCase()}": "Max 30 chars — Meta link description in ${lang}"`)
     ).join(',\n    ')},
-    "cta": ${input.ad_platform === 'AiSensy'
-      ? `"WhatsApp Now OR Know More OR Book a Call — keep under 20 chars, WhatsApp button label"`
+    "cta": ${input.ad_platform === 'google'
+      ? `"Get Quote OR Book Site Visit OR Download Brochure OR Learn More — Google Ads CTA, max 30 chars"`
       : `"Send WhatsApp Message OR Book Site Visit OR Get Brochure OR Learn More — use exact Meta CTA label text"`}
   },
   "post_production_notes": "Manual overlay needed (especially for non-Latin scripts where Nanobanana may render imperfectly). Be specific.",
@@ -881,7 +882,7 @@ export async function buildQuickGenerateBrief(args: {
   placement?: CreativeBriefInput['placement'];
   languages: string[];
   quick_references?: QuickReference[];
-  ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  ad_platform?: AdPlatform;
 }) {
   return buildSeniorDesignerCreativePrompt({
     user_brief: args.user_brief,
@@ -902,7 +903,7 @@ export async function buildVariantBriefs(args: {
   user_brief: string;
   funnel_stage: CreativeBriefInput['funnel_stage'];
   languages: string[];
-  ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+  ad_platform?: AdPlatform;
   quick_references?: QuickReference[];
 }) {
   const variants: Array<{label: 'A' | 'B' | 'C', angle: string}> = [
@@ -1147,20 +1148,20 @@ Output ONLY this JSON object (no markdown fences, no preamble):
   "visual_anchor": "60-100 word literal architectural/scene description — see RULE above",
   "reference_image_manifest": [{"role": "BRAND_LOGO_COLOR", "instruction": "..."}],
   "ad_copy": {
-    ${(input.ad_platform === 'AiSensy'
+    ${(input.ad_platform === 'google'
       ? input.languages.map(lang =>
-        `"headline_${lang.toLowerCase()}": "WhatsApp template header — max 60 chars, benefit-led hook in ${lang}",
-    "subhead_${lang.toLowerCase()}": "Teaser line — max 20 words in ${lang}",
-    "primary_text_${lang.toLowerCase()}": "WhatsApp message body — conversational, emoji-rich, 300-500 chars in ${lang}",
-    "description_${lang.toLowerCase()}": "WhatsApp quick-reply button label — max 20 chars in ${lang}"`)
+        `"headline_${lang.toLowerCase()}": "Max 30 chars — Google Ads headline asset in ${lang}",
+    "subhead_${lang.toLowerCase()}": "Second headline asset — max 30 chars in ${lang}",
+    "primary_text_${lang.toLowerCase()}": "Google Ads description asset — max 90 chars in ${lang}, one self-contained benefit-led sentence",
+    "description_${lang.toLowerCase()}": "Max 30 chars — sitelink/callout label in ${lang}"`)
       : input.languages.map(lang =>
         `"headline_${lang.toLowerCase()}": "Max 40 chars — Meta feed headline in ${lang}",
     "subhead_${lang.toLowerCase()}": "Max 20 words in ${lang}",
     "primary_text_${lang.toLowerCase()}": "First 125 chars a standalone hook. Total 125-250 chars. In ${lang}.",
     "description_${lang.toLowerCase()}": "Max 30 chars — Meta link description in ${lang}"`)
     ).join(',\n    ')},
-    "cta": ${input.ad_platform === 'AiSensy'
-      ? `"WhatsApp Now OR Know More OR Book a Call — under 20 chars"`
+    "cta": ${input.ad_platform === 'google'
+      ? `"Get Quote OR Book Site Visit OR Download Brochure OR Learn More — max 30 chars"`
       : `"Send WhatsApp Message OR Book Site Visit OR Get Brochure OR Learn More"`}
   },
   "design_dna_tags": {
@@ -1437,7 +1438,7 @@ export async function runTwoStageQuickGenerate(
     placement?: CreativeBriefInput['placement'];
     languages: string[];
     quick_references?: QuickReference[];
-    ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+    ad_platform?: AdPlatform;
   },
   // layouts passthrough lets replicate mode generate only 'main' (one Stage 2
   // call) since it renders a single image at the reference's aspect.
@@ -1465,7 +1466,7 @@ export async function runTwoStageVariantBrief(
     user_brief: string;
     funnel_stage: CreativeBriefInput['funnel_stage'];
     languages: string[];
-    ad_platform?: 'AiSensy' | 'Meta Ads Manager';
+    ad_platform?: AdPlatform;
     quick_references?: QuickReference[];
     variant_label: 'A' | 'B' | 'C';
     variant_angle: string;

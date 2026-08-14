@@ -1186,6 +1186,12 @@ function GenerateFromDNAPanel({ projectId, projectName }: GenerateFromDNAPanelPr
   const [dna, setDna] = useState<FullDesignDNA | null>(null);
   const [brief, setBrief] = useState('');
   const [ratio, setRatio] = useState<'1:1' | '4:5' | '9:16'>('1:1');
+  // DELIBERATELY RETAINED as-is by P2.13 PART C. This is not the ad-platform
+  // selector — it picks which SURFACE a training creative is styled for, and
+  // the UI already labels it "Meta" / "WhatsApp". A WhatsApp creative really is
+  // a distinct design target (conversational tone, mobile-first, clean layout),
+  // independent of which ad platform bought the placement. Folding it into the
+  // meta|google ad-platform vocabulary would lose that distinction.
   const [platform, setPlatform] = useState<'meta' | 'aisensy'>('meta');
   const [phase, setPhase] = useState<'idle' | 'writing-prompt' | 'generating' | 'done' | 'error'>('idle');
   const [error, setError] = useState('');

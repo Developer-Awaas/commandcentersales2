@@ -123,6 +123,22 @@ export function AanyaDesignerNotes({ brief }: { brief?: SeniorDesignerResult }) 
   );
 }
 
+// ─── Click-to-WhatsApp (CTWA) ad configuration — DELIBERATELY RETAINED ──────
+//
+// P2.13 PART C removed AiSensy from the ad-platform selectors: it is a
+// WhatsApp/CTWA delivery tool, not an ad platform sitting alongside Meta and
+// Google. A Click-to-WhatsApp ad IS a Meta ad, bought in Meta Ads Manager,
+// that happens to land in AiSensy — modelling it as a third peer made
+// "platform" mean two different things at once.
+//
+// This renderer is NOT dead code to delete on sight. CTWA is a real Meta ad
+// type this product sells, and everything below (Ad Type CTWA, Conversations
+// performance goal, icebreakers, WhatsApp flow step) is correct, working
+// output for it. What is missing is the routing: CTWA belongs as a Meta ad
+// TYPE, chosen after platform=meta, not as its own platform. Until that
+// exists this panel simply renders whatever a strategy result carries.
+//
+// Delete only alongside a decision to stop selling Click-to-WhatsApp ads.
 function AiSensySectionHeader({ num, title }: { num: number; title: string }) {
   return (
     <div className="flex items-center gap-3 mb-4">

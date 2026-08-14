@@ -31,7 +31,7 @@ media plan. Respond with a JSON object ONLY — no prose, no markdown fences,
 no explanation before or after it. The object must match this exact shape:
 
 {
-  "platform": "Meta Ads Manager" | "AiSensy",
+  "platform": "meta" | "google",
   "primary_funnel_stage": "awareness" | "consideration" | "conversion",
   "budget_allocation": { "awareness": number, "consideration": number, "conversion": number },
   "targeting": { "age_range": string, "locations": string[], "interests": string[] },
@@ -84,10 +84,11 @@ Rules:
 - "rationale" is one sentence explaining why this angle fits the strategy's
   funnel stage and targeting — internal review only, never shown to the end
   customer.
-- Tailor headline/primary_text/cta to strategy.platform: for "Meta Ads
-  Manager" keep headline <=40 chars; for "AiSensy" headline is a WhatsApp
-  template header <=60 chars and primary_text is a conversational WhatsApp
-  message body.
+- Tailor headline/primary_text/cta to strategy.platform: for "meta" keep
+  headline <=40 chars and make the first 125 chars of primary_text stand
+  alone as a hook; for "google" keep headline <=30 chars and primary_text
+  <=90 chars as one self-contained benefit-led sentence (Google recombines
+  assets in any order).
 - If a field would otherwise be empty, make a reasonable assumption rather
   than asking a clarifying question — you only get this one turn.`
 

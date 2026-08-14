@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { AdPlatform } from './ad-platform';
 
 export type ToolOutputDomain = 'ads' | 'social';
 export type ToolOutputTool = 'strategy' | 'ad_config' | 'ad_creatives' | 'ad_review' | 'smm_planner' | 'smm_creatives' | 'performance' | 'smm_analysis';
@@ -19,6 +20,8 @@ export interface ToolOutput {
   payload: Record<string, unknown>;
   asset_refs: AssetRef[];
   status: ToolOutputStatus;
+  /** Ad platform, or null for outputs that predate the column / have none. */
+  platform: AdPlatform | null;
   created_at: string;
 }
 
@@ -47,6 +50,12 @@ export async function saveToolOutput(input: {
   payload: Record<string, unknown>;
   assetRefs?: AssetRef[];
   status?: ToolOutputStatus;
+  /**
+   * Ad platform this output was generated for (migration 20260814120000).
+   * Omitted → NULL, i.e. "not recorded". Social tools have no ad platform at
+   * all, so defaulting them to 'meta' would make the column unreadable.
+   */
+  platform?: AdPlatform | null;
 }): Promise<ToolOutput> {
   const { data, error } = await supabase
     .from('tool_outputs')
@@ -58,6 +67,7 @@ export async function saveToolOutput(input: {
       payload: input.payload,
       asset_refs: input.assetRefs ?? [],
       status: input.status ?? 'saved',
+      platform: input.platform ?? null,
     })
     .select('*')
     .single();

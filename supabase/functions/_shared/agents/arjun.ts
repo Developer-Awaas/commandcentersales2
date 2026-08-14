@@ -46,7 +46,11 @@ export interface ExpectedCplRange {
 }
 
 export interface StrategyConfig {
-  platform: 'Meta Ads Manager' | 'AiSensy'
+  // P2.13 PART C — normalised ad-platform vocabulary, mirroring
+  // src/lib/ad-platform.ts and the campaigns/tool_outputs CHECK constraint.
+  // AiSensy was dropped: a Click-to-WhatsApp ad IS a Meta ad, so it was never
+  // a peer of Meta here — it described the delivery tool, not the platform.
+  platform: 'meta' | 'google'
   primary_funnel_stage: 'awareness' | 'consideration' | 'conversion'
   budget_allocation: BudgetAllocation
   targeting: TargetingConfig

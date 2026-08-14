@@ -1,3 +1,4 @@
+import type { AdPlatform } from '../../lib/ad-platform';
 import type { GalleryImage } from '../../components/ImageGalleryViewer';
 import type { PhotoPanel, PanelSlot, ReferenceZone } from '../../lib/reference-style';
 
@@ -27,7 +28,7 @@ export interface QuickGenerateInputs {
   };
   objective: string;
   creativePlatform: string;
-  adPlatform: string;
+  adPlatform: AdPlatform;
   competitorAnalysis: string;
   includePerSqft: boolean;
   perSqftRate: string;

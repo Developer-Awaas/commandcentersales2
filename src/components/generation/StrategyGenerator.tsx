@@ -1,3 +1,4 @@
+import { DEFAULT_AD_PLATFORM } from '../../lib/ad-platform';
 import { useEffect, useState } from 'react';
 import { Wand2, Check } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -21,7 +22,7 @@ const DEFAULT_INPUTS: QuickGenerateInputs = {
   customProject: { name: '', locality: '', city: '', price: '', unitsLeft: '', type: '', usps: '' },
   objective: 'Lead Generation',
   creativePlatform: 'Nanobanana (Gemini)',
-  adPlatform: 'Meta Ads Manager',
+  adPlatform: DEFAULT_AD_PLATFORM,
   competitorAnalysis: '',
   includePerSqft: false,
   perSqftRate: '',
@@ -132,7 +133,7 @@ export function StrategyGenerator({ campaignId, initialProjectId, onSaved }: Str
         placement: 'feed_square',
         languages: inputs.languages,
         quick_references: enrichedRefs,
-        ad_platform: inputs.adPlatform as 'AiSensy' | 'Meta Ads Manager',
+        ad_platform: inputs.adPlatform,
       });
 
       const rawResponse = await aiCall(userPrompt, systemPrompt, 16000, { traceName: 'strategy-generator-generate' });
@@ -216,6 +217,9 @@ export function StrategyGenerator({ campaignId, initialProjectId, onSaved }: Str
         campaignId: campaignId ?? null,
         payload: result.data as unknown as Record<string, unknown>,
         status: 'saved',
+        // The platform the copy limits were written against — without it a
+        // saved strategy is indistinguishable from one written for the other.
+        platform: inputs.adPlatform,
       });
       setSaved(true);
       onSaved({

@@ -184,7 +184,7 @@ export interface Database {
           org_id: string | null
           project_id: string | null
           name: string
-          platform: string | null
+          platform: 'meta' | 'google' | null
           status: string | null
           budget: Json | null
           meta_campaign_id: string | null
@@ -196,7 +196,7 @@ export interface Database {
           org_id?: string | null
           project_id?: string | null
           name?: string
-          platform?: string | null
+          platform?: 'meta' | 'google' | null
           status?: string | null
           budget?: Json | null
           meta_campaign_id?: string | null
@@ -208,7 +208,7 @@ export interface Database {
           org_id?: string | null
           project_id?: string | null
           name?: string
-          platform?: string | null
+          platform?: 'meta' | 'google' | null
           status?: string | null
           budget?: Json | null
           meta_campaign_id?: string | null
@@ -720,6 +720,7 @@ export interface Database {
           payload: Json
           asset_refs: Json
           status: 'saved' | 'in_progress' | 'completed'
+          platform: 'meta' | 'google' | null
           created_at: string
         }
         Insert: {
@@ -731,6 +732,7 @@ export interface Database {
           payload: Json
           asset_refs?: Json
           status?: 'saved' | 'in_progress' | 'completed'
+          platform?: 'meta' | 'google' | null
           created_at?: string
         }
         Update: {
@@ -742,6 +744,7 @@ export interface Database {
           payload?: Json
           asset_refs?: Json
           status?: 'saved' | 'in_progress' | 'completed'
+          platform?: 'meta' | 'google' | null
           created_at?: string
         }
         Relationships: Rel[]
