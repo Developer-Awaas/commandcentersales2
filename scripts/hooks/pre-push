@@ -37,6 +37,7 @@ deno check \
   supabase/functions/meta-insights-sync/index.ts \
   supabase/functions/claude-proxy/index.ts \
   supabase/functions/history-retention-sweep/index.ts \
+  supabase/functions/ingest-review/index.ts \
   supabase/functions/dhruv-weekly-report/index.ts
 
 echo "[pre-push] deno test (credential-free)..."

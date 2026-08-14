@@ -10,7 +10,9 @@ interface TextLayerEditorProps {
   assetId: string;
   imageUrl: string;
   layers: TextLayer[];
-  onSave: (layers: TextLayer[]) => void;
+  // PART D — ops is the session's edit log (layer-editor.ts EditorState.ops),
+  // passed through so a review can record what was actually changed.
+  onSave: (layers: TextLayer[], ops: string[]) => void;
   onClose: () => void;
   /** RB-P5: enables the "project media" image source (project_assets). Omit in
    *  contexts without a project — logo variants + upload still work. */
@@ -141,7 +143,7 @@ export function TextLayerEditor({ assetId, imageUrl, layers: initialLayers, onSa
       .update({ text_layers: layers, updated_at: new Date().toISOString() }).eq('id', assetId);
     setSaving(false);
     if (error) { setErrorMsg(error.message); return; }
-    onSave(layers);
+    onSave(layers, state.ops);
   }
 
   const toolBtn = (active: boolean) => `p-2 rounded-lg border transition-all ${active ? 'bg-brand/10 border-brand text-brand' : 'border-border text-text-tertiary hover:text-text-primary'}`;

@@ -21,6 +21,17 @@ export const HISTORY_CAP = 20;
 export interface EditorState {
   layers: TextLayer[];
   history: TextLayer[][]; // prior snapshots, most-recent last, capped at HISTORY_CAP
+  /**
+   * PART D — ordered log of the operations performed this session, for
+   * review_events.editor_ops. `history` cannot serve this: it stores layer
+   * SNAPSHOTS for undo, so "what did the designer actually do" would have to
+   * be re-derived by diffing, and an undone action would vanish entirely —
+   * yet "tried it and reverted it" is real signal about the generated output.
+   *
+   * Excludes 'move' (fires per drag frame; the paired 'checkpoint' represents
+   * the drag) and 'set' (initialisation, not an edit).
+   */
+  ops: string[];
 }
 
 export type EditorAction =
@@ -35,7 +46,11 @@ export type EditorAction =
   | { type: 'reorder'; order: string[] }                      // new z-order (layer list drag)
   | { type: 'undo' };
 
-export const initEditor = (layers: TextLayer[]): EditorState => ({ layers, history: [] });
+export const initEditor = (layers: TextLayer[]): EditorState => ({ layers, history: [], ops: [] });
+
+// Same cap as history — an op log is a digest, not an audit trail, and an
+// unbounded array would grow with every arrow-key nudge.
+const pushOp = (s: EditorState, op: string): string[] => [...s.ops, op].slice(-HISTORY_CAP);
 
 const clamp = (n: number) => Math.min(100, Math.max(0, n));
 const pushHistory = (s: EditorState): TextLayer[][] =>
@@ -45,35 +60,35 @@ const pushHistory = (s: EditorState): TextLayer[][] =>
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case 'set':
-      return { layers: action.layers, history: [] };
+      return { layers: action.layers, history: [], ops: state.ops };
     case 'update':
-      return { history: pushHistory(state), layers: state.layers.map((l) => (l.id === action.id ? { ...l, ...action.patch } : l)) };
+      return { history: pushHistory(state), ops: pushOp(state, 'update'), layers: state.layers.map((l) => (l.id === action.id ? { ...l, ...action.patch } : l)) };
     case 'add':
-      return { history: pushHistory(state), layers: [...state.layers, action.layer] };
+      return { history: pushHistory(state), ops: pushOp(state, 'add'), layers: [...state.layers, action.layer] };
     case 'delete':
-      return { history: pushHistory(state), layers: state.layers.filter((l) => l.id !== action.id) };
+      return { history: pushHistory(state), ops: pushOp(state, 'delete'), layers: state.layers.filter((l) => l.id !== action.id) };
     case 'nudge':
-      return { history: pushHistory(state), layers: state.layers.map((l) => (l.id === action.id
+      return { history: pushHistory(state), ops: pushOp(state, 'nudge'), layers: state.layers.map((l) => (l.id === action.id
         ? { ...l, xPct: clamp(l.xPct + action.dxPct), yPct: clamp(l.yPct + action.dyPct) } : l)) };
     case 'move': // live drag — position only, no snapshot (drag-start dispatched 'checkpoint')
       return { ...state, layers: state.layers.map((l) => (l.id === action.id
         ? { ...l, xPct: clamp(action.xPct), yPct: clamp(action.yPct) } : l)) };
     case 'checkpoint':
-      return { ...state, history: pushHistory(state) };
+      return { ...state, history: pushHistory(state), ops: pushOp(state, 'move') };
     case 'place':
-      return { history: pushHistory(state), layers: state.layers.map((l) => (l.id === action.id ? { ...l, placed: true } : l)) };
+      return { history: pushHistory(state), ops: pushOp(state, 'place'), layers: state.layers.map((l) => (l.id === action.id ? { ...l, placed: true } : l)) };
     case 'reorder': {
       // Reorder by the given id list; any layer missing from `order` (defensive)
       // keeps its relative position at the end.
       const byId = new Map(state.layers.map((l) => [l.id, l]));
       const ordered = action.order.map((id) => byId.get(id)).filter((l): l is TextLayer => !!l);
       const rest = state.layers.filter((l) => !action.order.includes(l.id));
-      return { history: pushHistory(state), layers: [...ordered, ...rest] };
+      return { history: pushHistory(state), ops: pushOp(state, 'reorder'), layers: [...ordered, ...rest] };
     }
     case 'undo': {
       if (!state.history.length) return state;
       const prev = state.history[state.history.length - 1];
-      return { layers: prev, history: state.history.slice(0, -1) };
+      return { layers: prev, history: state.history.slice(0, -1), ops: pushOp(state, 'undo') };
     }
     default:
       return state;

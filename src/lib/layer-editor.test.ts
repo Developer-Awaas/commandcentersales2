@@ -89,3 +89,53 @@ describe('editorReducer — undo stack', () => {
     expect(s.history).toHaveLength(0);
   });
 });
+
+describe('editor op log (P2.13 PART D)', () => {
+  const layer = (id: string): TextLayer => ({
+    id, text: id, xPct: 10, yPct: 10, fontSizePx: 40,
+    fontWeight: 700, color: '#fff', align: 'left',
+  });
+
+  it('starts empty and records each mutating action in order', () => {
+    let s = initEditor([layer('a')]);
+    s = editorReducer(s, { type: 'add', layer: layer('b') });
+    s = editorReducer(s, { type: 'update', id: 'a', patch: { fontSizePx: 60 } });
+    s = editorReducer(s, { type: 'delete', id: 'b' });
+    expect(s.ops).toEqual(['add', 'update', 'delete']);
+  });
+
+  it('does not log a live drag frame, only its checkpoint', () => {
+    // 'move' fires per pointer frame; logging it would drown the digest in
+    // hundreds of entries that say nothing about what was changed.
+    let s = initEditor([layer('a')]);
+    s = editorReducer(s, { type: 'checkpoint' });
+    s = editorReducer(s, { type: 'move', id: 'a', xPct: 20, yPct: 30 });
+    s = editorReducer(s, { type: 'move', id: 'a', xPct: 25, yPct: 35 });
+    expect(s.ops).toEqual(['move']);
+  });
+
+  it('records an undo rather than erasing what was undone', () => {
+    // "Tried it and reverted it" is real signal about the generated output.
+    let s = initEditor([layer('a')]);
+    s = editorReducer(s, { type: 'delete', id: 'a' });
+    s = editorReducer(s, { type: 'undo' });
+    expect(s.ops).toEqual(['delete', 'undo']);
+    expect(s.layers.map((l) => l.id)).toEqual(['a']);
+  });
+
+  it('keeps the log bounded', () => {
+    let s = initEditor([layer('a')]);
+    for (let i = 0; i < HISTORY_CAP + 25; i++) {
+      s = editorReducer(s, { type: 'nudge', id: 'a', dxPct: 1, dyPct: 0 });
+    }
+    expect(s.ops.length).toBe(HISTORY_CAP);
+  });
+
+  it('re-initialising with set does not invent ops', () => {
+    let s = initEditor([layer('a')]);
+    s = editorReducer(s, { type: 'add', layer: layer('b') });
+    s = editorReducer(s, { type: 'set', layers: [layer('c')] });
+    expect(s.ops).toEqual(['add']);
+    expect(s.history).toEqual([]);
+  });
+});

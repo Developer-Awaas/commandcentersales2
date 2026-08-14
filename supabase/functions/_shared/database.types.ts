@@ -1624,6 +1624,55 @@ export interface Database {
         Relationships: Rel[]
       }
 
+      review_events: {
+        Row: {
+          id: string
+          org_id: string
+          project_id: string | null
+          subject_type: 'strategy' | 'creative'
+          subject_id: string | null
+          strategy_type: string | null
+          platform: 'meta' | 'google' | null
+          ratings: Json
+          improvement_text: string | null
+          edit_summary: string | null
+          editor_ops: Json | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          project_id?: string | null
+          subject_type: 'strategy' | 'creative'
+          subject_id?: string | null
+          strategy_type?: string | null
+          platform?: 'meta' | 'google' | null
+          ratings?: Json
+          improvement_text?: string | null
+          edit_summary?: string | null
+          editor_ops?: Json | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          project_id?: string | null
+          subject_type?: 'strategy' | 'creative'
+          subject_id?: string | null
+          strategy_type?: string | null
+          platform?: 'meta' | 'google' | null
+          ratings?: Json
+          improvement_text?: string | null
+          edit_summary?: string | null
+          editor_ops?: Json | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: Rel[]
+      }
+
       aanya_training_creatives: {
         Row: {
           id: string
@@ -1640,6 +1689,13 @@ export interface Database {
           vision_analysis: Json | null
           extracted_patterns: Json | null
           is_live: boolean
+          designer_rating: number | null
+          text_quality: number | null
+          edit_summary: string | null
+          editor_ops_digest: Json | null
+          strategy_type: string | null
+          ad_platform: 'meta' | 'google' | null
+          layout_tags: Json | null
           created_at: string
         }
         Insert: {
@@ -1657,6 +1713,13 @@ export interface Database {
           vision_analysis?: Json | null
           extracted_patterns?: Json | null
           is_live?: boolean
+          designer_rating?: number | null
+          text_quality?: number | null
+          edit_summary?: string | null
+          editor_ops_digest?: Json | null
+          strategy_type?: string | null
+          ad_platform?: 'meta' | 'google' | null
+          layout_tags?: Json | null
           created_at?: string
         }
         Update: {
@@ -1674,6 +1737,13 @@ export interface Database {
           vision_analysis?: Json | null
           extracted_patterns?: Json | null
           is_live?: boolean
+          designer_rating?: number | null
+          text_quality?: number | null
+          edit_summary?: string | null
+          editor_ops_digest?: Json | null
+          strategy_type?: string | null
+          ad_platform?: 'meta' | 'google' | null
+          layout_tags?: Json | null
           created_at?: string
         }
         Relationships: Rel[]

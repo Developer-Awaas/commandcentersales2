@@ -6,6 +6,8 @@ import { getOrgId } from '../../lib/constants';
 import { aiCall, describeImageForFlux, isAiEnabled } from '../../lib/ai-service';
 import { buildQuickGenerateBrief } from '../../lib/senior-designer-prompts';
 import { logAiSession, logActivity } from '../../lib/session-logger';
+import { ReviewPopup } from '../ReviewPopup';
+import { strategyReviewSections } from '../../lib/review-sections';
 import { saveToolOutput } from '../../lib/history-service';
 import { useGenerationLock } from '../../hooks/useGenerationLock';
 import { useToast } from '../../contexts/ToastContext';
@@ -73,6 +75,9 @@ export function StrategyGenerator({ campaignId, initialProjectId, onSaved }: Str
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [savingStrategy, setSavingStrategy] = useState(false);
+  // PART D — review popup fires only after a SUCCESSFUL save, and carries the
+  // saved row's id so the review points at a real tool_output.
+  const [reviewFor, setReviewFor] = useState<string | null>(null);
   const { start: startGeneration, stop: stopGeneration } = useGenerationLock();
   const { showToast } = useToast();
 
@@ -230,6 +235,7 @@ export function StrategyGenerator({ campaignId, initialProjectId, onSaved }: Str
         funnelStage: result.funnelStage,
         savedCreativeId: result.savedCreativeId,
       });
+      setReviewFor(output.id);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Save failed', 'error');
     } finally {
@@ -289,6 +295,20 @@ export function StrategyGenerator({ campaignId, initialProjectId, onSaved }: Str
       <Button onClick={handleSaveStrategy} disabled={saved || savingStrategy} className="w-full">
         {saved ? <><Check size={15} />Strategy Saved</> : savingStrategy ? <Spinner size="sm" /> : 'Save Strategy'}
       </Button>
+
+      {/* Sections are derived from what this run actually produced, so the
+          reviewer is never asked to score something that wasn't generated. */}
+      <ReviewPopup
+        open={!!reviewFor}
+        subjectType="strategy"
+        subjectId={reviewFor}
+        projectId={inputs.projectId !== 'custom' ? inputs.projectId : null}
+        strategyType={inputs.campaignGoal}
+        platform={inputs.adPlatform}
+        projectName={result.projectName}
+        sections={strategyReviewSections(result.data as unknown as Record<string, unknown>)}
+        onClose={() => setReviewFor(null)}
+      />
     </div>
   );
 }

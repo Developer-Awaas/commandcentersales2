@@ -6,6 +6,7 @@ import { aiCall, isAiEnabled } from '../lib/ai-service';
 import {
   buildChatbotContext,
   getRemainingMessages,
+  getRemainingMessagesServer,
   incrementChatUsage,
   logChatMessage,
   PAGE_CONTEXTS,
@@ -201,7 +202,10 @@ export function AIChatbot() {
       return;
     }
 
+    // Optimistic local update, then reconcile with the server count once the
+    // chatbot_log row for this exchange exists.
     setRemaining(getRemainingMessages());
+    void getRemainingMessagesServer().then(setRemaining);
     addMessage({ role: 'user', text, timestamp: new Date() });
     setTyping(true);
 
@@ -348,7 +352,7 @@ export function AIChatbot() {
 
       {/* Toggle button */}
       <button
-        onClick={() => { setOpen((v) => !v); setRemaining(getRemainingMessages()); }}
+        onClick={() => { setOpen((v) => !v); void getRemainingMessagesServer().then(setRemaining); }}
         className="w-14 h-14 rounded-full bg-brand text-surface flex items-center justify-center shadow-lg hover:scale-105 transition-transform duration-150 active:scale-95"
         title="AI Assistant"
       >

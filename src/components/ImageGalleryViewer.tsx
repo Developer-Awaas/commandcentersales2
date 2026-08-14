@@ -5,6 +5,9 @@ import { useToast } from '../contexts/ToastContext';
 import { useNavigation } from '../contexts/NavigationContext';
 import { downloadImage } from '../lib/image-utils';
 import { openCanvaOAuthPopup, listenForCanvaEditorReturn } from '../lib/canva-oauth-popup';
+import { ReviewPopup } from './ReviewPopup';
+import { creativeReviewSections } from '../lib/review-sections';
+import type { AdPlatform } from '../lib/ad-platform';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { TextLayerEditor } from './TextLayerEditor';
 import { saveOverlayEdit } from '../lib/overlay-recompose';
@@ -69,6 +72,12 @@ interface ImageGalleryViewerProps {
   // Save Creative Changes banner) know that one image needs re-approving,
   // without treating the rest of an unrelated gallery as stale too.
   onImagesChanged?: (imageId: string) => void;
+  // PART D — context for the creative review popup. strategyType labels the
+  // strategy-fit question ("Fit for the <brief> brief") so the reviewer scores
+  // fitness for THIS brief, not vague quality; both are optional so callers
+  // that have no strategy context (Creatives page) still work.
+  strategyType?: string | null;
+  adPlatform?: AdPlatform | null;
   // Fires immediately before a Canva cold-start OAuth connect does a
   // full top-level navigation away (window.location.href) — lets a parent
   // with its own `beforeunload` "unsaved changes" guard (e.g.
@@ -93,7 +102,7 @@ interface LightboxState {
   adobeOpen: boolean;
 }
 
-export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText, onRegenerateTemplate, projectId }: ImageGalleryViewerProps) {
+export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeCanvaNavigate, onEditText, onRegenerateTemplate, projectId, strategyType, adPlatform }: ImageGalleryViewerProps) {
   const { showToast } = useToast();
   const { activePage } = useNavigation();
 
@@ -102,6 +111,14 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [regenId, setRegenId] = useState<string | null>(null);
   const [canvaLoading, setCanvaLoading] = useState<string | null>(null);
+  // PART D — the creative review fires on the VERIFIED Canva return (after a
+  // successful sync), not on "Edit in Canva" being clicked: opening the editor
+  // is not evidence anything was reviewed, and Canva's Return button is the
+  // one signal that genuinely means "I'm done with this image".
+  const [reviewImg, setReviewImg] = useState<GalleryImage | null>(null);
+  // Layer-op log per asset, captured if the image was edited in the in-app
+  // mini-editor before or after the Canva round-trip.
+  const [editorOps, setEditorOps] = useState<Record<string, string[]>>({});
 
   async function handleRegenerate(img: GalleryImage) {
     if (!onRegenerateTemplate) return;
@@ -113,7 +130,10 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
   // persisted re-composite inputs, so Edit Text works here without a parent.
   const [editingImg, setEditingImg] = useState<GalleryImage | null>(null);
 
-  async function handleTextSave(img: GalleryImage, layers: TextLayer[]) {
+  async function handleTextSave(img: GalleryImage, layers: TextLayer[], ops: string[] = []) {
+    if (img.id && ops.length) {
+      setEditorOps((prev) => ({ ...prev, [img.id!]: [...(prev[img.id!] ?? []), ...ops] }));
+    }
     const newUrl = await saveOverlayEdit({
       assetId: img.id!, storagePath: img.storagePath!, cleanTemplateUrl: img.cleanTemplateUrl!,
       layers, zones: img.overlayZones, logoUrl: img.logoUrl,
@@ -276,6 +296,9 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
         // longer match what's on screen for THIS image — let it know which
         // one, so a re-save doesn't blanket-touch unrelated images too.
         onImagesChanged?.(img.id!);
+        // Everything above succeeded — only now is there a finished creative
+        // worth reviewing.
+        setReviewImg(img);
       } else {
         throw new Error(json.error ?? 'Sync failed');
       }
@@ -555,10 +578,23 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
           imageUrl={editingImg.cleanTemplateUrl!}
           layers={editingImg.textLayers!}
           projectId={projectId}
-          onSave={(layers) => { void handleTextSave(editingImg, layers); }}
+          onSave={(layers, ops) => { void handleTextSave(editingImg, layers, ops); }}
           onClose={() => setEditingImg(null)}
         />
       )}
+
+      <ReviewPopup
+        open={!!reviewImg}
+        subjectType="creative"
+        subjectId={reviewImg?.id ?? null}
+        projectId={projectId ?? null}
+        strategyType={strategyType}
+        platform={adPlatform}
+        sections={creativeReviewSections(strategyType)}
+        askEditSummary
+        editorOps={reviewImg?.id ? editorOps[reviewImg.id] ?? null : null}
+        onClose={() => setReviewImg(null)}
+      />
     </>
   );
 }

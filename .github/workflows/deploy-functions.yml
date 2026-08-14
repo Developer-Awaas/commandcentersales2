@@ -43,6 +43,7 @@ jobs:
             canva-connect-init \
             canva-sync-design \
             canva-verify-return-nav \
+            ingest-review \
             claude-proxy \
             generate-image \
             langfuse-ingest; do

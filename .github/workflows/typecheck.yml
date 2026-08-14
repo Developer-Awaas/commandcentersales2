@@ -96,6 +96,7 @@ jobs:
             supabase/functions/claude-proxy/index.ts \
             supabase/functions/dhruv-anomaly-check/index.ts \
             supabase/functions/history-retention-sweep/index.ts \
+            supabase/functions/ingest-review/index.ts \
             supabase/functions/dhruv-weekly-report/index.ts
 
   edge-unit-tests:

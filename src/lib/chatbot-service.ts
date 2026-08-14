@@ -3,6 +3,7 @@
 // 30 messages/day limit. Logs all conversations.
 
 import { getOrgId, getUserId } from './constants';
+import { supabase } from './supabase';
 
 const DAILY_LIMIT = 30;
 const STORAGE_KEY = 'chatbot_usage';
@@ -10,6 +11,44 @@ const STORAGE_KEY = 'chatbot_usage';
 // ============================================================
 // MESSAGE LIMIT TRACKING
 // ============================================================
+/**
+ * Server-side count of today's messages for this user.
+ *
+ * The localStorage counter below is per-browser and resets with a cache clear,
+ * so the "N/30 today" badge could read 30 remaining on a second device after
+ * the limit had genuinely been reached. chatbot_log already records every
+ * exchange — counting it is the real number.
+ *
+ * Returns null when the count can't be fetched (offline, RLS, transient) —
+ * callers fall back to the local counter rather than showing a wrong figure
+ * or blocking a user whose quota is actually fine.
+ */
+export async function fetchServerChatCount(): Promise<number | null> {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const { count, error } = await supabase
+    .from('chatbot_log')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', getOrgId())
+    .eq('user_id', getUserId())
+    .gte('created_at', startOfDay.toISOString());
+  if (error) {
+    console.warn('[chatbot] server count unavailable, using local counter:', error.message);
+    return null;
+  }
+  return count ?? 0;
+}
+
+/** Remaining, preferring the server count and falling back to localStorage. */
+export async function getRemainingMessagesServer(): Promise<number> {
+  const serverCount = await fetchServerChatCount();
+  if (serverCount === null) return getRemainingMessages();
+  // The higher of the two counts wins: a local counter ahead of the server
+  // means messages were sent that haven't logged yet, and under-counting would
+  // hand out free messages past the cap.
+  return DAILY_LIMIT - Math.max(serverCount, getChatUsage().count);
+}
+
 export function getChatUsage(): { count: number; date: string } {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -49,6 +88,14 @@ export function buildChatbotContext(pageInfo: {
     'You are the AI Assistant for NH Marketing Command Center, a real estate performance marketing tool.',
     'You are helpful, concise, and specific. Give actionable answers.',
     'You know the tool inside out — every module, every feature, every field.',
+    '',
+    // Two unrelated numbers in this product are both called "spend", and the
+    // assistant only ever sees the first one. Answering "your spend is X"
+    // without saying WHICH is how a user reads ad spend as their AI bill.
+    'MONEY — TWO DIFFERENT THINGS, NEVER CONFLATE THEM:',
+    '- "Ad spend" / "spend" / "budget" = money paid to Meta or Google to run ads (daily_metrics.spend, shown in ₹). This is the ONLY spend figure in your context.',
+    '- "AI cost" / "generation cost" / "API cost" = what this tool spends on Claude/OpenAI to generate strategies and images (the cost ledger, shown in $ on the Usage page). You do NOT have these numbers.',
+    'When the user says "spend" without qualifying it, assume AD SPEND and say so explicitly in your answer ("your ad spend is ..."). If they are asking about AI/generation cost, say you cannot see it and point them at the Usage page — never quote an ad-spend number in its place.',
     '',
     'CURRENT CONTEXT:',
     'Page: ' + pageInfo.currentPage,

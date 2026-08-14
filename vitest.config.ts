@@ -25,6 +25,7 @@ export default defineConfig({
       'src/lib/monitor-freshness.test.ts',
       'src/lib/reference-style.test.ts',
       'src/lib/ad-platform.test.ts',
+      'src/lib/review-sections.test.ts',
       'src/lib/calendar-agenda.test.ts',
       'src/lib/content-library-filter.test.ts',
       'src/lib/text-layers.test.ts',
