@@ -103,22 +103,27 @@ export class CampaignMetricsProvider implements MetaSyncProvider {
   }
 
   async getConnectionStatus(orgId: string): Promise<MetaConnectionStatus> {
-    const { data } = await supabase
-      .from('org_integrations')
-      .select('meta_ad_account_id, is_active, last_sync_at, status')
-      .eq('org_id', orgId)
-      .eq('provider', 'meta')
-      .maybeSingle();
-    if (!data) return { connected: false, state: 'none' };
-    // status is authoritative; is_active is kept in step with it by the sync.
-    const st = (data as { status?: string | null }).status ?? null;
-    if (st === 'invalid') return { connected: false, state: 'invalid' };
-    if (!(data as { is_active?: boolean }).is_active) {
-      // No status yet (row predates RB-MO) but disabled: it was auto-disabled
-      // by the sync's auth-error path, so 'invalid' is the accurate reading.
-      return { connected: false, state: st ? 'none' : 'invalid' };
+    // RPC, not a direct select on org_integrations. That table is admin-only
+    // (bug #42 — it holds the access token), so a direct read returns zero
+    // rows for every member and the Monitor renders "Connect Meta" even when
+    // the connection is healthy and metrics are syncing. The RPC is SECURITY
+    // DEFINER, scoped to the caller's own org, and cannot return the token.
+    // orgId is accepted for interface compatibility but intentionally unused:
+    // the function derives the org from the caller's JWT, so a client cannot
+    // ask about someone else's.
+    void orgId;
+    const { data, error } = await supabase.rpc('meta_connection_status');
+    if (error) {
+      console.warn('[providers] meta_connection_status failed:', error.message);
+      return { connected: false, state: 'none' };
     }
-    const row = data as { meta_ad_account_id?: string | null; last_sync_at?: string | null };
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      status?: string | null; is_active?: boolean; meta_ad_account_id?: string | null; last_sync_at?: string | null;
+    } | undefined;
+    if (!row) return { connected: false, state: 'none' };
+    if (row.status === 'invalid') return { connected: false, state: 'invalid' };
+    if (!row.is_active) return { connected: false, state: row.status ? 'none' : 'invalid' };
     return { connected: true, adAccountId: row.meta_ad_account_id ?? null, lastSyncAt: row.last_sync_at ?? null };
   }
+
 }

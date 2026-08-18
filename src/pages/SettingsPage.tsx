@@ -185,7 +185,11 @@ export function SettingsPage() {
     setMetaSyncing(true);
     setMetaSyncMsg(null);
     try {
-      const { data, error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
+      // meta-sync-now, NOT meta-insights-sync: the latter is cron-shaped with
+      // no CORS headers, so this call never survived the browser preflight —
+      // and because it also has no method check, the preflight itself ran a
+      // full all-org sweep. See meta-sync-now's header.
+      const { data, error } = await supabase.functions.invoke('meta-sync-now', { body: {} });
       if (error) {
         setMetaSyncMsg('Sync failed: ' + error.message);
       } else {

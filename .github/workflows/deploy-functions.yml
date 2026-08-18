@@ -47,6 +47,7 @@ jobs:
             ingest-review \
             meta-oauth-start \
             meta-token-connect \
+            meta-sync-now \
             claude-proxy \
             generate-image \
             langfuse-ingest; do
