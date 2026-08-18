@@ -2,6 +2,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database, Json } from '../_shared/database.types.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
+import { verifyMetaToken, metaAppId, metaConfigured } from '../_shared/meta-oauth.ts'
 
 type DB = SupabaseClient<Database>
 type SyncStatus = Database['public']['Tables']['integration_sync_log']['Insert']['status']
@@ -14,6 +15,11 @@ const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 // Max live promoted creatives per org (anti-storage runaway)
 const MAX_LIVE_CREATIVES = 10
+// RB-MO STEP 7 — how stale a verification may be before the sync re-checks.
+// Matched to the 15-minute cron cadence: effectively one /debug_token call per
+// org per scheduled run, while a burst of manual "Sync Now" clicks reuses the
+// recent result instead of hammering Graph.
+const VERIFY_FRESHNESS_MS = 15 * 60 * 1000
 
 Deno.serve(async (_req) => {
   const supabase = createClient<Database>(
@@ -23,9 +29,13 @@ Deno.serve(async (_req) => {
 
   const { data: integrations, error: intErr } = await supabase
     .from('org_integrations')
-    .select('id, org_id, meta_ad_account_id, meta_access_token')
+    .select('id, org_id, meta_ad_account_id, meta_access_token, meta_app_id, meta_verified_at, status')
     .eq('provider', 'meta')
-    .eq('is_active', true)
+    // NOT filtered on is_active/status='active': an 'invalid' row must still be
+    // visited so it can RECOVER once reconnected. Filtering it out is exactly
+    // how Neelachala Homes vanished from this loop for a month — auto-disabled
+    // on an auth error, then never looked at again, with no log line at all.
+    .neq('status', 'disabled')
 
   if (intErr) {
     return new Response(JSON.stringify({ error: intErr.message }), { status: 500 })
@@ -57,6 +67,97 @@ Deno.serve(async (_req) => {
 //   2. Fallback: org-level account from org_integrations → sync without project tag
 // Token is always org-level (one System User token covers all accounts under the BM).
 
+/**
+ * RB-MO STEP 7 — the trust gate. Runs before any org is synced.
+ *
+ * Returns ok only when the stored token is demonstrably ours and alive. The
+ * caller THROWS on failure rather than returning quietly, so the invoke
+ * response says 'error' too — a run that halted must not report `success`
+ * with 0 rows, which reads exactly like a healthy idle org.
+ * On failure it marks the row, notifies the org, and logs a real 'error' with
+ * Meta's own message — never 'skipped'. `skipped` is for "nothing to do"; a
+ * dead customer integration is not nothing to do, and dressing it as such is
+ * what hid this for a month.
+ */
+async function ensureTrustedToken(
+  supabase: DB,
+  integration: { id: string; org_id: string; meta_access_token: string | null; meta_app_id?: string | null; meta_verified_at?: string | null; status?: string | null },
+): Promise<{ ok: boolean; reason?: string }> {
+  const { id, org_id, meta_access_token } = integration
+  if (!meta_access_token) return { ok: false } // caller logs 'skipped' — genuinely nothing to do
+
+  // If we cannot verify, we must not judge. An unset app secret is OUR
+  // misconfiguration, not the customer's token going bad — marking their
+  // connection invalid (and emailing them about it) because we forgot a
+  // secret would be a self-inflicted incident across every org at once.
+  if (!metaConfigured()) {
+    const reason = 'META_APP_ID/META_APP_SECRET not set — token provenance unverifiable; sync halted for safety'
+    await logSync(supabase, org_id, 'error', 0, reason, undefined, 0)
+    return { ok: false, reason }
+  }
+
+  // Freshness window: trust a recent verification rather than calling Graph on
+  // every manual Sync Now.
+  const verifiedAt = integration.meta_verified_at ? Date.parse(integration.meta_verified_at) : 0
+  const appMatches = integration.meta_app_id && integration.meta_app_id === metaAppId()
+  if (appMatches && verifiedAt && Date.now() - verifiedAt < VERIFY_FRESHNESS_MS && integration.status === 'active') {
+    return { ok: true }
+  }
+
+  const verdict = await verifyMetaToken(meta_access_token)
+
+  if (verdict.ok) {
+    await supabase.from('org_integrations').update({
+      status: 'active',
+      is_active: true, // kept in step with status so nothing reads a stale boolean
+      meta_app_id: verdict.facts.appId,
+      meta_granted_scopes: verdict.facts.scopes,
+      meta_token_type: verdict.facts.tokenType,
+      token_expires_at: verdict.facts.expiresAt,
+      meta_verified_at: new Date().toISOString(),
+    }).eq('id', id)
+    return { ok: true }
+  }
+
+  // 'unconfigured' is handled above; anything else here is the token's fault.
+  await supabase.from('org_integrations').update({
+    status: 'invalid',
+    is_active: false,
+    meta_verified_at: new Date().toISOString(),
+  }).eq('id', id)
+
+  const reason = `Meta token rejected: ${verdict.error}`
+  await logSync(supabase, org_id, 'error', 0, reason, undefined, 0)
+  await notifyConnectionInvalid(supabase, org_id, verdict.error)
+  return { ok: false, reason }
+}
+
+/** One notification per org per day — the same dedupe dhruv-anomaly-check uses. */
+async function notifyConnectionInvalid(supabase: DB, org_id: string, detail: string): Promise<void> {
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const { data: existing } = await supabase
+    .from('notifications')
+    .select('id')
+    .eq('org_id', org_id)
+    .eq('type', 'meta_connection_invalid')
+    .gte('created_at', todayStart.toISOString())
+    .limit(1)
+  if ((existing ?? []).length > 0) return
+
+  // The column is `message`, not `body` — bug #47. Using `body` returns
+  // {error} without throwing, and the row silently never writes.
+  const { error } = await supabase.from('notifications').insert({
+    org_id,
+    type: 'meta_connection_invalid',
+    title: 'Meta connection expired — reconnect in Settings',
+    message: detail,
+    is_read: false,
+  })
+  if (error) console.error(`[meta-sync] notification insert failed for org ${org_id}: ${error.message}`)
+}
+
 async function syncOrgMetrics(
   supabase: DB,
   integration: { id: string; org_id: string; meta_ad_account_id: string | null; meta_access_token: string | null }
@@ -65,6 +166,15 @@ async function syncOrgMetrics(
 
   if (!meta_access_token) {
     await logSync(supabase, org_id, 'skipped', 0, undefined, undefined, 0)
+    return 0
+  }
+
+  // Trust gate — nothing below this line runs on an unverified token. Throwing
+  // (rather than returning 0) makes the invoke response report 'error' as well,
+  // so a halted run is never indistinguishable from a healthy idle one.
+  const trust = await ensureTrustedToken(supabase, integration)
+  if (!trust.ok) {
+    if (trust.reason) throw new Error(trust.reason)
     return 0
   }
 

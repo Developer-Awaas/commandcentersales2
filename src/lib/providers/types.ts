@@ -50,6 +50,16 @@ export interface CampaignMetricRow {
 
 export interface MetaConnectionStatus {
   connected: boolean;
+  /**
+   * Why it is not connected — 'none' (never set up) vs 'invalid' (set up once,
+   * token now unusable: dead app, revoked, or another app's).
+   *
+   * These were the same state until RB-MO, and the cost of conflating them was
+   * real: a customer whose token died saw "Connect Meta", identical to a
+   * brand-new org, so nothing on screen ever said their integration had
+   * BROKEN. Undefined when connected.
+   */
+  state?: 'none' | 'invalid';
   // Present only when connected: the ad account and last successful sync.
   adAccountId?: string | null;
   lastSyncAt?: string | null;

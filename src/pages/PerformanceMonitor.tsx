@@ -171,8 +171,26 @@ export function PerformanceMonitor() {
         <Analyzer />
       ) : loading ? (
         <div className="flex items-center justify-center py-20"><Spinner size="lg" /></div>
+      ) : connection && !connection.connected && connection.state === 'invalid' ? (
+        // RB-MO STEP 7 — the third variant. A BROKEN connection used to render
+        // identically to a brand-new org ("Connect Meta"), so nothing on screen
+        // ever told a customer their integration had stopped working. It is a
+        // different message, a different colour, and a different verb.
+        <Card className="p-10 flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <Link2 size={26} className="text-amber-400" />
+          </div>
+          <div>
+            <p className="text-base font-medium text-text-primary">Your Meta connection expired</p>
+            <p className="text-sm text-text-tertiary max-w-sm mt-1">
+              Meta is no longer accepting the stored access token, so metrics have stopped syncing. Reconnecting takes a few seconds and restores automatic sync.
+            </p>
+          </div>
+          <Button onClick={() => navigate('settings')}><Link2 size={15} />Reconnect in Settings</Button>
+          <button onClick={() => setMode('manual')} className="text-xs text-text-tertiary hover:text-brand transition-colors">Or analyze metrics manually →</button>
+        </Card>
       ) : connection && !connection.connected ? (
-        // First-class empty state: no Meta connection. No error toasts.
+        // First-class empty state: never connected. No error toasts.
         <Card className="p-10 flex flex-col items-center text-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-brand-subtle border border-brand-border flex items-center justify-center">
             <Link2 size={26} className="text-brand" />

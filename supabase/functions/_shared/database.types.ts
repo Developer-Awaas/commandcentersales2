@@ -460,6 +460,7 @@ export interface Database {
           meta_access_token: string | null
           token_expires_at: string | null
           is_active: boolean
+          status: 'active' | 'invalid' | 'disabled'
           last_sync_at: string | null
           created_at: string
           updated_at: string
@@ -479,6 +480,7 @@ export interface Database {
           meta_access_token?: string | null
           token_expires_at?: string | null
           is_active?: boolean
+          status?: 'active' | 'invalid' | 'disabled'
           last_sync_at?: string | null
           created_at?: string
           updated_at?: string
@@ -498,6 +500,7 @@ export interface Database {
           meta_access_token?: string | null
           token_expires_at?: string | null
           is_active?: boolean
+          status?: 'active' | 'invalid' | 'disabled'
           last_sync_at?: string | null
           created_at?: string
           updated_at?: string

@@ -105,11 +105,19 @@ export class CampaignMetricsProvider implements MetaSyncProvider {
   async getConnectionStatus(orgId: string): Promise<MetaConnectionStatus> {
     const { data } = await supabase
       .from('org_integrations')
-      .select('meta_ad_account_id, is_active, last_sync_at')
+      .select('meta_ad_account_id, is_active, last_sync_at, status')
       .eq('org_id', orgId)
       .eq('provider', 'meta')
       .maybeSingle();
-    if (!data || !(data as { is_active?: boolean }).is_active) return { connected: false };
+    if (!data) return { connected: false, state: 'none' };
+    // status is authoritative; is_active is kept in step with it by the sync.
+    const st = (data as { status?: string | null }).status ?? null;
+    if (st === 'invalid') return { connected: false, state: 'invalid' };
+    if (!(data as { is_active?: boolean }).is_active) {
+      // No status yet (row predates RB-MO) but disabled: it was auto-disabled
+      // by the sync's auth-error path, so 'invalid' is the accurate reading.
+      return { connected: false, state: st ? 'none' : 'invalid' };
+    }
     const row = data as { meta_ad_account_id?: string | null; last_sync_at?: string | null };
     return { connected: true, adAccountId: row.meta_ad_account_id ?? null, lastSyncAt: row.last_sync_at ?? null };
   }
