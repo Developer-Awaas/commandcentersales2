@@ -16,7 +16,12 @@ import { useNavigation } from '../contexts/NavigationContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { minutesSince, shouldAutoSync } from '../lib/monitor-freshness';
 
-const RANGE_DAYS = 7;
+// Matched to what the sync actually fetches (date_preset: 'last_30d' in
+// _shared/meta-sync-core.ts). At 7 they disagreed: we stored 30 days of real
+// daily rows and displayed a 7-day slice, so any account that paused more than
+// a week ago rendered "No metrics" while a month of data sat in the table.
+// Change both together or the page starts lying again.
+const RANGE_DAYS = 30;
 const STALE_MINUTES = 60;
 
 interface Project { id: string; name: string; }

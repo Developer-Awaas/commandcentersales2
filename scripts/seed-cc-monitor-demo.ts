@@ -1,3 +1,4 @@
+import { assertMetricSeedAllowed } from './lib/seed-guard.ts'
 /**
  * seed-cc-monitor-demo.ts — idempotent synthetic monitor data for ZZ-INTERNAL-TEST.
  *
@@ -29,6 +30,9 @@
 
 const ZZ_ORG_ID = '983c7c08-ffaf-402b-981a-a9cd22615cae' // ZZ-INTERNAL-TEST (PROD)
 const ORG_ID = Deno.env.get('SEED_ORG_ID') ?? ZZ_ORG_ID
+// SEED_ORG_ID could previously point this anywhere, including the org a Meta
+// reviewer logs into. Now it must be allowlisted or explicitly named.
+assertMetricSeedAllowed(ORG_ID)
 const EMIT_SQL = Deno.env.get('SEED_EMIT_SQL') === '1'
 const DAYS = 30
 

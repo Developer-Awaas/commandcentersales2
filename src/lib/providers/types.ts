@@ -118,8 +118,9 @@ export interface MetaSyncProvider {
   // Reads existing campaign_metrics rows for a project over a day-range window
   // (does NOT call Meta). `projectId === null` means org-level / all projects.
   getMetrics(orgId: string, projectId: string | null, rangeDays: number): Promise<CampaignMetricRow[]>;
-  // Invokes the meta-insights-sync Edge Function on demand (the ONLY place a
-  // real Meta round-trip happens). Resolves when the sync request completes.
+  // Invokes meta-sync-now on demand (the ONLY place a real Meta round-trip
+  // happens from the client). NOT meta-insights-sync — that one is the pg_cron
+  // sweep and is deliberately not browser-callable. Resolves when it completes.
   triggerSync(orgId: string, projectId: string | null): Promise<void>;
   getConnectionStatus(orgId: string): Promise<MetaConnectionStatus>;
 }

@@ -19,6 +19,7 @@
  *   deno run --allow-net --allow-env --env-file=.env.cc-test.local scripts/seed-cc-test-demo.ts
  */
 
+import { assertMetricSeedAllowed } from './lib/seed-guard.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? Deno.env.get('VITE_SUPABASE_URL') ?? ''
@@ -226,6 +227,10 @@ async function main() {
   if (dmErr) console.error('[SEED] daily_metrics insert error (non-fatal):', dmErr.message)
   else console.log(`[SEED] ${dailyRows.length} daily_metrics rows inserted`)
 
+  // Refuses unless this org is allowlisted (or SEED_ALLOW_ORG names it).
+  // Fake ad metrics in the org a Meta reviewer logs into are indistinguishable
+  // from real synced ones in every UI that reads this table.
+  assertMetricSeedAllowed(orgId)
   const { error: cmErr } = await supabase.from('campaign_metrics').upsert(campMetricRows, {
     onConflict: 'org_id,campaign_id,date_start,date_stop,platform',
   })
@@ -307,6 +312,7 @@ async function main() {
     follower_growth: Math.round(jitter(9, 0.6)),
     data_source: 'manual',
   }))
+  assertMetricSeedAllowed(orgId)
   const { error: smmMetricErr } = await supabase.from('smm_metrics').insert(smmMetricRows)
   if (smmMetricErr) console.error('[SEED] smm_metrics insert error (non-fatal):', smmMetricErr.message)
   else console.log(`[SEED] ${smmMetricRows.length} smm_metrics rows inserted`)

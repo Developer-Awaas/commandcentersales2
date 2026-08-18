@@ -228,6 +228,15 @@ async function syncAccount(
       body: JSON.stringify({
         fields: INSIGHTS_FIELDS,
         date_preset: 'last_30d',
+        // ONE ROW PER DAY, not one aggregate per campaign. Without this, Meta
+        // returns a single row spanning the whole window with date_start set
+        // to the window's START (~30 days ago) — and the Monitor filters on
+        // `date_start >= today - rangeDays` (providers/local.ts:90), so live
+        // rows could NEVER match a 7-day view no matter how fresh the data.
+        // The table is shaped for daily rows (date_start/date_stop per row,
+        // which is also how the demo seed looks); this makes the real feed
+        // match that shape, and is what makes a trend chart possible at all.
+        time_increment: 1,
         level: 'campaign',
         access_token: meta_access_token,
       }),
@@ -352,6 +361,7 @@ async function syncAdMetrics(
     body: JSON.stringify({
       fields: AD_INSIGHTS_FIELDS,
       date_preset: 'last_30d',
+      time_increment: 1, // daily rows — same reason as the campaign level above
       level: 'ad',
       access_token: meta_access_token,
     }),

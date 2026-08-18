@@ -13,6 +13,7 @@
  *   DELETE FROM campaign_metrics WHERE campaign_id LIKE 'seed-%';
  */
 
+import { assertMetricSeedAllowed } from './lib/seed-guard.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
@@ -88,6 +89,7 @@ for (let dayOffset = 30; dayOffset >= 0; dayOffset--) {
   }
 }
 
+assertMetricSeedAllowed(ORG_ID as string)
 console.log(`Inserting ${rows.length} rows for org ${ORG_ID}…`)
 const { error } = await supabase.from('campaign_metrics').upsert(rows, {
   onConflict: 'org_id,campaign_id,date_start,date_stop,platform',

@@ -94,12 +94,20 @@ export class CampaignMetricsProvider implements MetaSyncProvider {
     return (data as CampaignMetricRow[] | null) ?? [];
   }
 
-  // meta-insights-sync takes no per-project body today (it walks every project
-  // with a configured ad account) — projectId is accepted for interface
-  // stability + future per-project scoping, unused server-side for now.
+  // meta-sync-now, NOT meta-insights-sync. The cron function has no CORS
+  // headers, so this call could never survive a browser preflight — and it has
+  // no method check either, meaning the preflight itself ran a full all-org
+  // sweep. meta-sync-now is the authenticated, single-org, rate-limited entry
+  // point. projectId is accepted for interface stability; the server scopes by
+  // the caller's org today.
   async triggerSync(_orgId: string, _projectId: string | null): Promise<void> {
-    const { error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
-    if (error) throw new Error(`meta-insights-sync failed: ${error.message}`);
+    const { data, error } = await supabase.functions.invoke('meta-sync-now', { body: {} });
+    if (error) {
+      // The function's own body carries the useful message (cooldown, trust-gate
+      // rejection); error.message alone is usually just a status code.
+      const detail = (data as { error?: string } | null)?.error;
+      throw new Error(detail ? `Sync failed: ${detail}` : `Sync failed: ${error.message}`);
+    }
   }
 
   async getConnectionStatus(orgId: string): Promise<MetaConnectionStatus> {

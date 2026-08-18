@@ -77,9 +77,11 @@ export function CampaignMetricsChart({ orgId, campaignId }: CampaignMetricsChart
     setSyncing(true);
     setSyncMsg(null);
     try {
-      const { error } = await supabase.functions.invoke('meta-insights-sync', { body: {} });
+      // meta-sync-now: the cron function is not browser-callable (no CORS).
+      const { data, error } = await supabase.functions.invoke('meta-sync-now', { body: {} });
       if (error) {
-        setSyncMsg('Sync failed: ' + error.message);
+        const detail = (data as { error?: string } | null)?.error;
+        setSyncMsg('Sync failed: ' + (detail ?? error.message));
       } else {
         setSyncMsg('Sync triggered — data will refresh shortly.');
         await fetchMetrics();

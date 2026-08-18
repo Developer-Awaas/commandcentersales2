@@ -144,6 +144,21 @@ export function SMMMonitor() {
               <p className="text-xs text-text-tertiary max-w-sm">Auto-fetch from the Instagram Graph API isn't available yet — add snapshots via <button onClick={() => setMode('manual')} className="text-brand hover:underline">Manual entry</button>, or set targets in Settings.</p>
             </Card>
           ) : (
+            <>
+            {/* RB-PM2 STEP 4 — say where these numbers came from.
+                There is NO Instagram fetch in this product (see the empty state
+                above: "Auto-fetch from the Instagram Graph API isn't available
+                yet"), and real IG insights would need instagram_manage_insights,
+                which is not in the granted scope set. So every row in
+                smm_metrics is hand-entered or seeded — it cannot be otherwise.
+                Rendering these as bare figures next to Meta's real ad metrics
+                invited exactly the wrong reading: the review org was showing
+                "1050 avg reach" for an account that was never connected. */}
+            <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <p className="text-[11px] text-amber-300">
+                <strong>Manual targets</strong> — entered by hand, not measured. Instagram auto-fetch is not connected, so these are not live account figures.
+              </p>
+            </div>
             <div className="grid grid-cols-4 gap-3 mb-6">
               {[
                 ['Followers', windowMetrics.followers, igTarget ? `target ${igTarget.toLocaleString('en-IN')}` : null],
@@ -158,6 +173,7 @@ export function SMMMonitor() {
                 </Card>
               ))}
             </div>
+            </>
           )}
 
           {analysing && <div className="flex items-center justify-center py-8"><Spinner size="md" /></div>}
