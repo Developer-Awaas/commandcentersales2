@@ -21,10 +21,11 @@ jobs:
         with:
           version: latest
 
-      # pg_cron functions carry no user JWT — deploy without JWT verification
+      # No user JWT: pg_cron callers, plus meta-oauth-callback (a browser
+      # redirect back from Facebook, which carries no Authorization header).
       - name: Deploy pg_cron functions (no JWT verification)
         run: |
-          for fn in meta-insights-sync dhruv-anomaly-check history-retention-sweep dhruv-weekly-report; do
+          for fn in meta-insights-sync dhruv-anomaly-check history-retention-sweep dhruv-weekly-report meta-oauth-callback; do
             echo "Deploying $fn (no-verify-jwt)..."
             supabase functions deploy "$fn" \
               --no-verify-jwt \
@@ -44,6 +45,8 @@ jobs:
             canva-sync-design \
             canva-verify-return-nav \
             ingest-review \
+            meta-oauth-start \
+            meta-token-connect \
             claude-proxy \
             generate-image \
             langfuse-ingest; do

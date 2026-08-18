@@ -450,6 +450,13 @@ export interface Database {
           org_id: string
           provider: 'meta' | 'google_ads'
           meta_ad_account_id: string | null
+          meta_app_id: string | null
+          meta_granted_scopes: string[] | null
+          meta_token_type: string | null
+          meta_user_id: string | null
+          meta_page_id: string | null
+          meta_ig_user_id: string | null
+          meta_verified_at: string | null
           meta_access_token: string | null
           token_expires_at: string | null
           is_active: boolean
@@ -462,6 +469,13 @@ export interface Database {
           org_id: string
           provider: 'meta' | 'google_ads'
           meta_ad_account_id?: string | null
+          meta_app_id?: string | null
+          meta_granted_scopes?: string[] | null
+          meta_token_type?: string | null
+          meta_user_id?: string | null
+          meta_page_id?: string | null
+          meta_ig_user_id?: string | null
+          meta_verified_at?: string | null
           meta_access_token?: string | null
           token_expires_at?: string | null
           is_active?: boolean
@@ -474,6 +488,13 @@ export interface Database {
           org_id?: string
           provider?: 'meta' | 'google_ads'
           meta_ad_account_id?: string | null
+          meta_app_id?: string | null
+          meta_granted_scopes?: string[] | null
+          meta_token_type?: string | null
+          meta_user_id?: string | null
+          meta_page_id?: string | null
+          meta_ig_user_id?: string | null
+          meta_verified_at?: string | null
           meta_access_token?: string | null
           token_expires_at?: string | null
           is_active?: boolean
@@ -530,7 +551,7 @@ export interface Database {
           provider: string
           user_id: string
           org_id: string
-          code_verifier: string
+          code_verifier: string | null
           return_url: string
           creative_id: string | null
           created_at: string
@@ -541,7 +562,7 @@ export interface Database {
           provider?: string
           user_id: string
           org_id: string
-          code_verifier: string
+          code_verifier: string | null
           return_url: string
           creative_id?: string | null
           created_at?: string
@@ -552,7 +573,7 @@ export interface Database {
           provider?: string
           user_id?: string
           org_id?: string
-          code_verifier?: string
+          code_verifier?: string | null
           return_url?: string
           creative_id?: string | null
           created_at?: string

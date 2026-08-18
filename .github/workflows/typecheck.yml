@@ -97,6 +97,9 @@ jobs:
             supabase/functions/dhruv-anomaly-check/index.ts \
             supabase/functions/history-retention-sweep/index.ts \
             supabase/functions/ingest-review/index.ts \
+            supabase/functions/meta-oauth-start/index.ts \
+            supabase/functions/meta-oauth-callback/index.ts \
+            supabase/functions/meta-token-connect/index.ts \
             supabase/functions/dhruv-weekly-report/index.ts
 
   edge-unit-tests:

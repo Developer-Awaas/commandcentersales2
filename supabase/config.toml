@@ -21,3 +21,11 @@ verify_jwt = false
 # settled — same reasoning as canva-oauth-callback above.
 [functions.canva-verify-return-nav]
 verify_jwt = false
+
+# Facebook redirects the BROWSER here after consent, and a browser redirect
+# carries no Authorization header (the same constraint that made bug #1 out of
+# canva-oauth-callback). Identity is not taken from the request at all — it
+# comes from the single-use state nonce parked in oauth_flow_sessions, so
+# leaving this open does not weaken anything.
+[functions.meta-oauth-callback]
+verify_jwt = false

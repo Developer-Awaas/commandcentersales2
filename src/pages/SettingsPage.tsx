@@ -73,9 +73,17 @@ export function SettingsPage() {
   const [addingComp, setAddingComp] = useState(false);
 
   // Meta Ads Integration
-  const [metaIntegrationId, setMetaIntegrationId] = useState<string | null>(null);
   const [metaAccountId, setMetaAccountId] = useState('');
   const [metaToken, setMetaToken] = useState('');
+  // RB-MO — provenance surfaced in the UI. A connection you cannot attribute
+  // to an app is what let a dead-app token sit here looking healthy for a
+  // month; the answer now has a place on screen.
+  const [metaAppIdRow, setMetaAppIdRow] = useState<string | null>(null);
+  const [metaScopes, setMetaScopes] = useState<string[] | null>(null);
+  const [metaTokenExp, setMetaTokenExp] = useState<string | null>(null);
+  const [metaVerifiedAt, setMetaVerifiedAt] = useState<string | null>(null);
+  const [showAdvancedMeta, setShowAdvancedMeta] = useState(false);
+  const [metaConnecting, setMetaConnecting] = useState(false);
   const [showMetaToken, setShowMetaToken] = useState(false);
   const [metaLoading, setMetaLoading] = useState(true);
   const [metaSaving, setMetaSaving] = useState(false);
@@ -94,42 +102,83 @@ export function SettingsPage() {
     setMetaLoading(true);
     const { data } = await supabase
       .from('org_integrations')
-      .select('id,meta_ad_account_id,meta_access_token,last_sync_at')
+      .select('id,meta_ad_account_id,meta_access_token,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at')
       .eq('org_id', getOrgId())
       .eq('provider', 'meta')
       .maybeSingle();
     if (data) {
-      setMetaIntegrationId(data.id ?? null);
       setMetaAccountId(data.meta_ad_account_id ?? '');
       setMetaToken(data.meta_access_token ?? '');
       setMetaLastSync(data.last_sync_at ?? null);
+      setMetaAppIdRow((data as { meta_app_id?: string | null }).meta_app_id ?? null);
+      setMetaScopes((data as { meta_granted_scopes?: string[] | null }).meta_granted_scopes ?? null);
+      setMetaTokenExp((data as { token_expires_at?: string | null }).token_expires_at ?? null);
+      setMetaVerifiedAt((data as { meta_verified_at?: string | null }).meta_verified_at ?? null);
     }
     setMetaLoading(false);
   }
 
+  // RB-MO STEP 4 — the paste path no longer writes org_integrations directly.
+  // /debug_token needs the app secret, which cannot reach the browser, so the
+  // only place a token can be verified is server-side. meta-token-connect is
+  // that door: it rejects dead or foreign-app tokens before anything is
+  // stored, which is precisely what nothing did before.
   async function saveMetaIntegration() {
     setMetaSaving(true);
+    setMetaSyncMsg(null);
     const rawId = metaAccountId.trim();
-    // Meta API requires act_<numeric_id> — normalize silently so bare IDs work too.
+    // Meta requires act_<numeric_id> — normalize silently so bare IDs work.
     const normalizedId = rawId && !rawId.startsWith('act_') ? `act_${rawId}` : rawId;
-    const payload = {
-      org_id: getOrgId(),
-      provider: 'meta',
-      meta_ad_account_id: normalizedId,
-      meta_access_token: metaToken.trim(),
-      is_active: !!(normalizedId && metaToken.trim()),
-    };
-    if (metaIntegrationId) {
-      await supabase.from('org_integrations').update(payload).eq('id', metaIntegrationId);
-    } else {
-      const { data } = await supabase.from('org_integrations').insert(payload).select('id').single();
-      if (data) setMetaIntegrationId(data.id);
+    try {
+      const { data, error } = await supabase.functions.invoke('meta-token-connect', {
+        body: { token: metaToken.trim(), adAccountId: normalizedId },
+      });
+      const res = (data ?? {}) as {
+        ok?: boolean; error?: string; appId?: string; grantedScopes?: string[];
+        expiresAt?: string | null; adAccountId?: string | null;
+      };
+      if (error || !res.ok) {
+        // Surface Meta's own words — "Application has been deleted" is a far
+        // more actionable message than "save failed".
+        setMetaSyncMsg(`Rejected: ${res.error ?? error?.message ?? 'token could not be verified'}`);
+        return;
+      }
+      setMetaAppIdRow(res.appId ?? null);
+      setMetaScopes(res.grantedScopes ?? null);
+      setMetaTokenExp(res.expiresAt ?? null);
+      setMetaVerifiedAt(new Date().toISOString());
+      if (res.adAccountId) setMetaAccountId(res.adAccountId);
+      else setMetaAccountId(normalizedId);
+      setMetaSyncMsg('Token verified and saved.');
+      await loadMetaIntegration();
+    } finally {
+      setMetaSaving(false);
+      setTimeout(() => setMetaSyncMsg(null), 6000);
     }
-    // Reflect normalized ID back into the input field immediately.
-    setMetaAccountId(normalizedId);
-    setMetaSaving(false);
-    setMetaSyncMsg('Integration saved.');
-    setTimeout(() => setMetaSyncMsg(null), 3000);
+  }
+
+  // OAuth entry point. The tab is opened SYNCHRONOUSLY on the click, before
+  // any await — the same user-activation rule the Canva flow had to learn the
+  // hard way (bug #45d): opening it after the await gets silently blocked.
+  async function connectMetaOAuth() {
+    const tab = window.open('', '_blank');
+    setMetaConnecting(true);
+    setMetaSyncMsg(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('meta-oauth-start', {
+        body: { returnUrl: window.location.href },
+      });
+      const res = (data ?? {}) as { authUrl?: string; error?: string };
+      if (error || !res.authUrl) {
+        tab?.close();
+        setMetaSyncMsg(`Could not start Facebook connect: ${res.error ?? error?.message ?? 'unknown error'}`);
+        return;
+      }
+      if (tab) tab.location.href = res.authUrl;
+      else window.location.href = res.authUrl; // popup blocked — same-window fallback
+    } finally {
+      setMetaConnecting(false);
+    }
   }
 
   async function triggerMetaSync() {
@@ -440,7 +489,7 @@ export function SettingsPage() {
             )}
           </div>
           <p className="text-[11px] text-text-tertiary leading-relaxed mb-3">
-            Enter your Meta Ad Account ID and a long-lived access token. Once saved, click <strong>Sync Now</strong> to pull campaign metrics immediately, or they auto-refresh every 15 minutes via scheduled job.
+            Connect your Facebook account to grant access to your Pages, Instagram accounts, and ad accounts. Campaign metrics then refresh automatically every 15 minutes.
           </p>
 
           {/* Setup guide */}
@@ -516,7 +565,60 @@ export function SettingsPage() {
               <span className="text-xs text-text-tertiary">Loading…</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
+            <>
+              {/* Primary path: real OAuth consent. A reviewer needs a consent
+                  screen to exercise; a token paste form is not one. */}
+              <div className="flex flex-col gap-2 mb-4">
+                <button
+                  onClick={connectMetaOAuth}
+                  disabled={metaConnecting}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#1877F2] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-all"
+                >
+                  {metaConnecting ? <Spinner size="sm" /> : <CheckCircle size={14} />}
+                  {metaAppIdRow ? 'Reconnect with Facebook' : 'Connect with Facebook'}
+                </button>
+
+                {metaAppIdRow ? (
+                  <div className="flex flex-col gap-0.5 px-3 py-2 rounded-lg bg-surface-sunken border border-border">
+                    <span className="text-[11px] text-emerald-400 font-medium">Connected — verified against Meta</span>
+                    <span className="text-[10px] text-text-tertiary">App ID {metaAppIdRow}</span>
+                    <span className="text-[10px] text-text-tertiary">
+                      {metaTokenExp
+                        ? `Token expires ${new Date(metaTokenExp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                        : 'Token does not expire (System User)'}
+                    </span>
+                    {metaScopes && metaScopes.length > 0 && (
+                      <span className="text-[10px] text-text-tertiary">Granted: {metaScopes.join(', ')}</span>
+                    )}
+                    {metaVerifiedAt && (
+                      <span className="text-[10px] text-text-disabled">
+                        Last verified {new Date(metaVerifiedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-text-tertiary">Not connected.</p>
+                )}
+              </div>
+
+              {/* Retained, not deprecated: System User tokens are the right
+                  shape for headless sync (they do not expire) and an existing
+                  customer re-minting a token uses exactly this. Folded away
+                  because it is the expert path, not the default one. */}
+              <button
+                type="button"
+                onClick={() => setShowAdvancedMeta((v) => !v)}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-surface-sunken hover:bg-surface-subtle text-xs font-medium text-text-secondary transition-colors"
+              >
+                <span>Advanced — paste a System User token</span>
+                <span className="text-text-tertiary">{showAdvancedMeta ? '−' : '+'}</span>
+              </button>
+
+              {showAdvancedMeta && (
+            <div className="flex flex-col gap-4 mt-4">
+              <p className="text-[11px] text-text-tertiary">
+                Pasted tokens are verified against Meta before they are stored — a token from another app, or from an app that no longer exists, is rejected here rather than failing silently later.
+              </p>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Ad Account ID</label>
                 <p className="text-[11px] text-text-tertiary -mt-0.5">Format: <code className="bg-surface-sunken px-1 rounded">act_123456789</code> — find it in Meta Business Manager → Ad Accounts</p>
@@ -569,13 +671,12 @@ export function SettingsPage() {
               {metaSyncMsg && (
                 <p className={`text-xs ${metaSyncMsg.startsWith('Sync failed') ? 'text-red-400' : 'text-brand'}`}>{metaSyncMsg}</p>
               )}
-              {metaAccountId && metaToken && (
-                <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-                  <CheckCircle size={12} />
-                  Integration configured — auto-sync active
-                </div>
+              {metaSyncMsg && metaSyncMsg.startsWith('Rejected') && (
+                <p className="text-[11px] text-red-400">{metaSyncMsg}</p>
               )}
             </div>
+              )}
+            </>
           )}
         </Card>
       </div>
