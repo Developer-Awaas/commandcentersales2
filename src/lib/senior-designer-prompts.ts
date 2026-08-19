@@ -1618,7 +1618,7 @@ export function buildPanelAssignmentDirective(panels: PhotoPanel[], slots: Panel
       lines.push(`- ${where} → IMAGE ${nextImage}. Fit it to that section's exact shape and crop.`);
       nextImage += 1;
     } else {
-      lines.push(`- ${where} → EMPTY: render it as a flat, empty design block in the layout's own palette. No photograph of any kind.`);
+      lines.push(`- ${where} → EMPTY: render it as a SOLID, FILLED block in the layout's own palette — same wireframe ban as text containers: never an outline, stroke or transparent placeholder. No photograph of any kind.`);
       emptied.push(p.index);
     }
   }
@@ -1654,8 +1654,19 @@ export function buildReplicateLayoutPrompt(
       ? buildPanelAssignmentDirective(assignment.panels, assignment.slots)
       : buildPhotoReplacementDirective(),
     'CHANGE (b) — text, remove ALL lettering, glyphs, numbers, words, wordmarks and readable characters of ANY script (Latin, Devanagari, Arabic, CJK — none). Handle it in TWO cases by whether the text has a container behind it:',
-    'CASE 1 — text INSIDE a panel, band, pill, badge, button, card or coloured plate: REMOVE the text but KEEP that container exactly as it is (same shape, fill, colour, opacity, position), now EMPTY. Do NOT collapse, shrink, delete or fill-in the container because its text is gone — the app composites real copy back into it.',
+    'CASE 1 — text INSIDE a panel, band, pill, badge, button, card or coloured plate: REMOVE the text but KEEP that container exactly as it is (same shape, fill, colour, opacity, position), now EMPTY OF TEXT. Do NOT collapse, shrink, delete or fill-in the container because its text is gone — the app composites real copy back into it.',
+    // AUDIT FIX (P2.14): "now EMPTY" was the only word governing what a retained
+    // container looks like, and a model reads "empty box" as an OUTLINE. Output
+    // came back wireframed — stroke-only rectangles where solid design blocks
+    // belonged. "Empty" means empty OF TEXT, never hollow, and that has to be
+    // said rather than implied by the earlier "same fill".
+    'FILLED, NEVER WIREFRAME — every container you keep must stay a SOLID, FILLED design block in the palette of image 1, with its original fill colour and opacity intact. Do NOT render it as an outline, stroke, border-only rectangle, dashed box, transparent placeholder or wireframe. A kept container looks exactly like it did minus the lettering: a solid navy pill in image 1 stays a solid navy pill with nothing written on it.',
     'CASE 2 — text sitting DIRECTLY on the background or photo (a floating headline, a caption over the sky, free-standing digits with NO container behind them): REMOVE it ENTIRELY and let the background continue SEAMLESSLY through where it was. Do NOT leave behind a pill, plate, box, bar or coloured patch where floating text used to be — that area becomes clean background, as if text were never there.',
+    // AUDIT FIX (P2.14): the INVARIANT above forbids removing ANY shape, while
+    // CASE 2 requires clearing whatever sat under floating text. Read literally
+    // the two disagree, and nothing said which wins — so the model kept ghost
+    // plates. Scope the invariant explicitly instead of leaving it to chance.
+    'PRECEDENCE — the INVARIANT protects DESIGN structure (panels, bands, frames, cards, strips, badges, buttons, colour blocks that are part of the layout). It does NOT protect artefacts that exist only to carry text: a glow, halo, shadow, scrim, gradient wash or tint that sits behind floating lettering is part of the TEXT, not the layout, and goes with it under CASE 2. When in doubt, ask whether the shape would still make sense in the design with no text in the world — if yes it is structure and stays FILLED; if no it goes.',
     'Render ZERO readable characters either way.',
     'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and phone numbers. If the identity sat in a container, leave that container empty (Case 1); if it floated on the background, clear it seamlessly (Case 2). This project adds its own logo/contact separately.',
     'Change nothing else — no new elements, no invented building details beyond the two attached images.',
