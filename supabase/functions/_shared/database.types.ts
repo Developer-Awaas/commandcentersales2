@@ -1891,6 +1891,19 @@ export interface Database {
           leads: number
           cpl: number | null
           platform: string
+          adset_name: string | null
+          unique_clicks: number | null
+          frequency: number | null
+          cpm: number | null
+          cpc: number | null
+          video_p25: number | null
+          video_p50: number | null
+          video_p75: number | null
+          video_p100: number | null
+          quality_ranking: string | null
+          engagement_rate_ranking: string | null
+          conversion_rate_ranking: string | null
+          creative_thumb: string | null
           synced_at: string
           raw_payload: Json | null
         }
@@ -1912,6 +1925,19 @@ export interface Database {
           leads?: number
           cpl?: number | null
           platform?: string
+          adset_name?: string | null
+          unique_clicks?: number | null
+          frequency?: number | null
+          cpm?: number | null
+          cpc?: number | null
+          video_p25?: number | null
+          video_p50?: number | null
+          video_p75?: number | null
+          video_p100?: number | null
+          quality_ranking?: string | null
+          engagement_rate_ranking?: string | null
+          conversion_rate_ranking?: string | null
+          creative_thumb?: string | null
           synced_at?: string
           raw_payload?: Json | null
         }
@@ -1933,6 +1959,19 @@ export interface Database {
           leads?: number
           cpl?: number | null
           platform?: string
+          adset_name?: string | null
+          unique_clicks?: number | null
+          frequency?: number | null
+          cpm?: number | null
+          cpc?: number | null
+          video_p25?: number | null
+          video_p50?: number | null
+          video_p75?: number | null
+          video_p100?: number | null
+          quality_ranking?: string | null
+          engagement_rate_ranking?: string | null
+          conversion_rate_ranking?: string | null
+          creative_thumb?: string | null
           synced_at?: string
           raw_payload?: Json | null
         }

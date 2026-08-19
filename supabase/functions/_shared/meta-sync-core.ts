@@ -21,7 +21,22 @@ type SyncStatus = Database['public']['Tables']['integration_sync_log']['Insert']
 const META_API_BASE = 'https://graph.facebook.com/v21.0'
 const INSIGHTS_FIELDS = 'campaign_id,campaign_name,impressions,clicks,spend,ctr,frequency,reach,actions,cost_per_action_type,date_start,date_stop'
 // Ad-level fields for Phase 7 creative attribution
-const AD_INSIGHTS_FIELDS = 'ad_id,ad_name,adset_id,campaign_id,impressions,clicks,reach,spend,ctr,actions,cost_per_action_type,date_start,date_stop'
+// Batched into the SINGLE existing ad-level call — Graph bills per request,
+// not per field, so widening this costs nothing while a second call would.
+// video_* and *_ranking are absent from Meta's response for ads they don't
+// apply to (static creative, or not enough delivery to be scored); they are
+// stored NULL rather than 0, because a fabricated 0% completion rate reads as
+// a measured failure.
+const AD_INSIGHTS_FIELDS = [
+  'ad_id', 'ad_name', 'adset_id', 'adset_name', 'campaign_id',
+  'impressions', 'clicks', 'unique_clicks', 'reach', 'frequency',
+  'spend', 'cpm', 'cpc', 'ctr',
+  'actions', 'cost_per_action_type', 'video_p25_watched_actions',
+  'video_p50_watched_actions', 'video_p75_watched_actions',
+  'video_p100_watched_actions',
+  'quality_ranking', 'engagement_rate_ranking', 'conversion_rate_ranking',
+  'date_start', 'date_stop',
+].join(',')
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 // Max live promoted creatives per org (anti-storage runaway)
@@ -132,6 +147,25 @@ async function notifyConnectionInvalid(supabase: DB, org_id: string, detail: str
   if (error) console.error(`[meta-sync] notification insert failed for org ${org_id}: ${error.message}`)
 }
 
+/**
+ * Keep a fire-and-forget task alive past the response.
+ *
+ * "Fire and forget" only works if something owns the isolate afterwards. Under
+ * the pg_cron sweep the loop did; under meta-sync-now (request-scoped) it does
+ * NOT — the response returns in ~20s and the isolate is reclaimed, killing the
+ * ad-level sync mid-poll. Measured: zero ad_metrics rows written across two
+ * runs and ~110s of waiting, while the campaign rollup succeeded every time.
+ *
+ * EdgeRuntime.waitUntil is the documented way to hold it open (the same
+ * mechanism generate-image's async job path uses). Falls back to a plain catch
+ * where the runtime does not expose it, e.g. under `deno test`.
+ */
+function background(task: Promise<unknown>, label: string): void {
+  const rt = (globalThis as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime
+  const guarded = task.catch((err) => console.error(`${label}:`, err))
+  if (rt?.waitUntil) rt.waitUntil(guarded)
+}
+
 export async function syncOrgMetrics(
   supabase: DB,
   integration: { id: string; org_id: string; meta_ad_account_id: string | null; meta_access_token: string | null }
@@ -197,11 +231,12 @@ export async function syncOrgMetrics(
   await supabase.from('org_integrations').update({ last_sync_at: new Date().toISOString() }).eq('id', integration.id)
   await logSync(supabase, org_id, 'success', totalRows, undefined, 0, Date.now() - start)
 
-  // Phase 7: ad-level sync (fire-and-forget, never blocks or throws into main flow)
-  syncAdMetrics(supabase, integration).catch(err => console.error(`ad-metrics sync failed for org ${org_id}:`, err))
+  // Phase 7: ad-level sync. Never blocks the response, but MUST outlive it —
+  // see background() for why a bare .catch() silently dropped it entirely.
+  background(syncAdMetrics(supabase, integration), `ad-metrics sync failed for org ${org_id}`)
 
-  // Phase 4: Arjun performance promotion (fire-and-forget, never blocks main sync)
-  arjunPromoteCreatives(supabase, org_id).catch(err => console.error(`arjun promote failed for org ${org_id}:`, err))
+  // Phase 4: Arjun performance promotion — same treatment, same reason.
+  background(arjunPromoteCreatives(supabase, org_id), `arjun promote failed for org ${org_id}`)
 
   return totalRows
 }
@@ -348,6 +383,35 @@ async function syncAccount(
 
 // ── Phase 7: ad-level insights sync ──────────────────────────────────────────
 
+// ── Graph value coercion ─────────────────────────────────────────────────────
+// Meta returns everything as strings, omits inapplicable fields entirely, and
+// uses the literal 'UNKNOWN' for rankings it cannot score yet. All three must
+// become NULL rather than 0/'UNKNOWN', or the UI reports a measurement that
+// was never taken.
+function numOrNull(v: unknown): number | null {
+  if (v === undefined || v === null || v === '') return null
+  const n = parseInt(String(v), 10)
+  return Number.isFinite(n) ? n : null
+}
+
+function floatOrNull(v: unknown): number | null {
+  if (v === undefined || v === null || v === '') return null
+  const n = parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
+}
+
+/** Video quartiles arrive as [{action_type, value}], absent on non-video ads. */
+function videoQuartile(v: unknown): number | null {
+  if (!Array.isArray(v) || v.length === 0) return null
+  return numOrNull((v[0] as { value?: unknown })?.value)
+}
+
+/** Meta sends 'UNKNOWN' before an ad has enough delivery to be ranked. */
+function rankingOrNull(v: unknown): string | null {
+  const s = v === undefined || v === null ? '' : String(v)
+  return !s || s === 'UNKNOWN' ? null : s
+}
+
 async function syncAdMetrics(
   supabase: DB,
   integration: { id: string; org_id: string; meta_ad_account_id: string | null; meta_access_token: string | null }
@@ -406,6 +470,19 @@ async function syncAdMetrics(
       ctr: parseFloat(String(row.ctr ?? '0')) || 0,
       leads: leadsAction ? parseInt(leadsAction.value) || 0 : 0,
       cpl: cplAction ? parseFloat(cplAction.value) || null : null,
+      // NULL when Meta omitted the field, never 0 — see AD_INSIGHTS_FIELDS.
+      adset_name: row.adset_name ? String(row.adset_name) : null,
+      unique_clicks: numOrNull(row.unique_clicks),
+      frequency: floatOrNull(row.frequency),
+      cpm: floatOrNull(row.cpm),
+      cpc: floatOrNull(row.cpc),
+      video_p25: videoQuartile(row.video_p25_watched_actions),
+      video_p50: videoQuartile(row.video_p50_watched_actions),
+      video_p75: videoQuartile(row.video_p75_watched_actions),
+      video_p100: videoQuartile(row.video_p100_watched_actions),
+      quality_ranking: rankingOrNull(row.quality_ranking),
+      engagement_rate_ranking: rankingOrNull(row.engagement_rate_ranking),
+      conversion_rate_ranking: rankingOrNull(row.conversion_rate_ranking),
       platform: 'meta' as const,
       synced_at: new Date().toISOString(),
       raw_payload: row as unknown as Json,
