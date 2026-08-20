@@ -240,23 +240,40 @@ export async function consumeOAuthFlowSession(
   nonce: string
 ): Promise<
   | { ok: true; session: { userId: string; orgId: string; codeVerifier: string; returnUrl: string; creativeId: string | null } }
-  | { ok: false; error: string }
+  // `reason` is additive — existing callers that only read `error` are
+  // unaffected. It exists because "row missing" used to mean three different
+  // bugs at once (replayed / forged / expired) and callers could not tell them
+  // apart to say anything useful.
+  | { ok: false; error: string; reason: 'not_found' | 'already_used' | 'expired' }
 > {
   const { data: row, error } = await serviceClient
     .from('oauth_flow_sessions')
-    .select('user_id, org_id, code_verifier, return_url, creative_id, expires_at')
+    .select('user_id, org_id, code_verifier, return_url, creative_id, expires_at, consumed_at')
     .eq('nonce', nonce)
     .maybeSingle();
 
-  if (error) return { ok: false, error: `Lookup failed: ${error.message}` };
-  if (!row) return { ok: false, error: 'OAuth flow session not found — expired, already used, or invalid state' };
+  if (error) return { ok: false, error: `Lookup failed: ${error.message}`, reason: 'not_found' };
+  if (!row) {
+    return { ok: false, error: 'This sign-in link was not recognised. Start the connection again from Settings.', reason: 'not_found' };
+  }
 
-  // Delete immediately after reading, regardless of expiry outcome below —
-  // a nonce is single-use whether or not it was still valid.
-  await serviceClient.from('oauth_flow_sessions').delete().eq('nonce', nonce);
+  // ALREADY USED is checked BEFORE expiry: a replayed callback on a session
+  // that has since aged out is still a replay, and "you already finished this"
+  // is the useful thing to say. Reporting it as expired would send someone to
+  // redo a connection that already worked.
+  if (row.consumed_at) {
+    return { ok: false, error: 'This connection was already completed — nothing more to do.', reason: 'already_used' };
+  }
+
+  // Mark consumed rather than delete: single-use is preserved (the check above
+  // refuses it next time) while the reason for a later miss survives.
+  await serviceClient
+    .from('oauth_flow_sessions')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('nonce', nonce);
 
   if (new Date(row.expires_at as string).getTime() < Date.now()) {
-    return { ok: false, error: 'OAuth flow session expired — please try connecting again' };
+    return { ok: false, error: 'This sign-in link expired before it was used. Start again from Settings.', reason: 'expired' };
   }
 
   return {

@@ -557,6 +557,7 @@ export interface Database {
           code_verifier: string | null
           return_url: string
           creative_id: string | null
+          consumed_at: string | null
           created_at: string
           expires_at: string
         }
@@ -568,6 +569,7 @@ export interface Database {
           code_verifier: string | null
           return_url: string
           creative_id?: string | null
+          consumed_at?: string | null
           created_at?: string
           expires_at?: string
         }
@@ -579,6 +581,7 @@ export interface Database {
           code_verifier?: string | null
           return_url?: string
           creative_id?: string | null
+          consumed_at?: string | null
           created_at?: string
           expires_at?: string
         }

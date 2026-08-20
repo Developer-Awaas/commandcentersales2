@@ -51,6 +51,14 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
+  // Rows are marked consumed rather than deleted (so a replay can be told from
+  // a forged state), which means they need sweeping. Opportunistic and cheap:
+  // anything past its expiry is dead regardless of outcome.
+  await serviceClient
+    .from('oauth_flow_sessions')
+    .delete()
+    .lt('expires_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
+
   // Reuses the Canva flow's session table (it already carries `provider`).
   // code_verifier is NULL: Facebook has no PKCE, and the migration relaxed the
   // column rather than have us store a fake verifier that implies otherwise.

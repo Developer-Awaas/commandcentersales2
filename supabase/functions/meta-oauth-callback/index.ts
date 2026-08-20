@@ -74,10 +74,21 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // Single-use: resolving the nonce also deletes it, so a replayed callback
-  // cannot re-run the flow.
+  // Single-use: resolving the nonce MARKS IT CONSUMED (it is no longer deleted
+  // — see the migration), so a replayed callback still cannot re-run the flow,
+  // but it can now be recognised as a replay rather than as an invalid state.
   const session = await consumeOAuthFlowSession(serviceClient, state)
-  if (!session.ok) return page('Connection failed', session.error, false)
+  if (!session.ok) {
+    // A REPLAY is not a failure. Facebook appends #_=_ and browsers prefetch,
+    // so a successful connect is routinely followed by a second hit on the same
+    // state — which found the consumed row and rendered "Connection failed"
+    // over a connection that had just worked. Verified on 2026-08-20: the token
+    // was stored at 10:20:11 while the user was looking at an error page.
+    if (session.reason === 'already_used') {
+      return page('Already connected', session.error, true)
+    }
+    return page('Connection failed', session.error, false)
+  }
 
   const exchanged = await exchangeCodeForLongLivedToken(code, callbackUrl())
   if (!exchanged.ok) return page('Connection failed', exchanged.error, false)
