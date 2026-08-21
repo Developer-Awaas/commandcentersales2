@@ -55,6 +55,35 @@ setTimeout(function(){try{window.close()}catch(e){}},1200);
   return new Response(html, { status: ok ? 200 : 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
 
+// Q4 — land the user back IN THE APP, not on a raw page. Same pattern as
+// canva-oauth-callback: never redirect straight to an arbitrary returnUrl
+// (open-redirect risk) — always go to our own known root with the outcome as
+// query params, and only attach returnUrl when its ORIGIN is allowlisted.
+// FAIL CLOSED: unset ALLOWED_RETURN_ORIGINS means the allowlist is empty and
+// returnUrl is simply never honoured, rather than falling back to a wildcard.
+const ALLOWED_RETURN_ORIGINS = (Deno.env.get('ALLOWED_RETURN_ORIGINS') ?? '')
+  .split(',').map((o) => o.trim()).filter(Boolean)
+
+function appRoot(): string {
+  return (Deno.env.get('APP_URL') ?? ALLOWED_RETURN_ORIGINS[0] ?? '').replace(/\/$/, '')
+}
+
+function redirectToApp(outcome: 'connected' | 'already' | 'error', detail: string, returnUrl?: string): Response | null {
+  const root = appRoot()
+  if (!root) return null // nothing trusted to redirect to — caller renders the page instead
+  const target = new URL(root)
+  target.searchParams.set('meta_return', '1')
+  target.searchParams.set('outcome', outcome)
+  if (detail) target.searchParams.set('detail', detail.slice(0, 300))
+  if (returnUrl) {
+    try {
+      const parsed = new URL(returnUrl)
+      if (ALLOWED_RETURN_ORIGINS.includes(parsed.origin)) target.searchParams.set('returnUrl', returnUrl)
+    } catch { /* malformed — omit, the app falls back to its default landing */ }
+  }
+  return Response.redirect(target.toString(), 302)
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url)
   const code = url.searchParams.get('code')
@@ -85,9 +114,9 @@ Deno.serve(async (req) => {
     // over a connection that had just worked. Verified on 2026-08-20: the token
     // was stored at 10:20:11 while the user was looking at an error page.
     if (session.reason === 'already_used') {
-      return page('Already connected', session.error, true)
+      return redirectToApp('already', session.error) ?? page('Already connected', session.error, true)
     }
-    return page('Connection failed', session.error, false)
+    return redirectToApp('error', session.error) ?? page('Connection failed', session.error, false)
   }
 
   const exchanged = await exchangeCodeForLongLivedToken(code, callbackUrl())
@@ -105,15 +134,22 @@ Deno.serve(async (req) => {
     verified.facts,
     assets,
   )
-  if (!stored.ok) return page('Connection failed', stored.error, false)
+  if (!stored.ok) {
+    // A downgrade block is a QUESTION, not an error. The token is verified and
+    // fine; we are declining to silently replace a permanent connection with an
+    // expiring one. The app asks, then re-runs with allowDowngrade.
+    if ('needsConfirmation' in stored) {
+      return redirectToApp('confirm_downgrade' as 'error', stored.error, session.session.returnUrl)
+        ?? page('Confirm before replacing', stored.error, false)
+    }
+    return redirectToApp('error', stored.error) ?? page('Connection failed', stored.error, false)
+  }
 
   const granted = verified.facts.scopes.length
     ? verified.facts.scopes.join(', ')
     : 'none reported'
-  return page(
-    'Facebook connected',
-    'Granted permissions: ' + granted + '.' +
-      (assets.adAccountId ? ' Ad account ' + assets.adAccountId + '.' : ' No ad account found — pick one in Settings.'),
-    true,
-  )
+  const summary = 'Granted permissions: ' + granted + '.' +
+    (assets.adAccountId ? ' Ad account ' + assets.adAccountId + '.' : ' No ad account found — pick one in Settings.')
+  return redirectToApp('connected', summary, session.session.returnUrl)
+    ?? page('Facebook connected', summary, true)
 })

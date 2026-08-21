@@ -215,13 +215,35 @@ export async function resolveMetaAssets(accessToken: string): Promise<MetaAssets
 }
 
 /** The single write point for a verified Meta connection. */
+/**
+ * TOKEN SENIORITY (P2.16).
+ *
+ * One active row per org, but the connect paths are not equals. A verified
+ * SYSTEM_USER token never expires and is what unattended cron sync should ride
+ * on; a personal OAuth USER token expires in ~60 days and takes the org's data
+ * pipeline down with it when it does.
+ *
+ * On 2026-08-20 an OAuth connect silently UPDATED the demo org's row in place,
+ * turning a permanent System User connection into a personal login expiring
+ * 19 Oct. Nothing warned, nothing recorded the downgrade — the row simply
+ * changed type. That is the failure this guard exists to prevent.
+ *
+ * Downgrades are not forbidden, only silent ones: the caller must pass
+ * `allowDowngrade` after asking a human.
+ */
+export type StoreResult =
+  | { ok: true }
+  | { ok: false; error: string }
+  | { ok: false; needsConfirmation: true; error: string; currentType: string; currentExpiry: string | null }
+
 export async function storeMetaConnection(
   serviceClient: SupabaseClient<Database>,
   orgId: string,
   accessToken: string,
   facts: MetaTokenFacts,
   assets: MetaAssets,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  opts: { allowDowngrade?: boolean } = {},
+): Promise<StoreResult> {
   // Typed against the table's own Insert shape rather than Record<string,
   // unknown>: that looseness is exactly what lets a wrong column name through
   // (bugs #47/#48), and here the compiler can catch it for us.
@@ -248,10 +270,33 @@ export async function storeMetaConnection(
 
   const { data: existing } = await serviceClient
     .from('org_integrations')
-    .select('id')
+    .select('id, meta_token_type, token_expires_at, meta_verified_at')
     .eq('org_id', orgId)
     .eq('provider', 'meta')
     .maybeSingle()
+
+  // Seniority check — see StoreResult. Only blocks the one direction that
+  // loses something: a VERIFIED permanent token being replaced by an expiring
+  // one. SYSTEM_USER -> SYSTEM_USER, USER -> SYSTEM_USER, and first-time
+  // connects all proceed untouched.
+  const prev = existing as { meta_token_type?: string | null; token_expires_at?: string | null; meta_verified_at?: string | null } | null
+  const replacingPermanentWithExpiring =
+    prev?.meta_token_type === 'SYSTEM_USER' &&
+    !!prev.meta_verified_at &&
+    facts.tokenType !== 'SYSTEM_USER'
+  if (replacingPermanentWithExpiring && !opts.allowDowngrade) {
+    return {
+      ok: false,
+      needsConfirmation: true,
+      currentType: 'SYSTEM_USER',
+      currentExpiry: prev?.token_expires_at ?? null,
+      error:
+        'This organisation uses a permanent System User connection, which does not expire. ' +
+        'Replacing it with a personal login would make sync stop on ' +
+        (facts.expiresAt ? new Date(facts.expiresAt).toDateString() : 'that login expiring') +
+        '. Confirm to replace it.',
+    }
+  }
 
   const { error } = existing
     ? await serviceClient.from('org_integrations').update(row).eq('id', (existing as { id: string }).id)

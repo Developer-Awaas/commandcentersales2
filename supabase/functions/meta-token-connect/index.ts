@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     )
   }
 
-  let body: { token?: string; adAccountId?: string } = {}
+  let body: { token?: string; adAccountId?: string; allowDowngrade?: boolean } = {}
   try { body = await req.json() } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders() })
   }
@@ -86,8 +86,20 @@ Deno.serve(async (req) => {
   // is a stronger signal than picking the first of their accounts.
   if (body.adAccountId && body.adAccountId.trim()) assets.adAccountId = body.adAccountId.trim()
 
-  const stored = await storeMetaConnection(serviceClient, identity.identity.orgId, token, verified.facts, assets)
+  const stored = await storeMetaConnection(
+    serviceClient, identity.identity.orgId, token, verified.facts, assets,
+    { allowDowngrade: body.allowDowngrade === true },
+  )
   if (!stored.ok) {
+    // 409, not 500: nothing failed. We are declining to silently replace a
+    // permanent System User connection with an expiring one, and the client
+    // should ask before re-sending with allowDowngrade.
+    if ('needsConfirmation' in stored) {
+      return new Response(
+        JSON.stringify({ error: stored.error, needsConfirmation: true, currentType: stored.currentType, currentExpiry: stored.currentExpiry }),
+        { status: 409, headers: corsHeaders() },
+      )
+    }
     return new Response(JSON.stringify({ error: stored.error }), { status: 500, headers: corsHeaders() })
   }
 

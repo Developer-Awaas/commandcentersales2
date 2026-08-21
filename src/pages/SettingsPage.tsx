@@ -136,7 +136,33 @@ export function SettingsPage() {
       const res = (data ?? {}) as {
         ok?: boolean; error?: string; appId?: string; grantedScopes?: string[];
         expiresAt?: string | null; adAccountId?: string | null;
+        needsConfirmation?: boolean; currentType?: string; currentExpiry?: string | null;
       };
+      // P2.16 — the server declined to silently replace a permanent System
+      // User connection with an expiring personal one. Ask, then retry with
+      // allowDowngrade. This is the guard for the 2026-08-20 downgrade, where
+      // an OAuth connect turned a never-expiring connection into one expiring
+      // 19 Oct with nothing said.
+      if (res.needsConfirmation) {
+        const proceed = window.confirm(
+          `${res.error}
+
+OK = replace it with the personal login.
+Cancel = keep the permanent System User connection.`,
+        );
+        if (!proceed) { setMetaSyncMsg('Kept the existing System User connection.'); return; }
+        const retry = await supabase.functions.invoke('meta-token-connect', {
+          body: { token: metaToken.trim(), adAccountId: normalizedId, allowDowngrade: true },
+        });
+        const retryRes = (retry.data ?? {}) as { ok?: boolean; error?: string };
+        if (retry.error || !retryRes.ok) {
+          setMetaSyncMsg(`Rejected: ${retryRes.error ?? retry.error?.message ?? 'token could not be verified'}`);
+          return;
+        }
+        setMetaSyncMsg('Replaced — now using the personal login.');
+        await loadMetaIntegration();
+        return;
+      }
       if (error || !res.ok) {
         // Surface Meta's own words — "Application has been deleted" is a far
         // more actionable message than "save failed".
