@@ -19,8 +19,13 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import type { Database } from './database.types.ts'
 import { textCostUsd } from './pricing.ts'
 
-export type CostProvider = 'anthropic' | 'openai' | 'gemini'
-export type CostCallType = 'text' | 'image_gen' | 'image_edit' | 'vision'
+// 'meta' is a provider we call but never pay a model for: a Graph publish
+// costs nothing per call. It is logged anyway, at cost 0, because "free" and
+// "unrecorded" are different facts and only one of them answers "what did this
+// app post, and when". Widened in migration 20260828120000 — the DB CHECK and
+// this union must move together or PostgREST silently rejects the row.
+export type CostProvider = 'anthropic' | 'openai' | 'gemini' | 'meta'
+export type CostCallType = 'text' | 'image_gen' | 'image_edit' | 'vision' | 'publish'
 
 let _client: SupabaseClient<Database> | null = null
 function getAdminClient(): SupabaseClient<Database> {

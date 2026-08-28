@@ -11,7 +11,7 @@ import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
 import {
   Check, X, RefreshCw, Download, ChevronLeft, ChevronRight,
-  ExternalLink, Maximize2, ImageIcon, Layers,
+  ExternalLink, Maximize2, ImageIcon, Layers, Send,
 } from 'lucide-react';
 import { AdobeExpressModal } from './AdobeExpressModal';
 import { CanvaConnectButton } from './CanvaConnectButton';
@@ -20,6 +20,8 @@ import { saveOverlayEdit, fetchBrandLogoUrl } from '../lib/overlay-recompose';
 import { useGenerationLock } from '../hooks/useGenerationLock';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
 import { SINGLE_IMAGE_TESTING_MODE, DEBUG_SHOW_PROMPTS } from '../lib/feature-flags';
+import { MetaPostDialog } from './MetaPostDialog';
+import { canOfferPublish, fetchPublishTargets, EMPTY_TARGETS, type PublishTargets } from '../lib/publish-targets';
 
 export interface CreativeAsset {
   id: string;
@@ -149,10 +151,14 @@ interface CreativeCardProps {
   onAction: (assetId: string, action: string) => void;
   onOpenLightbox: (asset: CreativeAsset) => void;
   loadingAction: string | null;
+  // Resolved once by the parent, not per card — three cards asking the same
+  // org-level question three times is three round trips for one answer.
+  publishTargets: PublishTargets;
 }
 
-function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction }: CreativeCardProps) {
+function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction, publishTargets }: CreativeCardProps) {
   const [editingText, setEditingText] = useState(false);
+  const [posting, setPosting] = useState(false);
   const [bustUrl, setBustUrl] = useState<string | null>(null);
   const displayUrl = bustUrl ?? asset.edited_image_url ?? asset.image_url;
   const isLoading = (action: string) => loadingAction === `${asset.id}-${action}`;
@@ -252,6 +258,34 @@ function CreativeCard({ asset, onAction, onOpenLightbox, loadingAction }: Creati
             Download
           </button>
         </div>
+
+        {/* Hidden, not disabled, when the org has no publish target — see
+            canOfferPublish. displayUrl is always a persisted Supabase URL
+            here (image_url / edited_image_url), which is what Graph fetches. */}
+        {canOfferPublish(publishTargets, !!asset.id) && (
+          <button
+            onClick={() => setPosting(true)}
+            className="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-[#1877F2]/10 border border-[#1877F2]/30 text-[#4a9eff] text-[11px] font-medium hover:bg-[#1877F2]/20 transition-all"
+          >
+            <Send size={11} />
+            Post to Meta
+          </button>
+        )}
+
+        {posting && (
+          <MetaPostDialog
+            targets={publishTargets}
+            imageUrl={displayUrl}
+            creativeAssetId={asset.id}
+            projectId={asset.project_id}
+            // No prefill here: a creative_assets row carries the generation
+            // prompt, not ad copy, and seeding a caption with a 700-word image
+            // prompt would be worse than an empty box. The Strategy gallery,
+            // which does hold the headline/CTA, prefills properly.
+            defaultCaption=""
+            onClose={() => setPosting(false)}
+          />
+        )}
 
         {overlayEditable && (
           <button
@@ -416,8 +450,16 @@ export function CreativeViewer({ orgId, projectId, funnelStage, brandKit, projec
   const [lightboxAsset, setLightboxAsset] = useState<{ assets: CreativeAsset[]; index: number } | null>(null);
   const [adobeAsset, setAdobeAsset] = useState<CreativeAsset | null>(null);
   const [showCanvaConnect, setShowCanvaConnect] = useState(false);
+  const [publishTargets, setPublishTargets] = useState<PublishTargets>(EMPTY_TARGETS);
   const [pendingCanvaAssetId, setPendingCanvaAssetId] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // One org-level read for the whole grid (see CreativeCardProps.publishTargets).
+  useEffect(() => {
+    let cancelled = false;
+    fetchPublishTargets().then((t) => { if (!cancelled) setPublishTargets(t); });
+    return () => { cancelled = true; };
+  }, []);
 
   // This grid is a history of SAVED creatives only (status === 'approved',
   // set by StrategyResult's "Save Creative Changes" / this component's own
@@ -721,6 +763,7 @@ export function CreativeViewer({ orgId, projectId, funnelStage, brandKit, projec
                 onAction={handleAction}
                 onOpenLightbox={(a) => setLightboxAsset({ assets: realAssets, index: realAssets.indexOf(a) })}
                 loadingAction={loadingAction}
+                publishTargets={publishTargets}
               />
             );
           })}

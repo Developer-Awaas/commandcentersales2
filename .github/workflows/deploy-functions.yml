@@ -48,6 +48,8 @@ jobs:
             meta-oauth-start \
             meta-token-connect \
             meta-sync-now \
+            meta-publish \
+            meta-publish-targets \
             claude-proxy \
             generate-image \
             langfuse-ingest; do

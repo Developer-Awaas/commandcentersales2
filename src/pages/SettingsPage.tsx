@@ -2,8 +2,8 @@
 // Settings should redirect users to the Brand Kit page for color management.
 // brand_colors field kept for now to avoid breaking existing prompt-builders that read it.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Send, ShieldAlert } from 'lucide-react';
+import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId } from '../lib/constants';
 
 import { Card } from '../components/ui/Card';
@@ -52,6 +52,16 @@ const DEFAULT_COMPETITORS = [
   'Falcon',
 ];
 
+/** Mirrors meta-publish-targets' PageOption. Only allowlisted Pages are ever
+ *  returned, so every entry here is selectable — there is no disabled state. */
+interface PublishPageOption {
+  page_id: string;
+  page_name: string;
+  ig_user_id: string | null;
+  ig_username: string | null;
+  allowed: boolean;
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-4">
@@ -92,6 +102,21 @@ export function SettingsPage() {
   const [metaSyncMsg, setMetaSyncMsg] = useState<string | null>(null);
   const [showMetaSetup, setShowMetaSetup] = useState(false);
 
+  // Publishing (RB-PUB STEP 3). Separate from the ad-account binding above on
+  // purpose: reading someone's ad stats and writing a post to their Page are
+  // different powers, and conflating the two settings is how one gets granted
+  // by accident while configuring the other.
+  const [publishPageId, setPublishPageId] = useState<string | null>(null);
+  const [publishPageName, setPublishPageName] = useState<string | null>(null);
+  const [publishIgUserId, setPublishIgUserId] = useState<string | null>(null);
+  const [publishIgUsername, setPublishIgUsername] = useState<string | null>(null);
+  const [publishOptionsList, setPublishOptionsList] = useState<PublishPageOption[] | null>(null);
+  const [publishListLoading, setPublishListLoading] = useState(false);
+  const [publishSaving, setPublishSaving] = useState<string | null>(null);
+  const [publishMsg, setPublishMsg] = useState<string | null>(null);
+  const [allowlistConfigured, setAllowlistConfigured] = useState(true);
+  const [hiddenPageCount, setHiddenPageCount] = useState(0);
+
   useEffect(() => {
     loadOrg();
     loadCompetitors();
@@ -102,7 +127,7 @@ export function SettingsPage() {
     setMetaLoading(true);
     const { data } = await supabase
       .from('org_integrations')
-      .select('id,meta_ad_account_id,meta_access_token,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at')
+      .select('id,meta_ad_account_id,meta_access_token,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at,publish_page_id,publish_page_name,publish_ig_user_id,publish_ig_username')
       .eq('org_id', getOrgId())
       .eq('provider', 'meta')
       .maybeSingle();
@@ -114,6 +139,14 @@ export function SettingsPage() {
       setMetaScopes((data as { meta_granted_scopes?: string[] | null }).meta_granted_scopes ?? null);
       setMetaTokenExp((data as { token_expires_at?: string | null }).token_expires_at ?? null);
       setMetaVerifiedAt((data as { meta_verified_at?: string | null }).meta_verified_at ?? null);
+      const pub = data as {
+        publish_page_id?: string | null; publish_page_name?: string | null;
+        publish_ig_user_id?: string | null; publish_ig_username?: string | null;
+      };
+      setPublishPageId(pub.publish_page_id ?? null);
+      setPublishPageName(pub.publish_page_name ?? null);
+      setPublishIgUserId(pub.publish_ig_user_id ?? null);
+      setPublishIgUsername(pub.publish_ig_username ?? null);
     }
     setMetaLoading(false);
   }
@@ -204,6 +237,53 @@ Cancel = keep the permanent System User connection.`,
       else window.location.href = res.authUrl; // popup blocked — same-window fallback
     } finally {
       setMetaConnecting(false);
+    }
+  }
+
+  // The picker's options come from the TOKEN, never from free text: the
+  // function asks Graph what this org's token can actually reach and returns
+  // only the Pages that are also on the deployment allowlist. Typing an id
+  // into a box would be a fourth way to name a target and the only one nobody
+  // checks.
+  async function loadPublishOptions() {
+    setPublishListLoading(true);
+    setPublishMsg(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('meta-publish-targets', { body: { action: 'list' } });
+      const res = (data ?? {}) as {
+        ok?: boolean; pages?: PublishPageOption[]; hidden_count?: number;
+        allowlist_configured?: boolean; note?: string | null; error?: string;
+      };
+      if (error || !res.ok) {
+        setPublishMsg(res.error ?? (await extractFunctionErrorMessage(error, 'Could not list Pages')));
+        return;
+      }
+      setPublishOptionsList(res.pages ?? []);
+      setHiddenPageCount(res.hidden_count ?? 0);
+      setAllowlistConfigured(res.allowlist_configured !== false);
+      if (res.note) setPublishMsg(res.note);
+    } finally {
+      setPublishListLoading(false);
+    }
+  }
+
+  async function choosePublishTarget(opt: PublishPageOption, withIg: boolean) {
+    setPublishSaving(opt.page_id);
+    setPublishMsg(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('meta-publish-targets', {
+        body: { action: 'set', page_id: opt.page_id, ig_user_id: withIg ? opt.ig_user_id : null },
+      });
+      const res = (data ?? {}) as { ok?: boolean; error?: string };
+      if (error || !res.ok) {
+        setPublishMsg(res.error ?? (await extractFunctionErrorMessage(error, 'Could not save the publish target')));
+        return;
+      }
+      setPublishMsg(`Publishing target set to ${opt.page_name}.`);
+      await loadMetaIntegration();
+    } finally {
+      setPublishSaving(null);
+      setTimeout(() => setPublishMsg(null), 8000);
     }
   }
 
@@ -629,6 +709,98 @@ Cancel = keep the permanent System User connection.`,
                 ) : (
                   <p className="text-[11px] text-text-tertiary">Not connected.</p>
                 )}
+              </div>
+
+              {/* ---------- Publishing (RB-PUB STEP 3) ----------
+                  Deliberately its own sub-section, below the connection and
+                  above the expert token path. Connecting an account and
+                  choosing somewhere to POST are different decisions with very
+                  different consequences, and a single "Meta settings" blob is
+                  how the second one gets made without noticing. */}
+              <div className="flex flex-col gap-3 mb-4 p-3.5 rounded-xl bg-surface-sunken border border-border">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-text-primary">
+                    <Send size={12} /> Publishing
+                  </span>
+                  <button
+                    onClick={loadPublishOptions}
+                    disabled={publishListLoading || !metaAppIdRow}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-brand-border transition-all disabled:opacity-40"
+                  >
+                    {publishListLoading ? <Spinner size="sm" /> : <RefreshCw size={11} />}
+                    {publishOptionsList ? 'Refresh' : 'Choose a Page'}
+                  </button>
+                </div>
+
+                {publishPageId ? (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[11px] text-emerald-400 font-medium">
+                      Posts go to {publishPageName ?? publishPageId}
+                    </span>
+                    <span className="text-[10px] text-text-tertiary">Page id {publishPageId}</span>
+                    <span className="text-[10px] text-text-tertiary">
+                      {publishIgUserId
+                        ? `Instagram: ${publishIgUsername ? '@' + publishIgUsername : publishIgUserId}`
+                        : 'Instagram: not configured — Facebook only'}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-text-tertiary">
+                    No publishing target set. The "Post to Meta" button stays hidden until one is chosen here.
+                  </p>
+                )}
+
+                {!allowlistConfigured && (
+                  <p className="flex items-start gap-1.5 text-[11px] text-amber-400">
+                    <ShieldAlert size={12} className="mt-0.5 shrink-0" />
+                    PUBLISH_ALLOWED_PAGE_IDS is not set on this deployment, so no Page can be selected and no post can be made. A project admin sets that secret.
+                  </p>
+                )}
+
+                {publishOptionsList && (
+                  <div className="flex flex-col gap-1.5">
+                    {publishOptionsList.length === 0 && (
+                      <p className="text-[11px] text-text-tertiary">
+                        No Page on this deployment's allowlist is reachable with this token.
+                      </p>
+                    )}
+                    {publishOptionsList.map((opt) => (
+                      <div key={opt.page_id} className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-surface border border-border">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs text-text-primary truncate">{opt.page_name}</span>
+                          <span className="text-[10px] text-text-tertiary truncate">
+                            {opt.page_id}{opt.ig_username ? ` · @${opt.ig_username}` : ' · no linked Instagram'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => choosePublishTarget(opt, false)}
+                            disabled={!!publishSaving}
+                            className="px-2.5 py-1 rounded-lg border border-border text-[11px] text-text-tertiary hover:text-text-primary disabled:opacity-40"
+                          >
+                            {publishSaving === opt.page_id ? <Spinner size="sm" /> : 'FB only'}
+                          </button>
+                          {opt.ig_user_id && (
+                            <button
+                              onClick={() => choosePublishTarget(opt, true)}
+                              disabled={!!publishSaving}
+                              className="px-2.5 py-1 rounded-lg bg-brand-subtle border border-brand-border text-brand text-[11px] font-medium hover:bg-brand-subtle-hover disabled:opacity-40"
+                            >
+                              FB + IG
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {hiddenPageCount > 0 && (
+                      <p className="text-[10px] text-text-disabled">
+                        {hiddenPageCount} other Page{hiddenPageCount === 1 ? '' : 's'} reachable with this token {hiddenPageCount === 1 ? 'is' : 'are'} not on this deployment's allowlist and cannot be selected.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {publishMsg && <p className="text-[11px] text-text-secondary">{publishMsg}</p>}
               </div>
 
               {/* Retained, not deprecated: System User tokens are the right

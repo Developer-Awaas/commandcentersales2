@@ -42,6 +42,8 @@ deno check \
   supabase/functions/meta-oauth-callback/index.ts \
   supabase/functions/meta-token-connect/index.ts \
   supabase/functions/meta-sync-now/index.ts \
+  supabase/functions/meta-publish/index.ts \
+  supabase/functions/meta-publish-targets/index.ts \
   supabase/functions/dhruv-weekly-report/index.ts
 
 echo "[pre-push] deno test (credential-free)..."

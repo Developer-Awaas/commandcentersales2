@@ -12,7 +12,9 @@ import { AdobeExpressModal } from './AdobeExpressModal';
 import { TextLayerEditor } from './TextLayerEditor';
 import { saveOverlayEdit } from '../lib/overlay-recompose';
 import type { TextLayer } from '../lib/text-layers';
-import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Layers, Download, Maximize2, RefreshCw, Send } from 'lucide-react';
+import { MetaPostDialog } from './MetaPostDialog';
+import { buildDefaultCaption, canOfferPublish, fetchPublishTargets, EMPTY_TARGETS, type PublishTargets } from '../lib/publish-targets';
 
 // A gallery image is self-editable (no parent handler needed) when it carries the
 // persisted re-composite inputs — the reload-safe path (RB-P2 Step 1).
@@ -116,6 +118,19 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
   // is not evidence anything was reviewed, and Canva's Return button is the
   // one signal that genuinely means "I'm done with this image".
   const [reviewImg, setReviewImg] = useState<GalleryImage | null>(null);
+
+  // Publish targets are org-level and change rarely, so one read per mount.
+  // Read through meta_connection_status() (not org_integrations, which is
+  // admin-only — bug #42), so the button appears for members too. An org with
+  // no target configured gets no button at all rather than a disabled one
+  // whose reason lives in a settings page they may not be able to open.
+  const [publishTargets, setPublishTargets] = useState<PublishTargets>(EMPTY_TARGETS);
+  const [postImg, setPostImg] = useState<GalleryImage | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchPublishTargets().then((t) => { if (!cancelled) setPublishTargets(t); });
+    return () => { cancelled = true; };
+  }, []);
   // Layer-op log per asset, captured if the image was edited in the in-app
   // mini-editor before or after the Canva round-trip.
   const [editorOps, setEditorOps] = useState<Record<string, string[]>>({});
@@ -440,6 +455,21 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
                 Download
               </button>
 
+              {/* Persisted image required: a creative_assets id is what links
+                  the published_assets row back to what was actually posted,
+                  and Meta fetches the image by URL — an un-uploaded blob is
+                  not something Graph can retrieve. */}
+              {canOfferPublish(publishTargets, !!img.id) && (
+                <button
+                  onClick={() => setPostImg(img)}
+                  disabled={isBusy}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1877F2]/10 border border-[#1877F2]/30 text-[#4a9eff] text-[11px] font-medium hover:bg-[#1877F2]/20 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  <Send size={11} />
+                  Post to Meta
+                </button>
+              )}
+
               {img.editableText && (canSelfEdit(img) || onEditText) && (
                 <button
                   onClick={() => canSelfEdit(img) ? setEditingImg(img) : onEditText?.(img)}
@@ -557,6 +587,17 @@ export function ImageGalleryViewer({ images, onClose, onImagesChanged, onBeforeC
             </div>
           </div>
         </div>
+      )}
+
+      {postImg && (
+        <MetaPostDialog
+          targets={publishTargets}
+          imageUrl={postImg.url}
+          creativeAssetId={postImg.id ?? null}
+          projectId={projectId ?? null}
+          defaultCaption={buildDefaultCaption({ headline: postImg.adCopy?.headline, cta: postImg.adCopy?.cta })}
+          onClose={() => setPostImg(null)}
+        />
       )}
 
       {/* Adobe Express Modal */}

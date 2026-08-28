@@ -456,6 +456,10 @@ export interface Database {
           meta_user_id: string | null
           meta_page_id: string | null
           meta_ig_user_id: string | null
+          publish_page_id: string | null
+          publish_ig_user_id: string | null
+          publish_page_name: string | null
+          publish_ig_username: string | null
           meta_verified_at: string | null
           meta_access_token: string | null
           token_expires_at: string | null
@@ -476,6 +480,10 @@ export interface Database {
           meta_user_id?: string | null
           meta_page_id?: string | null
           meta_ig_user_id?: string | null
+          publish_page_id?: string | null
+          publish_ig_user_id?: string | null
+          publish_page_name?: string | null
+          publish_ig_username?: string | null
           meta_verified_at?: string | null
           meta_access_token?: string | null
           token_expires_at?: string | null
@@ -496,6 +504,10 @@ export interface Database {
           meta_user_id?: string | null
           meta_page_id?: string | null
           meta_ig_user_id?: string | null
+          publish_page_id?: string | null
+          publish_ig_user_id?: string | null
+          publish_page_name?: string | null
+          publish_ig_username?: string | null
           meta_verified_at?: string | null
           meta_access_token?: string | null
           token_expires_at?: string | null
@@ -1439,8 +1451,8 @@ export interface Database {
           input_tokens: number
           output_tokens: number
           cost_usd: number | null
-          provider: 'anthropic' | 'openai' | 'gemini' | null
-          call_type: 'text' | 'image_gen' | 'image_edit' | 'vision' | null
+          provider: 'anthropic' | 'openai' | 'gemini' | 'meta' | null
+          call_type: 'text' | 'image_gen' | 'image_edit' | 'vision' | 'publish' | null
           feature: string | null
           project_id: string | null
           image_count: number | null
@@ -1457,8 +1469,8 @@ export interface Database {
           input_tokens?: number
           output_tokens?: number
           cost_usd?: number | null
-          provider?: 'anthropic' | 'openai' | 'gemini' | null
-          call_type?: 'text' | 'image_gen' | 'image_edit' | 'vision' | null
+          provider?: 'anthropic' | 'openai' | 'gemini' | 'meta' | null
+          call_type?: 'text' | 'image_gen' | 'image_edit' | 'vision' | 'publish' | null
           feature?: string | null
           project_id?: string | null
           image_count?: number | null
@@ -1475,8 +1487,8 @@ export interface Database {
           input_tokens?: number
           output_tokens?: number
           cost_usd?: number | null
-          provider?: 'anthropic' | 'openai' | 'gemini' | null
-          call_type?: 'text' | 'image_gen' | 'image_edit' | 'vision' | null
+          provider?: 'anthropic' | 'openai' | 'gemini' | 'meta' | null
+          call_type?: 'text' | 'image_gen' | 'image_edit' | 'vision' | 'publish' | null
           feature?: string | null
           project_id?: string | null
           image_count?: number | null
@@ -1977,6 +1989,61 @@ export interface Database {
           creative_thumb?: string | null
           synced_at?: string
           raw_payload?: Json | null
+        }
+        Relationships: Rel[]
+      }
+
+      // RB-PUB: one row per publish ATTEMPT, dry-run or live. Written only by
+      // meta-publish on the service-role client (RLS on this table is
+      // SELECT-only by design — a browser must not be able to claim a post).
+      published_assets: {
+        Row: {
+          id: string
+          org_id: string
+          project_id: string | null
+          creative_asset_id: string | null
+          tool_output_id: string | null
+          page_id: string
+          ig_user_id: string | null
+          platform: 'facebook' | 'instagram'
+          meta_post_id: string | null
+          permalink: string | null
+          message: string | null
+          dry_run: boolean
+          posted_by: string | null
+          posted_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          project_id?: string | null
+          creative_asset_id?: string | null
+          tool_output_id?: string | null
+          page_id: string
+          ig_user_id?: string | null
+          platform: 'facebook' | 'instagram'
+          meta_post_id?: string | null
+          permalink?: string | null
+          message?: string | null
+          dry_run?: boolean
+          posted_by?: string | null
+          posted_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          project_id?: string | null
+          creative_asset_id?: string | null
+          tool_output_id?: string | null
+          page_id?: string
+          ig_user_id?: string | null
+          platform?: 'facebook' | 'instagram'
+          meta_post_id?: string | null
+          permalink?: string | null
+          message?: string | null
+          dry_run?: boolean
+          posted_by?: string | null
+          posted_at?: string
         }
         Relationships: Rel[]
       }

@@ -58,6 +58,7 @@ export default defineConfig({
       'src/lib/api-cost.test.ts',
       'src/lib/usage-aggregate.test.ts',
       'src/components/TextLayerEditor.test.tsx',
+      'src/lib/publish-targets.test.ts',
     ],
   },
 });
