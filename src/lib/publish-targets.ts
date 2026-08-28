@@ -114,6 +114,15 @@ export async function fetchPublishTargets(): Promise<PublishTargets> {
   };
 }
 
+/**
+ * Three tiers, in increasing order of consequence — see _shared/meta-publish.ts.
+ *   dry_run  nothing reaches Graph
+ *   draft    a real Meta object nobody can see
+ *   live     public; needs META_PUBLISH_MODE=live on the deployment TOO, and
+ *            silently downgrades to draft if the deployment says otherwise
+ */
+export type PublishMode = 'dry_run' | 'draft' | 'live';
+
 export interface PublishRequest {
   target: PublishPlatform;
   message: string;
@@ -121,12 +130,17 @@ export interface PublishRequest {
   creativeAssetId?: string | null;
   toolOutputId?: string | null;
   projectId?: string | null;
-  dryRun: boolean;
+  mode: PublishMode;
 }
 
 export interface PublishResponse {
   ok: boolean;
+  mode?: PublishMode;
   dry_run: boolean;
+  published?: boolean;
+  /** True when a live request ran as a draft because the deployment forbids live. */
+  downgraded?: boolean;
+  mode_warning?: string | null;
   target_name?: string;
   meta_post_id?: string | null;
   permalink?: string | null;
@@ -146,14 +160,19 @@ export async function publishToMeta(req: PublishRequest): Promise<PublishRespons
       creative_asset_id: req.creativeAssetId ?? null,
       tool_output_id: req.toolOutputId ?? null,
       project_id: req.projectId ?? null,
-      dry_run: req.dryRun,
+      // Two independent flags, deliberately not one enum on the wire: the
+      // server's default for a missing/garbled dry_run is TRUE, and for a
+      // missing confirm_live is FALSE, so a malformed request degrades toward
+      // safety instead of toward a public post.
+      dry_run: req.mode === 'dry_run',
+      confirm_live: req.mode === 'live',
     },
   });
   if (error) {
     // The readable server message lives on error.context, not error.message —
     // reading only .message turns "Page X is not on the allowlist" into
     // "non-2xx status code", which is the one thing the operator needs to know.
-    return { ok: false, dry_run: req.dryRun, error: await extractFunctionErrorMessage(error, 'Publish failed') };
+    return { ok: false, dry_run: req.mode === 'dry_run', error: await extractFunctionErrorMessage(error, 'Publish failed') };
   }
-  return (data ?? { ok: false, dry_run: req.dryRun, error: 'Empty response' }) as PublishResponse;
+  return (data ?? { ok: false, dry_run: req.mode === 'dry_run', error: 'Empty response' }) as PublishResponse;
 }

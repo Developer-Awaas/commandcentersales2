@@ -18,7 +18,9 @@ import { verifyMetaToken, metaAppId, metaConfigured } from './meta-oauth.ts'
 export type DB = SupabaseClient<Database>
 type SyncStatus = Database['public']['Tables']['integration_sync_log']['Insert']['status']
 
-const META_API_BASE = 'https://graph.facebook.com/v21.0'
+import { GRAPH_BASE } from './graph-version.ts'
+
+const META_API_BASE = GRAPH_BASE
 const INSIGHTS_FIELDS = 'campaign_id,campaign_name,impressions,clicks,spend,ctr,frequency,reach,actions,cost_per_action_type,date_start,date_stop'
 // Ad-level fields for Phase 7 creative attribution
 // Batched into the SINGLE existing ad-level call — Graph bills per request,

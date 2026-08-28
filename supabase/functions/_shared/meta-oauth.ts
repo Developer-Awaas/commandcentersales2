@@ -19,7 +19,9 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from './database.types.ts'
 
-const GRAPH = 'https://graph.facebook.com/v21.0'
+import { GRAPH_BASE, FB_DIALOG_BASE } from './graph-version.ts'
+
+const GRAPH = GRAPH_BASE
 
 /**
  * The R-A permission set — what we ASK for at dialog time. What was actually
@@ -152,7 +154,7 @@ export function buildMetaAuthUrl(nonce: string, redirectUri: string): string {
   // is created in the dashboard, rather than blocking on it.
   if (configId) params.set('config_id', configId)
   else params.set('scope', META_SCOPES.join(','))
-  return 'https://www.facebook.com/v21.0/dialog/oauth?' + params.toString()
+  return FB_DIALOG_BASE + '/dialog/oauth?' + params.toString()
 }
 
 export type ExchangeResult =

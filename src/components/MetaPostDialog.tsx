@@ -6,8 +6,9 @@
  *  1. THE TARGET IS NAMED, and the Post button stays disabled until it is.
  *     "Post to Meta" with no destination shown is how someone posts a
  *     client's creative to the wrong Page and finds out from the client.
- *  2. DRY RUN DEFAULTS ON. Every open of this dialog starts in the mode that
- *     cannot post. Going live is a deliberate, separate click.
+ *  2. IT OPENS ON THE SAFEST TIER. Every open starts on Dry run, which cannot
+ *     reach Meta at all. Draft and Live are deliberate, separate choices, and
+ *     the choice is never remembered between opens.
  *  3. THE CAPTION IS EDITABLE. It is prefilled from the ad copy, but the ad
  *     copy was written for an ad unit, not for a Page post, and shipping it
  *     unread is not approval.
@@ -22,10 +23,23 @@ import { Spinner } from './ui/Spinner';
 import {
   publishOptions,
   publishToMeta,
+  type PublishMode,
   type PublishPlatform,
   type PublishResponse,
   type PublishTargets,
 } from '../lib/publish-targets';
+
+/**
+ * Three tiers, ordered by consequence and rendered in that order. Presented as
+ * one exclusive choice rather than two checkboxes because "dry run off + live
+ * confirm off" is a state a person can arrive at without deciding anything,
+ * and it is the state that most looks like it will post.
+ */
+const MODES: { mode: PublishMode; label: string; detail: string }[] = [
+  { mode: 'dry_run', label: 'Dry run', detail: 'Assemble and validate the payload. Nothing reaches Meta at all.' },
+  { mode: 'draft', label: 'Draft on Meta', detail: 'Creates a real post on Meta that is NOT visible on the Page. Real id, nothing public.' },
+  { mode: 'live', label: 'Publish live', detail: 'Public immediately. Requires the deployment to allow live posts, or this runs as a draft instead.' },
+];
 
 interface MetaPostDialogProps {
   targets: PublishTargets;
@@ -45,9 +59,11 @@ export function MetaPostDialog({
   const options = publishOptions(targets);
   const [platform, setPlatform] = useState<PublishPlatform>(options[0]?.platform ?? 'facebook');
   const [caption, setCaption] = useState(defaultCaption);
-  // Default ON, every time. Not remembered between opens: a sticky "live" flag
-  // would mean the second post of a session skips the safe rehearsal silently.
-  const [dryRun, setDryRun] = useState(true);
+  // Always opens on the safest tier. Not remembered between opens: a sticky
+  // "live" choice would mean the second post of a session skips the rehearsal
+  // silently, which is exactly when it matters least to the person clicking
+  // and most to whoever sees the Page.
+  const [mode, setMode] = useState<PublishMode>('dry_run');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<PublishResponse | null>(null);
 
@@ -70,7 +86,7 @@ export function MetaPostDialog({
       creativeAssetId,
       toolOutputId,
       projectId,
-      dryRun,
+      mode,
     });
     setResult(res);
     setBusy(false);
@@ -143,23 +159,34 @@ export function MetaPostDialog({
             </span>
           </div>
 
-          <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-surface-sunken border border-border cursor-pointer">
-            <input
-              type="checkbox"
-              checked={dryRun}
-              onChange={(e) => setDryRun(e.target.checked)}
-              disabled={busy}
-              className="mt-0.5 accent-emerald-500"
-            />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-xs font-medium text-text-primary">Dry run — validate only, post nothing</span>
-              <span className="text-[11px] text-text-tertiary">
-                {dryRun
-                  ? 'The payload is assembled, validated and recorded. Nothing reaches Facebook or Instagram.'
-                  : 'This will publish to the Page named above, for real, immediately.'}
-              </span>
-            </span>
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] uppercase tracking-widest text-text-tertiary">Mode</span>
+            {MODES.map((m) => (
+              <label
+                key={m.mode}
+                className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer transition-all ${
+                  mode === m.mode
+                    ? m.mode === 'live'
+                      ? 'bg-[#1877F2]/10 border-[#1877F2]/40'
+                      : 'bg-surface-sunken border-brand-border'
+                    : 'bg-surface-sunken border-border hover:border-border-strong'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="publish-mode"
+                  checked={mode === m.mode}
+                  onChange={() => setMode(m.mode)}
+                  disabled={busy}
+                  className="mt-0.5 accent-emerald-500"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-xs font-medium text-text-primary">{m.label}</span>
+                  <span className="text-[11px] text-text-tertiary">{m.detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
 
           {result && (
             <div className={`flex flex-col gap-1.5 px-3 py-2.5 rounded-lg border text-xs ${
@@ -167,7 +194,7 @@ export function MetaPostDialog({
                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
                 : 'bg-red-500/10 border-red-500/20 text-red-300'
             }`}>
-              {result.ok && result.dry_run && (
+              {result.ok && result.mode === 'dry_run' && (
                 <>
                   <span className="flex items-center gap-1.5 font-medium"><ShieldCheck size={13} /> Validated — nothing posted</span>
                   {result.would_post && (
@@ -178,7 +205,16 @@ export function MetaPostDialog({
                   )}
                 </>
               )}
-              {result.ok && !result.dry_run && (
+              {result.ok && result.mode === 'draft' && (
+                <>
+                  <span className="font-medium">Draft created on {result.target_name}</span>
+                  <span className="text-[11px] opacity-90">
+                    A real Meta object exists with this id. It is not visible on the Page.
+                  </span>
+                  {result.meta_post_id && <span className="text-[10px] opacity-80">Id {result.meta_post_id}</span>}
+                </>
+              )}
+              {result.ok && result.mode === 'live' && (
                 <>
                   <span className="font-medium">Published to {result.target_name}</span>
                   {result.permalink && (
@@ -191,6 +227,12 @@ export function MetaPostDialog({
               )}
               {!result.ok && <span>{result.error ?? 'Publish failed.'}</span>}
             </div>
+          )}
+
+          {result?.mode_warning && (
+            <span className={`flex items-start gap-1.5 text-[11px] ${result.downgraded ? 'text-amber-400' : 'text-text-tertiary'}`}>
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {result.mode_warning}
+            </span>
           )}
 
           {result?.token_warning && (
@@ -208,13 +250,19 @@ export function MetaPostDialog({
             onClick={handlePost}
             disabled={!canPost}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-              dryRun
-                ? 'bg-surface border border-border-strong text-text-primary hover:bg-surface-hover'
-                : 'bg-[#1877F2] text-white hover:opacity-90'
+              mode === 'live'
+                ? 'bg-[#1877F2] text-white hover:opacity-90'
+                : 'bg-surface border border-border-strong text-text-primary hover:bg-surface-hover'
             }`}
           >
-            {busy ? <Spinner size="sm" /> : dryRun ? <ShieldCheck size={14} /> : <Send size={14} />}
-            {busy ? 'Working…' : dryRun ? 'Run dry-run check' : `Post to ${targetName ?? '…'}`}
+            {busy ? <Spinner size="sm" /> : mode === 'live' ? <Send size={14} /> : <ShieldCheck size={14} />}
+            {busy
+              ? 'Working…'
+              : mode === 'dry_run'
+                ? 'Run dry-run check'
+                : mode === 'draft'
+                  ? `Create draft on ${targetName ?? '…'}`
+                  : `Post live to ${targetName ?? '…'}`}
           </button>
         </div>
       </div>

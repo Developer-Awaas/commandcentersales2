@@ -2010,6 +2010,7 @@ export interface Database {
           permalink: string | null
           message: string | null
           dry_run: boolean
+          published: boolean
           posted_by: string | null
           posted_at: string
         }
@@ -2026,6 +2027,7 @@ export interface Database {
           permalink?: string | null
           message?: string | null
           dry_run?: boolean
+          published?: boolean
           posted_by?: string | null
           posted_at?: string
         }
@@ -2042,6 +2044,7 @@ export interface Database {
           permalink?: string | null
           message?: string | null
           dry_run?: boolean
+          published?: boolean
           posted_by?: string | null
           posted_at?: string
         }

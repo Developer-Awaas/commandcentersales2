@@ -25,8 +25,10 @@
  * disappears the day the app is approved.
  */
 
-/** Graph version — pinned to match _shared/meta-oauth.ts. */
-export const GRAPH = 'https://graph.facebook.com/v21.0'
+import { GRAPH_BASE } from './graph-version.ts'
+
+/** Re-exported for callers that already import from here. Single source: graph-version.ts. */
+export const GRAPH = GRAPH_BASE
 
 export type PublishTarget = 'facebook' | 'instagram'
 
@@ -134,7 +136,19 @@ export function buildFacebookPayload(pageId: string, message: string, imageUrl?:
     : { endpoint: `/${pageId}/feed`, fields: { message: message.trim() } }
 }
 
-/** Instagram step 1 of 2 — the media container. Publishing it is a second call. */
+/**
+ * Instagram step 1 of 2 — the media container. Publishing it is a second call.
+ *
+ * `image_url` IS THE HANDOFF, and it is a hard dependency on the bucket being
+ * public. Meta's servers fetch this URL themselves, unauthenticated, from the
+ * open internet — we never upload bytes. `brand-assets` is a public Supabase
+ * bucket (verified: `select public from storage.buckets` = true), which is the
+ * only reason a `getPublicUrl()` link works here; the bucket's RLS policies are
+ * `TO authenticated` and would block Meta entirely if the public flag were ever
+ * turned off. If someone makes that bucket private, publishing breaks with an
+ * opaque Graph media error and nothing in this file will explain why — hence
+ * this note. Facebook's /photos `url` field has the same dependency.
+ */
 export function buildInstagramContainerPayload(igUserId: string, message: string, imageUrl: string): PublishPayload {
   return { endpoint: `/${igUserId}/media`, fields: { image_url: imageUrl, caption: message.trim() } }
 }
@@ -167,6 +181,8 @@ export interface PublishedAssetRow {
   permalink: string | null
   message: string
   dry_run: boolean
+  /** Can anyone see it. false + dry_run false = DRAFT. See migration 20260828140000. */
+  published: boolean
   posted_by: string | null
 }
 
@@ -177,7 +193,7 @@ export function buildPublishedAssetRow(input: {
   pageId: string
   igUserId?: string | null
   message: string
-  dryRun: boolean
+  mode: PublishMode
   projectId?: string | null
   creativeAssetId?: string | null
   toolOutputId?: string | null
@@ -195,7 +211,10 @@ export function buildPublishedAssetRow(input: {
     meta_post_id: input.metaPostId ?? null,
     permalink: input.permalink ?? null,
     message: input.message.trim(),
-    dry_run: input.dryRun,
+    // Derived from ONE input, so the pair can never disagree and trip the
+    // schema CHECK that forbids dry_run + published together.
+    dry_run: input.mode === 'dry_run',
+    published: input.mode === 'live',
     posted_by: input.userId,
   }
 }
@@ -244,4 +263,157 @@ export async function graphPost(path: string, params: Record<string, string>): P
   let body: Record<string, unknown> = {}
   try { body = await res.json() } catch { /* non-JSON error page */ }
   return { status: res.status, body }
+}
+
+// ---------------------------------------------------------------------------
+// PUBLISH MODE (RB-PUB STEP 2) — the draft tier.
+// ---------------------------------------------------------------------------
+
+/**
+ * Three outcomes, in increasing order of consequence:
+ *
+ *   dry_run  nothing is sent to Graph at all
+ *   draft    a REAL Graph object that nobody can see (unpublished FB post;
+ *            IG container never published)
+ *   live     a real Graph object the public can see
+ *
+ * Draft exists because dry_run and live were the only options, and the gap
+ * between them is exactly where a demo lives: you cannot record a screencast
+ * of a payload preview, and you should not have to post to a real Page to get
+ * a real post id.
+ */
+export type PublishMode = 'dry_run' | 'draft' | 'live'
+
+export type DeploymentMode = 'draft' | 'live'
+
+/**
+ * The deployment's CEILING, from META_PUBLISH_MODE. Anything unrecognised —
+ * unset, typo'd, empty — resolves to 'draft'.
+ *
+ * This is the same fail-closed reasoning as PUBLISH_ALLOWED_PAGE_IDS: the
+ * likeliest misconfiguration is the variable being absent, so absence must
+ * mean the safe thing. A deployment that has never been told it may post
+ * publicly, does not.
+ */
+export function resolveDeploymentMode(raw: string | undefined | null): DeploymentMode {
+  return (raw ?? '').trim().toLowerCase() === 'live' ? 'live' : 'draft'
+}
+
+export interface ModeDecision {
+  mode: PublishMode
+  /** True when the caller asked to go live and the deployment would not let them. */
+  downgraded: boolean
+  /** Non-null whenever the caller should be told the outcome differs from the request. */
+  warning: string | null
+}
+
+/**
+ * TWO INDEPENDENT GATES for a public post, and they are owned by different
+ * people on purpose:
+ *
+ *   META_PUBLISH_MODE=live   set on the deployment, by someone with project
+ *                            access. Standing permission.
+ *   confirmLive: true        sent on THIS call, by the person clicking.
+ *                            Per-action intent.
+ *
+ * Either one missing means draft. That is deliberately not an error: a live
+ * request under a draft deployment DOWNGRADES and says so. Erroring would
+ * train people to retry until something works, which is the opposite of what
+ * a confirmation gate is for — and the draft it produces is the evidence they
+ * were probably after anyway.
+ */
+export function resolvePublishMode(input: {
+  deployment: DeploymentMode
+  dryRun: boolean
+  confirmLive: boolean
+}): ModeDecision {
+  if (input.dryRun) return { mode: 'dry_run', downgraded: false, warning: null }
+
+  if (input.deployment !== 'live') {
+    return {
+      mode: 'draft',
+      downgraded: input.confirmLive,
+      warning: input.confirmLive
+        ? 'This deployment runs in draft mode (META_PUBLISH_MODE is not "live"), so a DRAFT was created instead of a public post. The post exists on Meta with a real id and is not visible on the Page.'
+        : 'Created as a draft: a real Meta object that is not visible to the public.',
+    }
+  }
+  if (!input.confirmLive) {
+    return {
+      mode: 'draft',
+      downgraded: false,
+      warning: 'Created as a draft because this call did not set confirm_live. The deployment permits live posts; this request did not ask for one.',
+    }
+  }
+  return { mode: 'live', downgraded: false, warning: null }
+}
+
+/**
+ * Facebook's draft switch. `published=false` on the same endpoint the live
+ * call uses — the payload is otherwise IDENTICAL, which is the point: a draft
+ * that took a different code path would prove nothing about the live one.
+ */
+export function withDraftFlag(payload: PublishPayload, mode: PublishMode): PublishPayload {
+  if (mode !== 'draft') return payload
+  return { endpoint: payload.endpoint, fields: { ...payload.fields, published: 'false' } }
+}
+
+// ---------------------------------------------------------------------------
+// PAGE TOKEN + CAPABILITY (RB-PUB STEP 3)
+// ---------------------------------------------------------------------------
+
+export interface PageAccount {
+  id: string
+  name?: string
+  access_token?: string
+  tasks?: string[]
+}
+
+export type PageTokenResult =
+  | { ok: true; token: string; pageName: string | null }
+  | { ok: false; error: string; reason: 'page_not_on_token' | 'page_missing_create_content' | 'page_no_token' }
+
+/**
+ * Derives the Page token from `/me/accounts` rather than `GET /{page}?fields=
+ * access_token`, and refuses a Page whose `tasks` do not include
+ * CREATE_CONTENT.
+ *
+ * Why the change: `/{page}?fields=access_token` answers "is there a token" and
+ * nothing else. A token can exist for a Page the System User can only ANALYZE
+ * — read insights, not post. That request succeeds, and the failure then
+ * arrives from the POST as a generic permissions error, at the one moment
+ * when the user has already confirmed a live post and expects it to work.
+ * `/me/accounts` returns the token and the capability in the SAME response,
+ * so the check costs no extra round trip and happens before anything is sent.
+ *
+ * On this deployment's token: AWAAS Sandbox has ['ANALYZE','CREATE_CONTENT'],
+ * so it passes; a Page with ANALYZE alone would now be refused up front.
+ */
+export function resolvePageToken(pages: PageAccount[], pageId: string): PageTokenResult {
+  const page = pages.find((p) => String(p.id) === pageId)
+  if (!page) {
+    return {
+      ok: false,
+      reason: 'page_not_on_token',
+      error: `Page ${pageId} is not among the Pages this organisation's Meta token can access. Reconnect, or pick a different Page in Settings → Publishing.`,
+    }
+  }
+  const tasks = page.tasks ?? []
+  if (!tasks.includes('CREATE_CONTENT')) {
+    return {
+      ok: false,
+      reason: 'page_missing_create_content',
+      error:
+        `The connected user has no CREATE_CONTENT permission on ${page.name ?? pageId} (granted: ${tasks.join(', ') || 'none'}), ` +
+        'so it cannot publish there. Grant content permission on that Page in Meta Business Settings.',
+    }
+  }
+  if (!page.access_token) {
+    return {
+      ok: false,
+      reason: 'page_no_token',
+      error: `Meta returned no Page access token for ${page.name ?? pageId}, so the post cannot be authored as the Page.`,
+    }
+  }
+  return { ok: true, token: page.access_token, pageName: page.name ?? null }
 }
