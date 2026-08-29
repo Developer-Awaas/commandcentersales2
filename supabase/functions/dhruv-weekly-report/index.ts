@@ -19,12 +19,17 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { buildMetricsContext } from '../_shared/metrics-query.ts'
 import { runDhruv } from '../_shared/agents/dhruv.ts'
+import { denyUnlessCron } from '../_shared/cron-guard.ts'
 
 function claudeCostUsd(inputTokens: number, outputTokens: number): number {
   return (inputTokens * 3 + outputTokens * 15) / 1_000_000
 }
 
-Deno.serve(async (_req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
+  // Cron-only. pg_cron sends the service-role bearer; nothing else may run this.
+  const denied = denyUnlessCron(req)
+  if (denied) return denied
+
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
