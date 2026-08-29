@@ -9,6 +9,9 @@ import { buildSMMCreativePrompt } from '../lib/smm-prompts';
 import { resolveGenerationErrorMessage } from '../lib/smm-generation-error';
 import { useToast } from '../contexts/ToastContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
+import { normalizeHashtags, formatHashtags } from '../lib/hashtags';
+import { MetaPostDialog } from '../components/MetaPostDialog';
+import { fetchPublishTargets, canOfferPublish, EMPTY_TARGETS, type PublishTargets } from '../lib/publish-targets';
 
 const C = {
   bg: '#FAFAFA', card: '#FFFFFF', border: '#E4E4E7', accent: '#2563EB',
@@ -47,10 +50,21 @@ export default function SMMCreatives() {
   const [holidays, setHolidays] = useState<any[]>([]);
   const [savingLib, setSavingLib] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // Publishing. The image lives in brand-assets under smm-creatives/ and has
+  // no creative_assets row (that table is ads-specific), so provenance for an
+  // SMM post rides tool_output_id instead — which is exactly what
+  // published_assets.tool_output_id is for. Server path proven 2026-08-29.
+  const [publishTargets, setPublishTargets] = useState<PublishTargets>(EMPTY_TARGETS);
+  const [toolOutputId, setToolOutputId] = useState<string | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [savedProjectId, setSavedProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId()).then(({ data }) => setProjects(data || []));
     supabase.from('events_calendar').select('*').eq('org_id', getOrgId()).order('date').then(({ data }) => setHolidays(data || []));
+    // Read-only; returns EMPTY_TARGETS for a member or an unconfigured org, so
+    // the button simply never renders rather than failing on click.
+    fetchPublishTargets().then(setPublishTargets).catch(() => setPublishTargets(EMPTY_TARGETS));
   }, []);
 
   const generate = async () => {
@@ -64,7 +78,10 @@ export default function SMMCreatives() {
       const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform });
       const res = await aiCall(prompt);
       if (res && !res.error && !res.raw) {
-        setResult(res);
+        // Canonical form has no leading '#' — the UI adds exactly one. Doing
+        // this here means smm_calendar and tool_outputs never store the
+        // doubled shape either.
+        setResult({ ...res, hashtags: normalizeHashtags(res.hashtags) });
         showToast('Creative generated!', 'success');
       } else {
         setResult(res?.raw ? { raw: res.raw } : null);
@@ -108,7 +125,13 @@ export default function SMMCreatives() {
       const assetRefs: AssetRef[] = [];
       if (result.nanoPrompt) {
         try {
-          const imgs = await generateImageWithGemini(result.nanoPrompt, '1:1');
+          // Without costMeta the ledger defaults to feature='creatives', which
+          // made SMM spend indistinguishable from ads spend in
+          // agent_interactions (confirmed on a real $0.165 row, 2026-08-29).
+          const imgs = await generateImageWithGemini(result.nanoPrompt, '1:1', undefined, undefined, {
+            feature: 'smm-creative-gen',
+            projectId,
+          });
           if (imgs[0]) {
             const path = await uploadSmmImage(imgs[0].base64, imgs[0].mimeType);
             if (path) {
@@ -152,7 +175,7 @@ export default function SMMCreatives() {
       // History: durable tool_outputs record with the generated asset ref(s).
       // Best-effort — a history failure must never fail the calendar save.
       try {
-        await saveToolOutput({
+        const saved = await saveToolOutput({
           orgId: getOrgId(),
           domain: 'social',
           tool: 'smm_creatives',
@@ -161,6 +184,11 @@ export default function SMMCreatives() {
           assetRefs,
           status: 'saved',
         });
+        // Provenance for a later publish. Best-effort like the rest of this
+        // block: if history failed, publishing still works, the row just
+        // carries no tool_output_id.
+        setToolOutputId(saved?.id ?? null);
+        setSavedProjectId(projectId);
       } catch (histErr) {
         console.error('[SMM Creatives] tool_outputs (smm_creatives) save failed (non-fatal):', histErr);
       }
@@ -265,6 +293,17 @@ export default function SMMCreatives() {
             {imageUrl && (
               <div style={{ marginBottom: 12 }}>
                 <img src={imageUrl} alt="Generated creative" style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid ' + C.border, display: 'block' }} />
+                {/* Only after Save to Library: that is when the image exists AND
+                    the tool_outputs row that carries its provenance does. No
+                    extra guard needed — imageUrl is null until then. */}
+                {canOfferPublish(publishTargets, !!imageUrl) && (
+                  <button
+                    onClick={() => setPublishOpen(true)}
+                    style={{ marginTop: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid ' + C.accent, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Post to Meta
+                  </button>
+                )}
               </div>
             )}
 
@@ -345,7 +384,7 @@ export default function SMMCreatives() {
             <div style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: 1 }}>Hashtags</span>
-                <button onClick={() => copy(result.hashtags.map((h: string) => '#' + h).join(' '))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
+                <button onClick={() => copy(formatHashtags(result.hashtags))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {result.hashtags.map((h: string, i: number) => (
@@ -369,6 +408,25 @@ export default function SMMCreatives() {
           <p style={{ fontSize: 12, color: C.yellow }}>Couldn't parse output:</p>
           <pre style={{ fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', marginTop: 8 }}>{result.raw}</pre>
         </div>
+      )}
+
+      {publishOpen && imageUrl && (
+        <MetaPostDialog
+          targets={publishTargets}
+          imageUrl={imageUrl}
+          /* No creative_assets row exists for an SMM image by design — the
+             provenance link is tool_output_id. published_assets accepts that
+             and the server path was proven live on 2026-08-29. */
+          creativeAssetId={null}
+          toolOutputId={toolOutputId}
+          projectId={savedProjectId}
+          defaultCaption={[
+            result?.engagementHook,
+            result?.captionEn,
+            result?.hashtags?.length ? formatHashtags(result.hashtags) : '',
+          ].filter(Boolean).join('\n\n')}
+          onClose={() => setPublishOpen(false)}
+        />
       )}
     </div>
   );
