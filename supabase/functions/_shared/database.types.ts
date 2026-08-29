@@ -141,6 +141,10 @@ export interface Database {
           is_active: boolean | null
           default_ad_format: string | null
           meta_ad_account_id: string | null
+          // Stable id owned by the CRM. crm-map-ingest resolves a project by
+          // this instead of a uuid the CRM has no way to know. Unique per org
+          // where set (projects_org_external_ref_idx), NOT globally.
+          external_ref: string | null
           created_at: string
         }
         Insert: {
@@ -157,6 +161,7 @@ export interface Database {
           is_active?: boolean | null
           default_ad_format?: string | null
           meta_ad_account_id?: string | null
+          external_ref?: string | null
           created_at?: string
         }
         Update: {
@@ -173,6 +178,7 @@ export interface Database {
           is_active?: boolean | null
           default_ad_format?: string | null
           meta_ad_account_id?: string | null
+          external_ref?: string | null
           created_at?: string
         }
         Relationships: Rel[]
@@ -2047,6 +2053,43 @@ export interface Database {
           published?: boolean
           posted_by?: string | null
           posted_at?: string
+        }
+        Relationships: Rel[]
+      }
+
+      // Which Meta campaign/ad belongs to which project. meta_ad_id NULL maps
+      // a whole campaign; set maps one ad (finer, wins). Written by
+      // crm-map-ingest (service role) or assign_campaign_to_project (manual).
+      meta_campaign_map: {
+        Row: {
+          id: string
+          org_id: string
+          project_id: string | null
+          meta_campaign_id: string
+          meta_ad_id: string | null
+          source: 'crm_bridge' | 'manual'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          project_id?: string | null
+          meta_campaign_id: string
+          meta_ad_id?: string | null
+          source: 'crm_bridge' | 'manual'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          project_id?: string | null
+          meta_campaign_id?: string
+          meta_ad_id?: string | null
+          source?: 'crm_bridge' | 'manual'
+          created_at?: string
+          updated_at?: string
         }
         Relationships: Rel[]
       }

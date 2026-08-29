@@ -29,3 +29,10 @@ verify_jwt = false
 # leaving this open does not weaken anything.
 [functions.meta-oauth-callback]
 verify_jwt = false
+
+# The CRM bridge is a server-to-server sender with no Supabase session at all —
+# it authenticates with x-awaas-bridge-secret, which the function checks itself.
+# Leaving verify_jwt on would 401 at the platform, before the function runs, and
+# the 503-when-unconfigured contract could never be observed.
+[functions.crm-map-ingest]
+verify_jwt = false
