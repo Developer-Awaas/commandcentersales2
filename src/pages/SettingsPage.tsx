@@ -720,14 +720,24 @@ Cancel = keep the permanent System User connection.`,
               {/* Primary path: real OAuth consent. A reviewer needs a consent
                   screen to exercise; a token paste form is not one. */}
               <div className="flex flex-col gap-2 mb-4">
-                <button
-                  onClick={connectMetaOAuth}
-                  disabled={metaConnecting}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#1877F2] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-all"
-                >
-                  {metaConnecting ? <Spinner size="sm" /> : <CheckCircle size={14} />}
-                  {metaAppIdRow ? 'Reconnect with Facebook' : 'Connect with Facebook'}
-                </button>
+                {/* Admin only. meta-oauth-start 403s a non-admin server-side, so
+                    showing this to a member would just be a button that fails.
+                    Connection STATUS below stays visible to everyone — a member
+                    still needs to know whether metrics are flowing. */}
+                {isAdmin ? (
+                  <button
+                    onClick={connectMetaOAuth}
+                    disabled={metaConnecting}
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#1877F2] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-all"
+                  >
+                    {metaConnecting ? <Spinner size="sm" /> : <CheckCircle size={14} />}
+                    {metaAppIdRow ? 'Reconnect with Facebook' : 'Connect with Facebook'}
+                  </button>
+                ) : (
+                  <p className="text-[11px] text-text-tertiary px-3 py-2 rounded-lg bg-surface-sunken border border-border">
+                    Only an organisation admin can change this connection.
+                  </p>
+                )}
 
                 {metaAppIdRow ? (
                   <div className="flex flex-col gap-0.5 px-3 py-2 rounded-lg bg-surface-sunken border border-border">
@@ -856,14 +866,19 @@ Cancel = keep the permanent System User connection.`,
                   shape for headless sync (they do not expire) and an existing
                   customer re-minting a token uses exactly this. Folded away
                   because it is the expert path, not the default one. */}
-              <button
-                type="button"
-                onClick={() => setShowAdvancedMeta((v) => !v)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-surface-sunken hover:bg-surface-subtle text-xs font-medium text-text-secondary transition-colors"
-              >
-                <span>Advanced — paste a System User token</span>
-                <span className="text-text-tertiary">{showAdvancedMeta ? '−' : '+'}</span>
-              </button>
+              {/* Same gate: meta-token-connect 403s a non-admin. Hiding the
+                  disclosure also keeps showAdvancedMeta false, so the paste
+                  field below is unreachable rather than merely unrendered. */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedMeta((v) => !v)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg bg-surface-sunken hover:bg-surface-subtle text-xs font-medium text-text-secondary transition-colors"
+                >
+                  <span>Advanced — paste a System User token</span>
+                  <span className="text-text-tertiary">{showAdvancedMeta ? '−' : '+'}</span>
+                </button>
+              )}
 
               {showAdvancedMeta && (
             <div className="flex flex-col gap-4 mt-4">
