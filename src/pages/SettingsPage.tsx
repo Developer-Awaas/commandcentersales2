@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Send, ShieldAlert } from 'lucide-react';
 import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
-import { getOrgId } from '../lib/constants';
+import { getOrgId, getUserId } from '../lib/constants';
 
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -84,6 +84,10 @@ export function SettingsPage() {
 
   // Meta Ads Integration
   const [metaAccountId, setMetaAccountId] = useState('');
+  // T1-B — INPUT ONLY. The stored token is never read back into the browser:
+  // loadMetaIntegration does not select meta_access_token at all, so this only
+  // ever holds something the user just typed, and is cleared the moment it is
+  // saved. A live token sitting in React state is a screenshare hazard.
   const [metaToken, setMetaToken] = useState('');
   // RB-MO — provenance surfaced in the UI. A connection you cannot attribute
   // to an app is what let a dead-app token sit here looking healthy for a
@@ -116,24 +120,31 @@ export function SettingsPage() {
   const [publishMsg, setPublishMsg] = useState<string | null>(null);
   const [allowlistConfigured, setAllowlistConfigured] = useState(true);
   const [hiddenPageCount, setHiddenPageCount] = useState(0);
+  // Presentation only. meta-publish-targets checks profiles.role itself and
+  // 403s regardless (index.ts:70) — this just stops showing a non-admin a
+  // control that can only fail. Same shape as settings/UsageSection.tsx.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     loadOrg();
     loadCompetitors();
     loadMetaIntegration();
+    (async () => {
+      const { data } = await supabase.from('profiles').select('role').eq('id', getUserId()).maybeSingle();
+      setIsAdmin((data as { role?: string } | null)?.role === 'admin');
+    })();
   }, []);
 
   async function loadMetaIntegration() {
     setMetaLoading(true);
     const { data } = await supabase
       .from('org_integrations')
-      .select('id,meta_ad_account_id,meta_access_token,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at,publish_page_id,publish_page_name,publish_ig_user_id,publish_ig_username')
+      .select('id,meta_ad_account_id,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at,publish_page_id,publish_page_name,publish_ig_user_id,publish_ig_username')
       .eq('org_id', getOrgId())
       .eq('provider', 'meta')
       .maybeSingle();
     if (data) {
       setMetaAccountId(data.meta_ad_account_id ?? '');
-      setMetaToken(data.meta_access_token ?? '');
       setMetaLastSync(data.last_sync_at ?? null);
       setMetaAppIdRow((data as { meta_app_id?: string | null }).meta_app_id ?? null);
       setMetaScopes((data as { meta_granted_scopes?: string[] | null }).meta_granted_scopes ?? null);
@@ -163,6 +174,34 @@ export function SettingsPage() {
     // Meta requires act_<numeric_id> — normalize silently so bare IDs work.
     const normalizedId = rawId && !rawId.startsWith('act_') ? `act_${rawId}` : rawId;
     try {
+      // T1-B — empty token field means LEAVE THE STORED TOKEN ALONE, never
+      // "clear it". The field no longer prefills, so blank is the normal
+      // state for someone who only wants to retarget the ad account. Two
+      // independent guarantees that this cannot wipe a token: we do not call
+      // the connect function at all here, and meta-token-connect itself 400s
+      // on an empty token before any write (index.ts:58-60). The update below
+      // touches meta_ad_account_id only, under org_integrations' admin-gated
+      // RLS (bug #42) — a non-admin's UPDATE matches no row.
+      if (!metaToken.trim()) {
+        if (!normalizedId) { setMetaSyncMsg('Nothing to save — paste a token or enter an ad account id.'); return; }
+        const { data: upd, error: updErr } = await supabase
+          .from('org_integrations')
+          .update({ meta_ad_account_id: normalizedId })
+          .eq('org_id', getOrgId())
+          .eq('provider', 'meta')
+          .select('id');
+        if (updErr || !upd || upd.length === 0) {
+          setMetaSyncMsg(
+            updErr?.message ??
+              'Ad account not saved — either nothing is connected yet, or only an organisation admin can change this.',
+          );
+          return;
+        }
+        setMetaAccountId(normalizedId);
+        setMetaSyncMsg('Ad account updated. The stored access token was left unchanged.');
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('meta-token-connect', {
         body: { token: metaToken.trim(), adAccountId: normalizedId },
       });
@@ -193,6 +232,7 @@ Cancel = keep the permanent System User connection.`,
           return;
         }
         setMetaSyncMsg('Replaced — now using the personal login.');
+        setMetaToken(''); // never keep a live token in state after the save
         await loadMetaIntegration();
         return;
       }
@@ -209,6 +249,7 @@ Cancel = keep the permanent System User connection.`,
       if (res.adAccountId) setMetaAccountId(res.adAccountId);
       else setMetaAccountId(normalizedId);
       setMetaSyncMsg('Token verified and saved.');
+      setMetaToken(''); // never keep a live token in state after the save
       await loadMetaIntegration();
     } finally {
       setMetaSaving(false);
@@ -716,7 +757,14 @@ Cancel = keep the permanent System User connection.`,
                   above the expert token path. Connecting an account and
                   choosing somewhere to POST are different decisions with very
                   different consequences, and a single "Meta settings" blob is
-                  how the second one gets made without noticing. */}
+                  how the second one gets made without noticing.
+
+                  Admin-only, and only in the render: meta-publish-targets
+                  checks profiles.role for BOTH actions and 403s a non-admin
+                  before it reaches the action switch (index.ts:70-73), so the
+                  server stays the authority. Showing a member a picker whose
+                  every button 403s is the bug this hides, not the check. */}
+              {isAdmin && (
               <div className="flex flex-col gap-3 mb-4 p-3.5 rounded-xl bg-surface-sunken border border-border">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-text-primary">
@@ -802,6 +850,7 @@ Cancel = keep the permanent System User connection.`,
 
                 {publishMsg && <p className="text-[11px] text-text-secondary">{publishMsg}</p>}
               </div>
+              )}
 
               {/* Retained, not deprecated: System User tokens are the right
                   shape for headless sync (they do not expire) and an existing
@@ -834,13 +883,18 @@ Cancel = keep the permanent System User connection.`,
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Access Token</label>
-                <p className="text-[11px] text-text-tertiary -mt-0.5">Long-lived user or system access token with <code className="bg-surface-sunken px-1 rounded">ads_read</code> permission</p>
+                <p className="text-[11px] text-text-tertiary -mt-0.5">
+                  {metaAppIdRow
+                    ? 'A token is already stored. It is never shown here — paste a new one only to replace it; leave this blank and it stays as it is.'
+                    : <>Long-lived user or system access token with <code className="bg-surface-sunken px-1 rounded">ads_read</code> permission</>}
+                </p>
                 <div className="relative">
                   <input
                     type={showMetaToken ? 'text' : 'password'}
                     value={metaToken}
                     onChange={(e) => setMetaToken(e.target.value)}
-                    placeholder="EAAxxxxxxx…"
+                    placeholder={metaAppIdRow ? '•••••••••••••••••••• (stored — leave blank to keep)' : 'EAAxxxxxxx…'}
+                    autoComplete="off"
                     className="w-full bg-surface border border-border rounded-lg pl-3 pr-9 py-2 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
                   />
                   <button
@@ -863,7 +917,7 @@ Cancel = keep the permanent System User connection.`,
                 </button>
                 <button
                   onClick={triggerMetaSync}
-                  disabled={metaSyncing || !metaAccountId.trim() || !metaToken.trim()}
+                  disabled={metaSyncing || !metaAccountId.trim() || !metaAppIdRow}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-border text-text-tertiary hover:text-text-primary hover:border-brand-border text-sm transition-all disabled:opacity-40"
                 >
                   {metaSyncing ? <Spinner size="sm" /> : <RefreshCw size={13} />}
