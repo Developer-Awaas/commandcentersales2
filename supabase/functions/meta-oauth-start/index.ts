@@ -13,6 +13,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { resolveCallerIdentity } from '../_shared/canva-oauth.ts'
+import { isOrgAdmin } from '../_shared/require-admin.ts'
 import { buildMetaAuthUrl, metaConfigured, metaAppId } from '../_shared/meta-oauth.ts'
 
 function corsHeaders(): Record<string, string> {
@@ -50,6 +51,15 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
+
+  // Admin only — same reason as meta-token-connect: this flow ends in a
+  // storeMetaConnection write to the org row, via the service-role key.
+  if (!(await isOrgAdmin(serviceClient, identity.identity.userId))) {
+    return new Response(
+      JSON.stringify({ error: 'Only an organisation admin can connect a Meta account.' }),
+      { status: 403, headers: corsHeaders() },
+    )
+  }
 
   // Rows are marked consumed rather than deleted (so a replay can be told from
   // a forged state), which means they need sweeping. Opportunistic and cheap:

@@ -26,6 +26,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { resolveCallerIdentity } from '../_shared/canva-oauth.ts'
+import { isOrgAdmin } from '../_shared/require-admin.ts'
 import { graphErrorMessage, graphGet, parseAllowlist } from '../_shared/meta-publish.ts'
 
 function corsHeaders(): Record<string, string> {
@@ -67,8 +68,7 @@ Deno.serve(async (req) => {
 
   // Explicit admin check — see the header. This client bypasses RLS, so
   // org_integrations' admin-only policies do not apply to it.
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle()
-  if ((profile as { role?: string } | null)?.role !== 'admin') {
+  if (!(await isOrgAdmin(supabase, userId))) {
     return json({ error: 'Only an organisation admin can change publishing targets.' }, 403)
   }
 

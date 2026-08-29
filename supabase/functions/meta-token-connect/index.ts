@@ -21,6 +21,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { resolveCallerIdentity } from '../_shared/canva-oauth.ts'
+import { isOrgAdmin } from '../_shared/require-admin.ts'
 import {
   verifyMetaToken,
   resolveMetaAssets,
@@ -62,6 +63,21 @@ Deno.serve(async (req) => {
   const identity = await resolveCallerIdentity(req)
   if (!identity.ok) {
     return new Response(JSON.stringify({ error: identity.error }), { status: identity.status, headers: corsHeaders() })
+  }
+
+  // Admin only. org_integrations is admin-gated by RLS (bug #42), but this
+  // function writes with the service-role key, which bypasses RLS — so the
+  // check has to be explicit here or a plain member can replace the org token.
+  // Placed before verifyMetaToken so a non-admin never spends a Graph call.
+  const gateClient = createClient<Database>(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  )
+  if (!(await isOrgAdmin(gateClient, identity.identity.userId))) {
+    return new Response(
+      JSON.stringify({ error: 'Only an organisation admin can change the Meta connection.' }),
+      { status: 403, headers: corsHeaders() },
+    )
   }
 
   // THE DOOR — before any write.
