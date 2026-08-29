@@ -132,7 +132,7 @@ export const IMAGE_FETCH_TIMEOUT_MS = 135_000
 // the isolate killed mid-flight at 150s with no terminal state written.
 const TIMEOUT_BASE_MS = 90_000
 const TIMEOUT_PER_IMAGE_MS = 15_000
-const TIMEOUT_ASYNC_CAP_MS = 300_000
+export const TIMEOUT_ASYNC_CAP_MS = 300_000
 
 export function imageFetchTimeoutMs(
   inputImages = 0,

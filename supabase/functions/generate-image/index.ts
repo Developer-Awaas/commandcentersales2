@@ -46,7 +46,7 @@ import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
-import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS, imageFetchTimeoutMs } from '../_shared/image-provider.ts'
+import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS, imageFetchTimeoutMs, TIMEOUT_ASYNC_CAP_MS } from '../_shared/image-provider.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
@@ -252,7 +252,23 @@ Deno.serve(async (req: Request) => {
         // Nothing else bounds this call; without it the gateway (or the
         // wall-clock limit, in async mode) is the only thing that stops a
         // slow response. Bugs #35/#41, same class.
-        signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+        //
+        // ASYNC vs SYNC is the whole point of the branch. IMAGE_FETCH_TIMEOUT_MS
+        // is sized to sit just under Supabase's 150s REQUEST ceiling — but in
+        // async mode this runs inside EdgeRuntime.waitUntil() with nothing
+        // waiting on the response, so that ceiling does not apply and the sync
+        // bound is simply the wrong number. The hero/edit path above already
+        // makes this distinction via imageFetchTimeoutMs({ async }); this
+        // branch was left on the sync constant, which is why a plain
+        // text-to-image job died at exactly 135s twice on 2026-08-29 while
+        // nothing at all was waiting for it.
+        //
+        // imageFetchTimeoutMs(0, { async: true }) is NOT the fix here: it
+        // returns 90s for a zero-input call, which is LOWER than the sync
+        // bound and would make this worse. A text-to-image call has no input
+        // images to scale on, so it gets the flat async cap. The 10-minute
+        // image_jobs reaper remains the real backstop.
+        signal: AbortSignal.timeout(body.async ? TIMEOUT_ASYNC_CAP_MS : IMAGE_FETCH_TIMEOUT_MS),
       })
 
       if (!imageRes.ok) {

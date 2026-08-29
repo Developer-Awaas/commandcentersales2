@@ -1,11 +1,11 @@
 // RB-P6 — authoritative image-cost + model-resolution unit tests (credential-free,
 // pure functions; no network). This is the source of truth the ledger uses.
-import { assertEquals } from 'https://deno.land/std@0.208.0/assert/mod.ts'
+import { assertEquals, assert } from 'https://deno.land/std@0.208.0/assert/mod.ts'
 import {
   resolveImageModel, openaiImageUnitCost, supportsInputFidelity,
   OPENAI_IMAGE_COST_USD, OPENAI_IMAGE_15_COST_USD, OPENAI_IMAGE_2_COST_USD,
   INPUT_FIDELITY_HIGH_SURCHARGE_USD, IMAGE_INPUT_REF_COST_USD,
-  imageFetchTimeoutMs, IMAGE_FETCH_TIMEOUT_MS,
+  imageFetchTimeoutMs, IMAGE_FETCH_TIMEOUT_MS, TIMEOUT_ASYNC_CAP_MS,
 } from './image-provider.ts'
 
 Deno.test('resolveImageModel: request override > IMAGE_MODEL env > default (gpt-image-2)', () => {
@@ -74,4 +74,19 @@ Deno.test('imageFetchTimeoutMs: sync never exceeds the 150s wall clock', () => {
 Deno.test('imageFetchTimeoutMs: a negative/absent count degrades to the base', () => {
   assertEquals(imageFetchTimeoutMs(-3, { async: true }), 90_000)
   assertEquals(imageFetchTimeoutMs(undefined, { async: true }), 90_000)
+})
+
+Deno.test("TIMEOUT_ASYNC_CAP_MS is the right bound for a zero-input ASYNC text-to-image call", () => {
+  // generate-image has two paths. The hero/edit path scales its bound with the
+  // input-image count. The plain text-to-image path has NO input images, so the
+  // scaled helper is actively wrong for it:
+  assertEquals(imageFetchTimeoutMs(0, { async: true }), 90_000)
+  assert(90_000 < IMAGE_FETCH_TIMEOUT_MS) //  ... LOWER than the sync bound
+
+  // Reusing the helper there would therefore have made a slow call fail EARLIER
+  // than before. The plain async path uses the flat cap instead, which is the
+  // only value here that actually exceeds the sync ceiling — the whole point,
+  // since in async mode nothing is waiting on the response.
+  assert(TIMEOUT_ASYNC_CAP_MS > IMAGE_FETCH_TIMEOUT_MS)
+  assertEquals(TIMEOUT_ASYNC_CAP_MS, 300_000)
 })
