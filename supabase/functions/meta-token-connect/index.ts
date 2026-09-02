@@ -22,6 +22,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { resolveCallerIdentity } from '../_shared/canva-oauth.ts'
 import { isOrgAdmin } from '../_shared/require-admin.ts'
+import { normalizeAdAccountId } from '../_shared/ad-account-id.ts'
 import {
   verifyMetaToken,
   resolveMetaAssets,
@@ -57,6 +58,25 @@ Deno.serve(async (req) => {
   const token = (body.token ?? '').trim()
   if (!token) {
     return new Response(JSON.stringify({ error: 'token is required' }), { status: 400, headers: corsHeaders() })
+  }
+
+  // An explicitly supplied ad account wins over discovery — but it arrives
+  // from a browser, so the old `.trim()` was never enough: the client's
+  // normalizer is convenience, and a stale or bypassed client can send
+  // anything. Validated HERE, alongside the token check and before any Graph
+  // call, for the same reason the admin gate sits early — a malformed field
+  // should not cost a round trip. The alternative is storing a value whose
+  // only symptom is a sync that logs `skipped` for a month.
+  let requestedAdAccountId: string | null = null
+  if (body.adAccountId && body.adAccountId.trim()) {
+    const norm = normalizeAdAccountId(body.adAccountId)
+    if (!norm.ok) {
+      return new Response(
+        JSON.stringify({ error: `${norm.error} — got "${body.adAccountId.trim()}". Nothing was stored.` }),
+        { status: 400, headers: corsHeaders() },
+      )
+    }
+    requestedAdAccountId = norm.value
   }
 
   // org comes from the caller's JWT, never the body.
@@ -100,7 +120,7 @@ Deno.serve(async (req) => {
   const assets = await resolveMetaAssets(token)
   // An explicitly supplied ad account wins over discovery — the user typing it
   // is a stronger signal than picking the first of their accounts.
-  if (body.adAccountId && body.adAccountId.trim()) assets.adAccountId = body.adAccountId.trim()
+  if (requestedAdAccountId) assets.adAccountId = requestedAdAccountId
 
   const stored = await storeMetaConnection(
     serviceClient, identity.identity.orgId, token, verified.facts, assets,

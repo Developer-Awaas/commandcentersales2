@@ -60,6 +60,7 @@ export default defineConfig({
       'src/components/TextLayerEditor.test.tsx',
       'src/lib/publish-targets.test.ts',
       'src/lib/hashtags.test.ts',
+      'src/lib/ad-account-id.test.ts',
     ],
   },
 });

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, Send, ShieldAlert } from 'lucide-react';
 import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
+import { normalizeAdAccountId } from '../lib/ad-account-id';
 
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -84,6 +85,11 @@ export function SettingsPage() {
 
   // Meta Ads Integration
   const [metaAccountId, setMetaAccountId] = useState('');
+  // Inline, field-level. The shared metaSyncMsg line is the wrong home for a
+  // "you typed it wrong" message — it also carries sync results and server
+  // errors, so a validation complaint there reads as something having failed
+  // remotely rather than as a box to fix.
+  const [metaAccountIdError, setMetaAccountIdError] = useState<string | null>(null);
   // T1-B — INPUT ONLY. The stored token is never read back into the browser:
   // loadMetaIntegration does not select meta_access_token at all, so this only
   // ever holds something the user just typed, and is cleared the moment it is
@@ -170,9 +176,22 @@ export function SettingsPage() {
   async function saveMetaIntegration() {
     setMetaSaving(true);
     setMetaSyncMsg(null);
+    // Meta requires act_<numeric_id>. A bare number is the normal thing to
+    // paste (it is what Business Manager shows), so normalize it — but reject
+    // anything that is not digits instead of prefixing it and storing a value
+    // that can only fail later, on a cron nobody watches.
     const rawId = metaAccountId.trim();
-    // Meta requires act_<numeric_id> — normalize silently so bare IDs work.
-    const normalizedId = rawId && !rawId.startsWith('act_') ? `act_${rawId}` : rawId;
+    let normalizedId = '';
+    if (rawId) {
+      const norm = normalizeAdAccountId(rawId);
+      if (!norm.ok) {
+        setMetaAccountIdError(norm.error);
+        setMetaSaving(false);
+        return;
+      }
+      normalizedId = norm.value;
+    }
+    setMetaAccountIdError(null);
     try {
       // T1-B — empty token field means LEAVE THE STORED TOKEN ALONE, never
       // "clear it". The field no longer prefills, so blank is the normal
@@ -891,10 +910,26 @@ Cancel = keep the permanent System User connection.`,
                 <input
                   type="text"
                   value={metaAccountId}
-                  onChange={(e) => setMetaAccountId(e.target.value)}
+                  onChange={(e) => { setMetaAccountId(e.target.value); if (metaAccountIdError) setMetaAccountIdError(null); }}
+                  onBlur={(e) => {
+                    // Canonicalise in place so what is on screen is what will
+                    // be stored. Blank is not an error here — it is how you
+                    // save a token without retargeting the ad account.
+                    const raw = e.target.value.trim();
+                    if (!raw) { setMetaAccountIdError(null); return; }
+                    const norm = normalizeAdAccountId(raw);
+                    if (norm.ok) { setMetaAccountId(norm.value); setMetaAccountIdError(null); }
+                    else setMetaAccountIdError(norm.error);
+                  }}
+                  aria-invalid={!!metaAccountIdError}
                   placeholder="act_123456789"
-                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand transition-colors"
+                  className={`w-full bg-surface border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 transition-colors ${
+                    metaAccountIdError
+                      ? 'border-red-500/60 focus:border-red-500 focus:ring-red-500'
+                      : 'border-border focus:border-brand focus:ring-brand'
+                  }`}
                 />
+                {metaAccountIdError && <p className="text-[11px] text-red-400">{metaAccountIdError}</p>}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Access Token</label>

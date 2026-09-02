@@ -18,6 +18,7 @@
  */
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from './database.types.ts'
+import { normalizeAdAccountId } from './ad-account-id.ts'
 
 import { GRAPH_BASE, FB_DIALOG_BASE } from './graph-version.ts'
 
@@ -251,6 +252,12 @@ export async function storeMetaConnection(
   // (bugs #47/#48), and here the compiler can catch it for us.
   type OrgIntegrationInsert = Database['public']['Tables']['org_integrations']['Insert']
 
+  const adAccount = assets.adAccountId ? normalizeAdAccountId(assets.adAccountId) : null
+  const normalizedAdAccountId = adAccount?.ok ? adAccount.value : null
+  if (adAccount && !adAccount.ok) {
+    console.warn('[meta-oauth] discarding malformed ad account id from discovery:', assets.adAccountId)
+  }
+
   const row: OrgIntegrationInsert = {
     org_id: orgId,
     provider: 'meta',
@@ -265,7 +272,16 @@ export async function storeMetaConnection(
     updated_at: new Date().toISOString(),
     // Only set an asset id when discovery actually found one — a failed lookup
     // must not wipe a selection the user made by hand.
-    ...(assets.adAccountId ? { meta_ad_account_id: assets.adAccountId } : {}),
+    //
+    // Normalized again HERE, not only at the callers: this is the single
+    // statement that writes the column, so it is the only place that can
+    // guarantee the invariant for every path at once. Graph's own
+    // /me/adaccounts value is already canonical, so in practice this is a
+    // no-op — it exists so a future caller cannot reintroduce the hole by
+    // forgetting. A value that fails is DROPPED rather than failing the
+    // connect, matching this file's standing rule that a verified token is
+    // worth more than an asset id the user can re-pick in Settings.
+    ...(normalizedAdAccountId ? { meta_ad_account_id: normalizedAdAccountId } : {}),
     ...(assets.pageId ? { meta_page_id: assets.pageId } : {}),
     ...(assets.igUserId ? { meta_ig_user_id: assets.igUserId } : {}),
   }
