@@ -217,14 +217,20 @@ export function Sidebar({
       className="fixed top-0 left-0 h-screen flex flex-col bg-surface-sidebar border-r border-border z-40"
       style={{ width: 220 }}
     >
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-border flex-shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
-          <span className="text-[11px] font-bold text-white leading-none">NH</span>
-        </div>
+      {/* Logo — the real AWAAS mark, not a monogram chip. This is on screen in
+          every frame of the Meta app-review recording, so the product has to
+          identify itself as the company that submitted it. */}
+      <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border flex-shrink-0">
+        <img
+          src="/awaas-mark.png"
+          alt=""
+          width={32}
+          height={32}
+          className="w-8 h-8 object-contain flex-shrink-0"
+        />
         <div className="flex flex-col min-w-0">
-          <span className="text-[13px] font-semibold text-text-primary leading-tight">NH Command</span>
-          <span className="text-[10px] text-text-tertiary leading-tight">Marketing HQ</span>
+          <span className="text-[13px] font-semibold text-text-primary leading-tight">AWAAS</span>
+          <span className="text-[10px] text-text-tertiary leading-tight">Command Center</span>
         </div>
       </div>
 

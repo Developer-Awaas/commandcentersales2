@@ -382,7 +382,7 @@ export function Dashboard() {
             ) : !data?.activeProjects.length ? (
               <div className="flex flex-col items-center justify-center py-10 px-6 text-center gap-3">
                 <FolderKanban size={32} className="text-border" />
-                <p className="text-text-tertiary text-sm">Welcome to NH Command Center! Start by adding your first project.</p>
+                <p className="text-text-tertiary text-sm">Welcome to AWAAS Command Center! Start by adding your first project.</p>
                 <button
                   onClick={() => navigate('projects')}
                   className="px-4 py-2 rounded-lg bg-brand-subtle border border-brand-border text-sm text-brand hover:bg-brand-subtle-hover transition-all"

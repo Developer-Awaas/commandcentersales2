@@ -25,12 +25,20 @@ export function LoginPage() {
   return (
     <div className="min-h-screen bg-surface flex items-center justify-center px-4 font-[system-ui,sans-serif]">
       <div className="w-full max-w-sm">
+        {/* First frame of the app-review recording. The full lockup carries the
+            company name itself, so the heading below names the product only —
+            repeating "AWAAS Services Pvt. Ltd." underneath the wordmark that
+            already says it reads as a template with the variable left in. */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-brand mb-4">
-            <span className="text-[18px] font-bold text-white leading-none">NH</span>
-          </div>
-          <h1 className="text-xl font-semibold text-text-primary">NH Command Center</h1>
-          <p className="text-sm text-text-tertiary mt-1">Marketing HQ</p>
+          <img
+            src="/awaas-logo.png"
+            alt="AWAAS Services Pvt. Ltd."
+            width={176}
+            height={167}
+            className="w-44 h-auto mb-5"
+          />
+          <h1 className="text-xl font-semibold text-text-primary">Command Center</h1>
+          <p className="text-sm text-text-tertiary mt-1">Marketing intelligence for real estate</p>
         </div>
 
         <div className="bg-surface-elevated border border-border rounded-xl p-6">

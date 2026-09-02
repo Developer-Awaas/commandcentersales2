@@ -172,7 +172,7 @@ export default function ReferenceImagePack({ manifest, projectId, promptLabel, o
           ``,
           `HOW TO USE:`,
           `1. Open Gemini (gemini.google.com)`,
-          `2. Paste the creative prompt from NH Command Center`,
+          `2. Paste the creative prompt from AWAAS Command Center`,
           `3. Drag the numbered images below into the chat IN ORDER (1 first, 2 next, etc.)`,
           `4. The prompt references "Image 1", "Image 2" — they correspond to file numbers below`,
           `5. Click Generate`,
