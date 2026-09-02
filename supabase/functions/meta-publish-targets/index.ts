@@ -7,10 +7,19 @@
  * the same endpoint would put the gate and the thing that moves the gate
  * behind one permission check.
  *
- * Two actions:
- *   list — the Pages this org's token can actually reach (/me/accounts),
- *          annotated with whether each is on the deployment allowlist.
- *   set  — write publish_page_id / publish_ig_user_id (+ display names).
+ * Three actions:
+ *   list      — the Pages this org's token can actually reach (/me/accounts),
+ *               annotated with whether each is on the deployment allowlist.
+ *   set       — write publish_page_id / publish_ig_user_id (+ display names).
+ *   page_info — READ-ONLY. Name, follower count and linked IG handle for one
+ *               allowlisted Page, for the Page Info card in Settings.
+ *
+ * page_info lives here rather than in its own function because everything it
+ * needs is already established above the action dispatch: the admin check, the
+ * connection lookup, the verified-token gate, and the reachable+allowlisted
+ * Page set. A sibling function would re-implement all four to serve one GET,
+ * and would give the client a second endpoint to know about for a section that
+ * already talks only to this one. It writes nothing.
  *
  * NO FREE-TEXT IDS. `set` accepts only a page_id that appeared in this same
  * token's /me/accounts AND is on the allowlist — both re-checked server-side,
@@ -74,12 +83,12 @@ Deno.serve(async (req) => {
 
   const { data: integration } = await supabase
     .from('org_integrations')
-    .select('id, meta_access_token, meta_verified_at, status')
+    .select('id, meta_access_token, meta_verified_at, status, publish_page_id')
     .eq('org_id', orgId)
     .eq('provider', 'meta')
     .maybeSingle()
 
-  const conn = integration as { id: string; meta_access_token: string | null; meta_verified_at: string | null; status: string } | null
+  const conn = integration as { id: string; meta_access_token: string | null; meta_verified_at: string | null; status: string; publish_page_id: string | null } | null
   if (!conn?.meta_access_token) {
     return json({ error: 'No Meta connection for this organisation. Connect one first.' }, 404)
   }
@@ -91,18 +100,25 @@ Deno.serve(async (req) => {
 
   // The token's ACTUAL reachable assets. Not a stored list, not free text —
   // whatever Meta says this token can see, right now.
+  // `access_token` rides this existing round trip rather than costing
+  // page_info a second one. It is collected into a Map that never leaves this
+  // function — deliberately NOT a PageOption field, so the compiler's
+  // excess-property check on the literal below makes leaking it into a
+  // response a build error rather than a code-review question.
   const res = await graphGet('/me/accounts', {
     access_token: conn.meta_access_token,
-    fields: 'id,name,instagram_business_account{id,username}',
+    fields: 'id,name,access_token,instagram_business_account{id,username}',
     limit: '50',
   })
   if (res.status !== 200 || !res.body.data) {
     return json({ error: `Could not list Pages: ${graphErrorMessage(res.body)}` }, 502)
   }
 
+  const pageTokens = new Map<string, string>()
   const options: PageOption[] = (res.body.data as Record<string, unknown>[]).map((p) => {
     const ig = p.instagram_business_account as { id?: string; username?: string } | undefined
     const pageId = String(p.id ?? '')
+    if (p.access_token) pageTokens.set(pageId, String(p.access_token))
     return {
       page_id: pageId,
       page_name: String(p.name ?? pageId),
@@ -125,6 +141,51 @@ Deno.serve(async (req) => {
       note: allowlist.length === 0
         ? 'PUBLISH_ALLOWED_PAGE_IDS is not set on this deployment, so no Page can be selected or published to.'
         : null,
+    })
+  }
+
+  // READ-ONLY. Describes the Page the org has chosen (or an explicitly named
+  // one, so the card can render immediately after a select without waiting for
+  // the org row to round-trip). Same reachability + allowlist rules as `set`:
+  // this must not become a way to read arbitrary Pages a token happens to see.
+  if (body.action === 'page_info') {
+    const pageId = body.page_id ?? conn.publish_page_id ?? null
+    if (!pageId) return json({ error: 'No publishing target is set for this organisation.' }, 404)
+
+    const chosen = options.find((o) => o.page_id === pageId)
+    if (!chosen) return json({ error: 'That Page is not reachable with this organisation\'s Meta token.' }, 400)
+    if (!chosen.allowed) {
+      return json({ error: `Page ${pageId} is not on this deployment's publish allowlist.` }, 403)
+    }
+
+    const pageToken = pageTokens.get(pageId)
+    if (!pageToken) {
+      return json({ error: 'Meta returned no Page access token for that Page, so its details cannot be read.' }, 502)
+    }
+
+    const info = await graphGet(`/${pageId}`, {
+      access_token: pageToken,
+      fields: 'name,fan_count,followers_count,instagram_business_account{username}',
+    })
+    if (info.status !== 200 || info.body.error) {
+      return json({ error: `Could not read Page details: ${graphErrorMessage(info.body)}` }, 502)
+    }
+
+    const b = info.body as Record<string, unknown>
+    const ig = b.instagram_business_account as { username?: string } | undefined
+    // Counts are nullable on purpose. Not every Page exposes followers_count,
+    // and a Page with no followers genuinely returns 0 — rendering either as a
+    // dash beats inventing a number, and `?? null` keeps 0 distinguishable
+    // from absent (0 || null would collapse them).
+    const num = (v: unknown) => (typeof v === 'number' ? v : null)
+    return json({
+      ok: true,
+      page_id: pageId,
+      name: String(b.name ?? chosen.page_name),
+      fan_count: num(b.fan_count),
+      followers_count: num(b.followers_count),
+      // Prefer the freshly-read handle; fall back to the one /me/accounts gave.
+      ig_username: ig?.username ? String(ig.username) : chosen.ig_username,
     })
   }
 
@@ -169,5 +230,5 @@ Deno.serve(async (req) => {
     })
   }
 
-  return json({ error: "action must be 'list' or 'set'" }, 400)
+  return json({ error: "action must be 'list', 'set' or 'page_info'" }, 400)
 })

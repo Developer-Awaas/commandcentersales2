@@ -6,6 +6,7 @@ import { Settings, X, Plus, CheckCircle, Eye, EyeOff, RefreshCw, ChevronDown, Ch
 import { supabase, extractFunctionErrorMessage } from '../lib/supabase';
 import { getOrgId, getUserId } from '../lib/constants';
 import { normalizeAdAccountId } from '../lib/ad-account-id';
+import { PageInfoCard } from '../components/settings/PageInfoCard';
 
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -826,6 +827,11 @@ Cancel = keep the permanent System User connection.`,
                     No publishing target set. The "Post to Meta" button stays hidden until one is chosen here.
                   </p>
                 )}
+
+                {/* Below the target lines, and therefore below "Choose a Page"
+                    — nothing this card does can move that button, which is the
+                    one control the app-review recording is following. */}
+                <PageInfoCard pageId={publishPageId} />
 
                 {!allowlistConfigured && (
                   <p className="flex items-start gap-1.5 text-[11px] text-amber-400">
