@@ -42,3 +42,8 @@ screenshots/
 
 # offline overlay replay harness outputs (regenerate via scripts/replay-composite.ts)
 scripts/replay-out/
+
+# Built reviewer PDF carries the Meta App Review credentials in cleartext.
+# It is generated outside this worktree on purpose; this rule is the backstop
+# for anyone who points the builder at the repo instead.
+*.pdf
