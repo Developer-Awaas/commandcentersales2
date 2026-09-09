@@ -2,9 +2,9 @@ name: Type-check & Unit Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, review-build]
   pull_request:
-    branches: [main]
+    branches: [main, review-build]
 
 jobs:
   build:
