@@ -6,6 +6,7 @@ import { ImageGalleryViewer, type GalleryImage } from '../components/ImageGaller
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../lib/gemini-service';
 import { InlineCreativeReview, type InlineReviewProject } from '../components/InlineCreativeReview';
 import { supabase } from '../lib/supabase';
+import { formatHashtag } from '../lib/hashtags';
 import { getOrgId, getUserId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { aiCall, aiVision, isAiEnabled, describeImageForFlux } from '../lib/ai-service';
@@ -266,7 +267,7 @@ function VariantCard({ variant, onSave, project, platform }: { variant: AiVarian
             <p className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-2">Hashtags</p>
             <div className="flex flex-wrap gap-1.5">
               {variant.hashtags.map((tag) => (
-                <span key={tag} className="px-2 py-0.5 rounded-md text-[11px] text-text-tertiary border border-border bg-surface">{tag}</span>
+                <span key={tag} className="px-2 py-0.5 rounded-md text-[11px] text-text-tertiary border border-border bg-surface">{formatHashtag(tag)}</span>
               ))}
             </div>
           </div>

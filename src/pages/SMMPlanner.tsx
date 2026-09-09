@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, ChevronLeft, Upload, X, Plus, Check, RefreshCw, Download, Sparkles, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { normalizeHashtags, formatHashtag } from '../lib/hashtags';
 import { getOrgId } from '../lib/constants';
 import { getSocialMetricsProvider } from '../lib/providers';
 import { saveToolOutput } from '../lib/history-service';
@@ -42,7 +43,7 @@ function pendingPostFromAi(post: any): PendingPost | null {
     time: toIsoTime(post.time),
     captionEn: post.captionEn,
     captionOd: post.captionOd,
-    hashtags: post.hashtags || [],
+    hashtags: normalizeHashtags(post.hashtags),
     nanoPrompt: post.nanoPrompt,
     reelScript: post.reelScript,
   };
@@ -774,7 +775,7 @@ export default function SMMPlanner() {
                         <div>
                           <label className="text-xs text-text-tertiary">Hashtags (comma-separated)</label>
                           <input type="text" value={(editDraft.hashtags || []).join(', ')}
-                            onChange={(e) => updateDraft('hashtags', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
+                            onChange={(e) => updateDraft('hashtags', normalizeHashtags(e.target.value))}
                             className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
                         </div>
                         <div>
@@ -849,7 +850,7 @@ export default function SMMPlanner() {
                       {post.hashtags && post.hashtags.length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {post.hashtags.map((h: string, j: number) => (
-                            <span key={j} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>#{h}</span>
+                            <span key={j} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>{formatHashtag(h)}</span>
                           ))}
                         </div>
                       )}

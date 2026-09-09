@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Megaphone, RefreshCw } from 'lucide-react';
 import { getOrgId } from '../lib/constants';
 import { supabase } from '../lib/supabase';
+import { normalizeHashtags, formatHashtag } from '../lib/hashtags';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { logAiSession, logActivity } from '../lib/session-logger';
 import { buildContext } from '../lib/context-builder';
@@ -145,7 +146,7 @@ function DayCard({ day }: { day: AiDayPlan }) {
           {day.hashtags && day.hashtags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {day.hashtags.map((tag) => (
-                <span key={tag} className="px-2 py-0.5 rounded-md text-[11px] text-text-tertiary border border-border bg-surface">{tag}</span>
+                <span key={tag} className="px-2 py-0.5 rounded-md text-[11px] text-text-tertiary border border-border bg-surface">{formatHashtag(tag)}</span>
               ))}
             </div>
           )}
@@ -279,7 +280,16 @@ Include all 7 days. Make content specific to the projects above.`;
       } else if (res.raw) {
         setResult({ status: 'raw', text: String(res.raw) });
       } else {
-        const planResult = res as AiOrganicResult;
+        // Ingest boundary: the model returns tags already carrying '#', and
+        // this object is BOTH what renders and what gets persisted whole into
+        // organic_plans.plan_data. Normalising here is what keeps the stored
+        // shape canonical — a render-site strip would leave the DB holding a
+        // permanent mix. Same rule as SMMCreatives/SMMPlanner.
+        const raw = res as AiOrganicResult;
+        const planResult: AiOrganicResult = {
+          ...raw,
+          weekly: (raw.weekly ?? []).map((d) => ({ ...d, hashtags: normalizeHashtags(d.hashtags) })),
+        };
         setResult({ status: 'ok', data: planResult });
         await supabase.from('organic_plans').insert({
           org_id: getOrgId(),

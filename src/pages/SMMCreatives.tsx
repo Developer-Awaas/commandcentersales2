@@ -9,7 +9,7 @@ import { buildSMMCreativePrompt } from '../lib/smm-prompts';
 import { resolveGenerationErrorMessage } from '../lib/smm-generation-error';
 import { useToast } from '../contexts/ToastContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
-import { normalizeHashtags, formatHashtags } from '../lib/hashtags';
+import { normalizeHashtags, formatHashtag, formatHashtags } from '../lib/hashtags';
 import { MetaPostDialog } from '../components/MetaPostDialog';
 import { fetchPublishTargets, canOfferPublish, EMPTY_TARGETS, type PublishTargets } from '../lib/publish-targets';
 
@@ -388,7 +388,7 @@ export default function SMMCreatives() {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {result.hashtags.map((h: string, i: number) => (
-                  <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: C.bg, color: C.dim }}>#{h}</span>
+                  <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: C.bg, color: C.dim }}>{formatHashtag(h)}</span>
                 ))}
               </div>
             </div>

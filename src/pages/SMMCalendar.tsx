@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, X, Calendar, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { normalizeHashtags, formatHashtag, formatHashtags } from '../lib/hashtags';
 import { getOrgId } from '../lib/constants';
 import { useToast } from '../contexts/ToastContext';
 import { Select } from '../components/ui/Select';
@@ -401,7 +402,7 @@ export default function SMMCalendar() {
                   <div>
                     <label className="text-xs text-text-tertiary">Hashtags (comma-separated)</label>
                     <input type="text" value={(editingDraft.hashtags || []).join(', ')}
-                      onChange={(e) => updateDraft('hashtags', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
+                      onChange={(e) => updateDraft('hashtags', normalizeHashtags(e.target.value))}
                       className="w-full mt-1 px-2 py-1.5 rounded border border-border text-sm bg-surface" />
                   </div>
                   <div>
@@ -506,11 +507,11 @@ export default function SMMCalendar() {
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 11, color: C.dim }}>Hashtags</span>
-                      <button onClick={() => copy(selectedPost.hashtags.map((h: string) => '#' + h).join(' '))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
+                      <button onClick={() => copy(formatHashtags(selectedPost.hashtags))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy All</button>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {selectedPost.hashtags.map((h: string, i: number) => (
-                        <span key={i} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>#{h}</span>
+                        <span key={i} style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: C.bg, color: C.dim }}>{formatHashtag(h)}</span>
                       ))}
                     </div>
                   </div>

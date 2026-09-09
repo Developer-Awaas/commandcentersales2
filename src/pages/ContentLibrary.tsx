@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Library, Search, Trash2, Calendar, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatHashtag } from '../lib/hashtags';
 import { getOrgId } from '../lib/constants';
 import { listToolOutputs, deleteToolOutput, type ToolOutput } from '../lib/history-service';
 import { SingleStageView, formatDate } from '../components/history/JourneyViews';
@@ -264,7 +265,7 @@ export default function ContentLibrary() {
                 {Array.isArray(selected.calRow.hashtags) && selected.calRow.hashtags.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {selected.calRow.hashtags.map((h: string, i: number) => (
-                      <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: C.bg, color: C.dim }}>#{h}</span>
+                      <span key={i} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: C.bg, color: C.dim }}>{formatHashtag(h)}</span>
                     ))}
                   </div>
                 )}

@@ -1,6 +1,9 @@
+
 // src/lib/pdf-generator.ts
 // PURPOSE: Generates downloadable PDF reports for Lead Gen plans, SMM plans, and SMM analysis.
 // Uses browser-native printing to PDF (no external library needed).
+
+import { formatHashtag } from './hashtags';
 // Creates a hidden iframe with styled HTML, triggers print-to-PDF.
 
 // ============================================================
@@ -239,7 +242,7 @@ export function generateSMMPlanPDF(data: {
       html += '<div class="field-row"><span class="field-label">Type</span><span class="field-value">' + (post.type || '') + ' on ' + (post.platform || 'both') + '</span></div>';
       html += '<div class="field-row"><span class="field-label">Time</span><span class="field-value">' + (post.time || '') + '</span></div>';
       if (post.captionEn) html += '<div class="section"><strong>Caption:</strong><br/>' + post.captionEn + '</div>';
-      if (post.hashtags) html += '<p>' + post.hashtags.map((h: string) => '<span class="tag">#' + h + '</span>').join('') + '</p>';
+      if (post.hashtags) html += '<p>' + post.hashtags.map((h: string) => '<span class="tag">' + formatHashtag(h) + '</span>').join('') + '</p>';
       if (post.nanoPrompt) html += '<div class="prompt-box">' + post.nanoPrompt + '</div>';
       if (post.reelScript) html += '<div class="section"><strong>Reel Script:</strong><br/>' + post.reelScript + '</div>';
     });

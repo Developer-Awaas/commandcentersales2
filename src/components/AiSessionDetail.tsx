@@ -1,6 +1,7 @@
 import { X, CheckCircle, Sparkles } from 'lucide-react';                                                                                                                                                                                   
   import { CopyButton } from './ui/CopyButton';                                                                                                                                                                                              
   import type { SeniorDesignerResult } from '../pages/strategy/types';                                                                                                                                                                       
+  import { normalizeHashtags, formatHashtag, formatHashtags } from '../lib/hashtags';
                                                                                                                                                                                                                                              
   interface AiSession {                                                                                                                                                                                                                      
     id: string;                                                                                                                                                                                                                              
@@ -83,7 +84,7 @@ import { X, CheckCircle, Sparkles } from 'lucide-react';
   function QuickGenerateOutput({ data }: { data: Record<string, unknown> }) {                                                                                                                                                                
     const icebreakers = (data.icebreakers as string[]) ?? [];
     const launchChecklist = (data.launchChecklist as string[]) ?? [];                                                                                                                                                                        
-    const hashtags = (data.hashtags as string[]) ?? [];                                                                                                                                                                                      
+    const hashtags = normalizeHashtags(data.hashtags);                                                                                                                                                                                      
                                                                                                                                                                                                                                              
     return (                                                                                                                                                                                                                                 
       <div className="flex flex-col gap-6">                 
@@ -203,12 +204,12 @@ import { X, CheckCircle, Sparkles } from 'lucide-react';
           <div>
             <div className="flex items-center justify-between mb-3">
               <SectionHeader title="Hashtags" />
-              <CopyButton text={hashtags.join(' ')} />                                                                                                                                                                                       
+              <CopyButton text={formatHashtags(hashtags)} />                                                                                                                                                                                       
             </div>
             <div className="flex flex-wrap gap-2">                                                                                                                                                                                           
               {hashtags.map((tag, i) => (                                                                                                                                                                                                    
                 <span key={i} className="px-2.5 py-1 rounded-full bg-surface-sunken border border-border text-xs text-text-tertiary">
-                  {tag}                                                                                                                                                                                                                      
+                  {formatHashtag(tag)}                                                                                                                                                                                                                      
                 </span>                                     
               ))}                                                                                                                                                                                                                            
             </div>                                          

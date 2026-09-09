@@ -46,7 +46,25 @@ export function normalizeHashtags(input: unknown): string[] {
   return out;
 }
 
-/** Render/copy helper — the one place '#' is added back. */
+/**
+ * Render helper — the one place '#' is added back, for ONE tag.
+ *
+ * Idempotent by construction: it normalises before prefixing, so it can be
+ * applied to a canonical tag, to a legacy '#Patia' row written before
+ * normalizeHashtags existed, or to its own output, and always yields exactly
+ * one '#'. That matters because the DB genuinely holds both shapes — the
+ * normalizer landed after rows had already been written — and a render site
+ * cannot tell which it was handed.
+ *
+ * Returns '' for input that normalises to nothing, so a stray empty string
+ * renders as nothing rather than a bare '#'.
+ */
+export function formatHashtag(tag: string): string {
+  const [canonical] = normalizeHashtags([tag]);
+  return canonical ? `#${canonical}` : '';
+}
+
+/** Render/copy helper for a list — space-joined, same idempotence. */
 export function formatHashtags(tags: string[]): string {
-  return tags.map((t) => `#${t}`).join(' ');
+  return normalizeHashtags(tags).map((t) => `#${t}`).join(' ');
 }
