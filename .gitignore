@@ -47,3 +47,6 @@ scripts/replay-out/
 # It is generated outside this worktree on purpose; this rule is the backstop
 # for anyone who points the builder at the repo instead.
 *.pdf
+
+# Supabase CLI scratch state (project-ref, versions) — machine-local
+supabase/.temp/
