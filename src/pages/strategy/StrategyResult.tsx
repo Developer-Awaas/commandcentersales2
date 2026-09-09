@@ -15,6 +15,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { generateImageWithGemini, uploadGeminiImageToSupabase } from '../../lib/gemini-service';
+import { formatHashtag, formatHashtags } from '../../lib/hashtags';
 import { buildHeroEditPrompt, buildReplicatePrompt, buildReplicateLayoutPrompt } from '../../lib/senior-designer-prompts';
 import { dedupeZones } from '../../lib/reference-style';
 import { buildLayersFromZones, refHeightFor, logoZone } from '../../lib/zone-layers';
@@ -367,7 +368,7 @@ function buildCopyAllText(data: QuickAiResult): string {
     data.creativePromptStory ?? '',
     '',
     'HASHTAGS:',
-    (data.hashtags ?? []).join(' '),
+    formatHashtags(data.hashtags ?? []),
   ];
   return lines.join('\n');
 }
@@ -652,7 +653,7 @@ function QuickAiOutput({ data, inputs, onSave, project }: { data: QuickAiResult;
           <div className="px-5 py-4 border-b border-border">
             <div className="flex items-center justify-between">
               <SectionLabel>Hashtags</SectionLabel>
-              <CopyButton text={data.hashtags.join(' ')} />
+              <CopyButton text={formatHashtags(data.hashtags)} />
             </div>
           </div>
           <div className="px-5 py-4 flex flex-wrap gap-2">
@@ -661,7 +662,7 @@ function QuickAiOutput({ data, inputs, onSave, project }: { data: QuickAiResult;
                 key={i}
                 className="px-2.5 py-1 rounded-full bg-surface-elevated border border-border text-xs text-text-tertiary"
               >
-                {tag}
+                {formatHashtag(tag)}
               </span>
             ))}
           </div>
