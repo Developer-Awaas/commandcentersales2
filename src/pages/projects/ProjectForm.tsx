@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { getOrgId } from '../../lib/constants';
 import { logActivity } from '../../lib/session-logger';
+import { normalizeAdAccountId } from '../../lib/ad-account-id';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -233,8 +234,21 @@ export function ProjectForm({ project, onCancel, onSaved }: ProjectFormProps) {
     setSaving(true);
 
     const derived = deriveFieldsFromConfigs(form.configurations);
+    // Same owner as SettingsPage / meta-token-connect: the inline
+    // `startsWith('act_')` copy was case-sensitive and validated nothing, so
+    // `ACT_123` stored as `act_ACT_123` and `12ab34` as `act_12ab34` — both
+    // dead on the first Graph call.
     const rawMetaId = (form.meta_ad_account_id ?? '').trim();
-    const normalizedMetaId = rawMetaId && !rawMetaId.startsWith('act_') ? `act_${rawMetaId}` : rawMetaId;
+    let normalizedMetaId = '';
+    if (rawMetaId) {
+      const norm = normalizeAdAccountId(rawMetaId);
+      if (!norm.ok) {
+        setError(norm.error);
+        setSaving(false);
+        return;
+      }
+      normalizedMetaId = norm.value;
+    }
     const payload = {
       ...form,
       ...derived,
