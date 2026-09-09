@@ -186,6 +186,25 @@ function CharCount({ text, limit }: { text: string; limit: number }) {
   );
 }
 
+// Raw provider/Graph/Supabase text is diagnostic, not an instruction — it names
+// internals the user cannot act on ("Signal timed out", "FunctionsFetchError",
+// an OpenAI model id) and reads as breakage rather than a retry cue. Sanitising
+// HERE covers every caller at once: quick, full, and each of their branches all
+// converge on this banner, so no call site can forget. The raw text still
+// reaches the console at the throw site.
+function friendlyError(raw: string): string {
+  const m = raw.toLowerCase();
+  if (m.includes('timed out') || m.includes('timeout') || m.includes('abort'))
+    return 'That took longer than expected and was stopped. Try again — it usually works on a second attempt.';
+  if (m.includes('fetch') || m.includes('network') || m.includes('failed to send'))
+    return "Couldn't reach the generator. Check your connection, then try again.";
+  if (m.includes('rate') || m.includes('429') || m.includes('busy'))
+    return 'The image service is busy right now. Wait a moment, then try again.';
+  if (m.includes('session') || m.includes('jwt') || m.includes('unauthorized'))
+    return 'Your session expired. Refresh the page and sign in again.';
+  return 'Something went wrong while generating. Try again — if it keeps happening, tell the team what you were generating.';
+}
+
 function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <Card className="p-5">
@@ -193,7 +212,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
         <AlertCircle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
           <p className="text-sm font-medium text-red-400 mb-1">Generation failed</p>
-          <p className="text-xs text-text-tertiary leading-relaxed">{message}</p>
+          <p className="text-xs text-text-tertiary leading-relaxed">{friendlyError(message)}</p>
         </div>
         {onRetry && (
           <button
@@ -201,7 +220,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-elevated border border-border text-xs text-text-primary hover:bg-surface-hover transition-all flex-shrink-0"
           >
             <RefreshCw size={12} />
-            Retry
+            Try again
           </button>
         )}
       </div>

@@ -139,6 +139,13 @@ export function Strategy() {
   const replicateInputCount =
     1 + (quickInputs.heroRefKey ? 1 : 0) + slotMediaInOrder(quickInputs.panelSlots ?? []).length;
   const [result, setResult] = useState<StrategyResult>(null);
+  // Remount key for the result panel. SeniorDesignerResultPanel auto-generates
+  // ONCE per mount (a ref guard + a [] effect, StrategyResult.tsx:1399/1428) —
+  // correct for one generation, but a second submit reconciles into the SAME
+  // instance, so the guard is already true and the effect never re-fires: the
+  // user sees generation #1's images under generation #2's copy. Bumping this
+  // forces a fresh instance, and a fresh ref with it.
+  const [submissionId, setSubmissionId] = useState(0);
   const resultRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
 
@@ -400,6 +407,13 @@ export function Strategy() {
     }
 
     // ── Senior Designer path (always) ────────────────────────────────────────
+    // Clear the old result outright rather than dimming it: a stale image left
+    // on screen during a regenerate is indistinguishable from a finished one.
+    // The bump remounts the panel — see submissionId's declaration. The resume
+    // path (resumedGalleryImages) deliberately does NOT bump: it is restoring a
+    // previous generation, not starting a new one.
+    setResult(null);
+    setSubmissionId((n) => n + 1);
     setSubmitting(true);
     try {
         const funnel =
@@ -619,7 +633,9 @@ export function Strategy() {
         }
 
         if (rawResponse.error) {
-          showToast(String(rawResponse.error), 'error');
+          // Raw provider text goes to the console, never to the user.
+          console.error('[Senior Designer] provider error:', rawResponse.error);
+          showToast('Generation failed. Try again.', 'error');
           setResult({ type: 'quick_senior', inputs: quickInputs, projectName, error: String(rawResponse.error) });
           setSubmitting(false);
           return;
@@ -704,7 +720,7 @@ export function Strategy() {
         setResult({ type: 'quick_senior', inputs: quickInputs, projectName, aiData: parsed, savedId: saved?.id, heroImages, replicateAspect, textOverlayMode: !!overlayZones, zones: overlayZones, panelAssignment });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unexpected error';
-      showToast('Generation failed. Check console.', 'error');
+      showToast('Generation failed. Try again.', 'error');
       console.error('[Senior Designer]', err);
       setResult({ type: 'quick_senior', inputs: quickInputs, projectName, error: msg });
     }
@@ -1186,8 +1202,8 @@ export function Strategy() {
             disabled={submitting || geminiActive || unassignedPanels.length > 0}
             className="mt-4 w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
-            {submitting ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-            {submitting ? 'Crafting strategy…' : geminiActive ? 'Generating images…' : 'Quick Generate Ad'}
+            {submitting || geminiActive ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
+            {submitting || geminiActive ? 'Generating… usually under a minute' : 'Quick Generate Ad'}
           </button>
           {/* V5 STEP 2 — the button says WHY it's disabled. A dead button with no
               reason is the failure mode this replaces. */}
@@ -1266,6 +1282,7 @@ export function Strategy() {
       {result && (
         <div ref={resultRef} className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-6">
           <StrategyResultPanel
+            key={submissionId}
             result={result}
             onRetry={mode === 'quick' ? handleQuickSubmit : handleFullSubmit}
             onSaveQuick={saveQuickCampaign}
