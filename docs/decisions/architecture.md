@@ -1,0 +1,370 @@
+# Architecture reference — integrations, tables, flows
+
+<!-- Moved verbatim out of CLAUDE.md on 2026-09-09 (Phase 1 exit restructure).
+     Content below is UNCHANGED except where a line is explicitly marked CORRECTED.
+     CLAUDE.md now carries invariants and current state only; this is the history. -->
+
+Everything CLAUDE.md used to carry as descriptive reference. Not invariants
+(those stayed in CLAUDE.md) and not history (that is docs/history/bugs.md).
+
+## Active Integrations
+
+### 1. Meta Marketing API (auto-fetch campaign stats)
+- Edge Function: `supabase/functions/meta-insights-sync/`, runs on pg_cron every 15 min.
+- Writes to `campaign_metrics` (tagged with `project_id` when per-project accounts are configured).
+- API: `https://graph.facebook.com/v21.0` — always async POST jobs, never sync GET.
+- Rate limit header `X-FB-Ads-Insights-Throttle` — back off if `acc_id_util_pct > 75`.
+- Token stored org-level in `org_integrations.meta_access_token` (one System User token covers all accounts under the Business Manager — never per-project).
+- **Ad account ID (per-project)**: `projects.meta_ad_account_id` (nullable text, migration `20260622030000`). Sync checks projects with this set and syncs each separately, tagging rows with `project_id`. Falls back to `org_integrations.meta_ad_account_id` (org-level, no project tag) when unset.
+- **`act_` prefix**: `meta_ad_account_id` must always be `act_<numeric_id>`. **`normalizeAdAccountId()` is the single owner** — `src/lib/ad-account-id.ts` + its hand-mirrored twin `supabase/functions/_shared/ad-account-id.ts` (same Vite/Deno boundary as `pricing.ts`; a test on each side pins identical cases so drift trips CI). It trims, strips a leading `act_` **case-insensitively**, validates `/^\d{6,20}$/`, and returns `{ok,value}|{ok:false,error}` — never a bare prefix-and-hope. Replaces two inline copies of `raw.startsWith('act_') ? raw : 'act_'+raw` that validated nothing and were case-sensitive, so `ACT_123` stored as `act_ACT_123` and `12ab34` stored as `act_12ab34` — both dead on the first Graph call, surfacing only as a sync that logs `skipped`. Server is the authority: `meta-token-connect` 400s a malformed `adAccountId` **before** any Graph call (same early-gate reasoning as the admin check), and `storeMetaConnection` re-normalizes at the single statement that writes the column, dropping an unparseable discovery value rather than failing a verified connect. Client copy is convenience. **`src/pages/projects/ProjectForm.tsx`** (note the path — NOT `src/components/`, which an earlier version of this line claimed) carried the same inline copy for `projects.meta_ad_account_id`; it now imports the util and blocks the save with `AD_ACCOUNT_ID_ERROR` on a malformed id. **Still un-normalized: `supabase/functions/_shared/meta-oauth.ts:208`** builds `'act_' + String(acctRows[0].account_id)` straight from Graph discovery — logged as **A4b**, untouched because that file is under the standing Meta freeze. Do NOT strip the prefix in the sync function.
+- **Error surfacing**: `syncAccount` throws on Meta API errors (after logging to `integration_sync_log`); the outer loop returns them in the JSON body as `{ status: 'error', error: '...' }`. `SettingsPage.triggerMetaSync` shows real errors, not just Supabase-level ones.
+- **Sync levels**: `level: 'campaign'` (main) + `level: 'ad'` (fire-and-forget via `syncAdMetrics`). Ad-level still uses the org-level `meta_ad_account_id`, not yet per-project.
+- **Required Meta permissions**: `ads_read`, `ads_management`, `business_management`, `pages_read_engagement`. System User tokens recommended. Setup guide is a collapsible panel in `SettingsPage.tsx`.
+- **Future — multi-account manager**: when an org runs 10+ projects across separate ad accounts, replace `projects.meta_ad_account_id` with an `org_ad_accounts` table + junction table (backfill steps documented in migration `20260622030000`'s comment). Do not implement until volume justifies it.
+
+### 2. Image Generation (creative variants)
+- Client-side: `src/lib/gemini-service.ts` (`generateImageWithGemini`/`uploadGeminiImageToSupabase`) is now the **only** image-generation path for both `Creatives.tsx` (Nanobanana 3-variant flow) and `CreativeViewer.tsx` (own simpler template-based prompt, `buildCreativeImagePrompt` local to the component — brandKit/projectContext there carry far less detail than the senior-designer system). The old `generate-creatives` Edge Function (legacy Imagen 3 model, server-side, used only by `CreativeViewer`, wasted 2/3 of its output on every single-angle regenerate) was deleted — deprecated in favor of routing `CreativeViewer` through the same client-side service Creatives.tsx uses, so it inherits `MOCK_AI_ENABLED` and `SINGLE_IMAGE_TESTING_MODE` for free. **Fixed (CC-P3)**: `uploadGeminiImageToSupabase`'s `FUNNEL_MAP` lookup used to force `.toUpperCase()` unconditionally before the lookup, turning e.g. `'consideration'` into `'CONSIDERATION'` — matching neither the uppercase `TOFU`/`MOFU`/`BOFU` keys nor the lowercase `awareness`/`consideration`/`conversion` passthrough keys, silently defaulting every DB-vocabulary caller to `'awareness'`. Fixed at source: try the raw value first, uppercase only as a fallback. `CreativeViewer.tsx`'s old workaround (skip `funnelStage` entirely, set `creative_assets.funnel_stage` via a separate follow-up `.update()`) is removed — it now passes `funnelStage` directly like every other caller. The function also gained an optional `promptUsed` opt (stores the real generation prompt in `creative_assets.prompt_used`; omitted callers keep the pre-existing angle-label fallback) so removing that same workaround didn't regress what got stored there. Tests: `src/lib/gemini-service.test.ts`.
+- Model: **OpenAI gpt-image-2** (RB-P7 default; was gpt-image-1) via `generate-image` Edge Function, selected by the `IMAGE_MODEL` env flag (`resolveImageModel()`; instant rollback = `gpt-image-1`). Avoids browser CORS, keeps `OPENAI_API_KEY` server-side. Returns `data[0].b64_json`. Sizes: square→`1024x1024`, portrait→`1024x1536`, landscape→`1536x1024`. Quality: `low|medium|high`. **gpt-image-2 REJECTS `input_fidelity` (omit it) and doesn't support transparent background** — see the RB-P7 entry. Historical GPT-Image-1 notes below remain accurate as history.
+- **Prompt format — Aanya's 9-section structure**: flowing prose (500–800 words) — scene narrative → composition % → camera/lens → lighting/Kelvin → color palette (hex) → typography layer (text rendered directly into the image, no CSS overlay) → brand elements → negative prompts → technical specs. Reference example (Neelachala Homes style) lives in `senior-designer-prompts.ts`.
+- `generateImageWithGemini()` → `supabase.functions.invoke('generate-image', {...})` → `{ base64, mimeType }`. `creative_assets.model_used = 'gpt-image-1'`.
+- **Reference images (QuickReferenceUploader)**: uploaded to `quick-references` bucket; `Strategy.tsx` runs `describeImageForFlux()` (Claude Haiku vision) on each before `buildQuickGenerateBrief`, storing the description in `QuickReference.visual_description` for `buildReferenceManifest()` to inject.
+- **Project media (`project_assets`) vision enrichment**: a bare `asset_url` in a text prompt is invisible to a text-to-image model — `ProjectAsset.visual_description` must be populated (client-side only, the DB has no such column) for a reference photo to have any effect. `Creatives.tsx`, `Strategy.tsx` Quick Generate, and Strategy's Full Strategy path all run the same fetch-project_assets → `describeImageForFlux()` on `hero_exterior`/`interior_*`/`amenity_*` → enrich block inline. **No shared helper exists yet** — three near-identical copies; extract one if a fourth entry point appears.
+- `generateImageWithGemini` accepts `aspectRatio: '1:1'|'9:16'|'4:5'` and `quality` (default always `'high'`). `1:1`→1080×1080, `4:5`→1080×1350, `9:16`→1080×1920.
+- **Strategy page (SeniorDesignerResultPanel)**: 3 images from 3 distinct layout-paradigm prompts — Feed (1:1, `nanobanana_prompt_main`, graphic-design frame), Portrait (4:5, `nanobanana_prompt_portrait`, photorealistic scene), Story (9:16, `nanobanana_prompt_story`, typography-forward). Falls back to `nanobanana_prompt_main` if portrait/story absent.
+- **Creatives page**: 3 images from 3 variant prompts, each 1:1 (value/lifestyle/amenity angles).
+- Deterministic storage path so edits overwrite the same file: `generated-creatives/{orgId}/{sessionId}/{angle-slug}.{ext}` in bucket `brand-assets`. `uploadGeminiImageToSupabase` returns `{ url, id, storagePath }` and inserts a `creative_assets` row (`creative_id` FK links to parent `creatives` row). Angle map: 'Price-led with Urgency'→`value`, 'Lifestyle / Aspirational'→`lifestyle`, 'Trust & Legacy / Amenities'→`amenity`. Funnel map: TOFU→`awareness`, MOFU→`consideration`, BOFU→`conversion`. All 3 images from one click share one `session_id`.
+- Prompt templates: `src/lib/senior-designer-prompts.ts`.
+- **Text-overlay layer system**: ad copy (headline/price/CTA) is ALSO rendered as an app-controlled, editable overlay stored in `creative_assets.text_layers` (jsonb) — independent of whatever Section 6 bakes into the image. See "Text-Overlay Layer System" below. `ad-compositor.ts` was removed (superseded, zero prior callers).
+
+### 3. Claude API Proxy (`claude-proxy` Edge Function)
+All client-side Claude/Anthropic calls route through `supabase/functions/claude-proxy/index.ts`. `ANTHROPIC_API_KEY` is a Supabase Edge Function secret — never a `VITE_` var, never in the client bundle.
+- **Client callers**: `aiCall()`, `aiVision()`, `describeImageForFlux()` in `src/lib/ai-service.ts`. `isAiEnabled()` returns `true` unconditionally.
+- **Direct-invoke callers** (bypass `ai-service.ts` helpers): `Analyzer.tsx` (`_beta: 'web-search-2025-03-05'`) and `AanyaMemory.tsx` (`analyzeCreativeWithVision`).
+- **`_beta` field**: forwarded as the `anthropic-beta` header; stripped before forwarding to Anthropic.
+- **Deploy**: `supabase functions deploy claude-proxy` + `supabase secrets set ANTHROPIC_API_KEY=sk-ant-...`.
+
+### 4. External Editors — Edit-in-Place Flow
+**Adobe Express** — `src/components/AdobeExpressModal.tsx`, Embed SDK v4, `onPublish` returns edited base64. With `storagePath`: overwrites the original file (`upsert: true`), updates `creative_assets.image_url`. Without (legacy `CreativeViewer` path): creates a new `/edited/` file, updates `edited_image_url`. `ImageGalleryViewer` updates local state after save — no download needed.
+
+**Canva** — per-user OAuth (`org_user_integrations`). `canva-open-editor` uploads asset, creates design, returns `{ editUrl, designId }`. `canva-sync-design` exports via `POST /v1/exports`, downloads PNG, overwrites the original storage path. `canva-oauth-callback` handles the OAuth redirect. Sync from Canva is fully automatic — no manual "Sync" button; `ImageGalleryViewer` shows a non-interactive "Syncing from Canva…" status while it's in flight.
+
+> **How the Canva edit flow works end-to-end (see bug #45 below for the full incident writeup)**
+>
+> 1. **Cold start (Canva not yet connected)**: "Edit in Canva" opens a blank tab *synchronously* (before any `await`, so the browser can't strip "user activation"), then navigates it to Canva's OAuth screen in a **popup** — an iframe is impossible (Canva sends `X-Frame-Options: SAMEORIGIN`), and the popup's completion signal goes through `localStorage`'s `storage` event, never `window.opener` (Canva's `Cross-Origin-Opener-Policy: same-origin` severs that reference the instant the popup navigates to Canva's domain). The popup identifies itself with certainty via an `&via=popup` marker baked into `returnUrl` — never inferred from `window.opener`/`window.close()`, both unreliable — and never renders the real app, regardless of whether it manages to close itself (a known, likely-permanent browser limitation once a popup's history spans multiple pages). Falls back to a real same-window redirect if the popup can't even open, made safe by the DB-backed resume in step 4.
+> 2. **Already connected**: same synchronous-tab trick, but navigates straight to the real Canva editor (`editUrl`) — no popup dance, just a plain new tab.
+> 3. **Editing finishes — Canva's "Return Navigation" feature** (a *completely separate* mechanism from OAuth — a single fixed return URL configured once in the Canva Developer Portal, already enabled for this integration). `edit_url` carries a `?correlation_state=${page}:${creativeAssetId}` marker this app sets (50-char cap). Clicking "Return" inside Canva's editor sends that same tab to `{returnUrl}?correlation_jwt=...` — a signed JWT that `canva-verify-return-nav` verifies against Canva's JWKS before trusting anything in it. On success, the tab signals the opener via `localStorage` and the **opener auto-runs the sync for that specific image** — no manual click, which is why no manual Sync button exists.
+> 4. **DB-backed resume**: if the cold-start path falls back to a same-window redirect, `Strategy.tsx`'s landing effect reconstructs the entire Strategy result (text + images) from `creatives.senior_designer_brief` + `creative_assets`, keyed by the resumed creative's id — nothing is actually lost even on a full page reload, because it was persisted to the DB before the user ever reached the edit step in the first place.
+
+**Download**: always available as fallback.
+
+---
+
+### 5. LeadGen V2 ("Aarav Agent") — feature-flagged multi-agent workspace
+
+Split-pane agent workspace. Gated behind `LEADGEN_V2_ENABLED` (`src/lib/feature-flags.ts`, reads `VITE_LEADGEN_V2_ENABLED`, default `false`). Gated at `src/App.tsx` (route fallback) and `Sidebar.tsx` (nav item). Old pages (Strategy, CampaignWizard, etc.) remain accessible when the flag is on — not deleted.
+
+- Page: `src/pages/leadgen-v2/index.tsx` — left 360px conversation thread (`AaravThread`), right canvas (`BrandCheckCard` → `StrategyCard` → `CreativeGrid`), footer `ApprovalBar`. Full contract, invariants, and file map: `src/pages/leadgen-v2/README.md`.
+- `useAgentSession.ts` calls the real `aarav-orchestrate` Edge Function (no mock). `sendMessage`/`regenerateCreatives`/`requestChange` share one `inFlightRef` guard; `approveTurn` uses a separate `approveRef` — a double-click can never double-write the cost ledger or memory tables.
+- `useProfileMode.ts` reads `profile_tier` from `localStorage` (client display), also stored server-side in `profiles.tier` (cost-ceiling source of truth, migration `20260620000000`). Tiers: `profile_1`/`profile_2`/`profile_3`. `profile_1` collapses to a single neutral "Working on it…" spinner and unattributed canvas cards; `profile_2` shows named-agent delegation chips.
+- **Per-interaction budget cap**: `_shared/tier-config.ts` holds cost ceilings per tier (`$0.85`/`$3.00`/`$10.00`). Enforced in `aanya.ts` via `BudgetTracker` — reserve happens synchronously before each `await generateImage` (race-free in single-threaded Deno). On exhaustion: best-of-current returned, `agent_turns.cap_hit = true`, Langfuse `budget-cap-hit` span logged. Monthly volume quota is not implemented — this is anti-runaway only.
+- `src/lib/access.ts` maps `'leadgen-v2': 'strategy_quick'` for per-profile module visibility — unrelated to the feature flag itself.
+
+#### Phase 5 — Realtime turn tracking, approval gate, memory write
+
+Complete in source and **confirmed deployed** (2026-07-21, after a real incident — see below). New tables (migration `20260617120000`): `agent_turns` (one row per invocation, Realtime target, `delegations jsonb`), `agent_messages` (conversation log), `agent_memory` (approved decisions, written on `action='approve'` only). `agent_turns.cap_hit` (migration `20260620010000`).
+
+**Approve invariants — all three required**: (1) UI guard, Approve button disables the instant `approveLoading` goes true; (2) hook guard, `approveRef` blocks a second request even on delayed state update; (3) server guard, `handleApprove()` returns early with no DB write when `approved_at IS NOT NULL`.
+
+**No Meta launch**: `action='approve'` sets `status='ready_to_launch'` only — do NOT change to `'approved'` without a real Meta campaign-create call first.
+
+**Wall-clock**: Supabase caps at 150s (platform default); Aanya's loop is parallelised (`Promise.allSettled`), worst case ≈100–130s. Migration `20260617130000` pg_cron marks turns stuck >10min as `'failed'`.
+
+**Deployment incident (2026-07-21)**: `deploy-functions.yml` had exactly one run in its history and it failed (`401` from the Supabase Management API — expired `SUPABASE_ACCESS_TOKEN`, rotated 18 min after the failure but never re-verified). Result: `aarav-orchestrate` silently ran pre-Phase-5 code in production for ~a month — `action:'approve'` fell through to a normal `send_message` turn instead of hitting the approve dispatch. Found while building WS1.6 isolation-harness probe 7. **Fixed**: rotated token confirmed via `workflow_dispatch` manual redeploy (green in 35s); re-ran the isolation suite, 9/9 passed including probe 7 (`handleApprove`'s org-scoped `agent_turns` filter, index.ts ~line 758) both locally and in CI (run `29828405683`). This is why the "keep this file current" note above now says a merge isn't a deploy — check this before trusting any future "Phase N complete" claim for anything security- or correctness-sensitive.
+
+#### Aarav's specialists — server-side only, never reachable from `src/`
+
+`aarav-orchestrate` (`supabase/functions/aarav-orchestrate/index.ts`) is the **only** Edge Function the client calls. It fans out server-side to `supabase/functions/_shared/agents/` — none of those are routable Edge Functions and none may ever be imported under `src/`. **`org_id` is never trusted from the request body** — derived from `auth.getUser()` + a `profiles` lookup, then threaded through as the server-resolved value everywhere, including a manual re-filter on the service-role client for the approve path (see Phase 5 above).
+
+- **Arjun** (`arjun.ts`) — strategist. One Sonnet 4.6 call → `StrategyConfig`. Runs first on every normal turn.
+- **Aanya** (`aanya.ts`) — creative director. Runs after Arjun, produces 3 `CreativeVariant`s (value/lifestyle/amenity), each with a placeholder `brand_check` that **`aarav-orchestrate` always overwrites** with Diya's real verdict before reaching the user.
+  - **Self-critique loop**: one ideation call → per angle: generate image → cheap critique call (scores the *prompt + copy*, not pixels) → regenerate on reject. **Hard-capped at 3 iterations/angle** — non-convergence uses best-of-N, never an error.
+  - Image generation always goes through `_shared/image-provider.ts` — never constructs a provider request directly.
+  - **Cost tracking**: `RunAanyaResult.totalCostUsd` sums the entire loop (ideation + every critique + every image gen), not just the accepted pass.
+  - Images upload to `generated-creatives/{orgId}/{runId}/{angle}.{ext}` in `brand-assets`.
+  - **Regenerate flow**: `AgentRequest.regenerate_creatives` re-runs just Aanya (`handleRegenerateCreatives()`), a separate path from the normal turn. Omit `angle` to regenerate all 3; the other 2 (`keep`) are echoed back with their already-real `brand_check`, never re-sent to Aanya.
+- **Diya** (`diya.ts`) — brand manager. **Removed from `main` (commit `bef4236`), restored in CC-P4 Step 2** by re-porting from the parked local `feature/diya-brand-manager` branch (which is an *ancestor* of main, not a mergeable branch). Two functions:
+  - `runBrandConfirm({ orgId, projectId })` — deterministic `brand_kits` lookup (org-scoped, no LLM). `brand_kits` is one row per org (`UNIQUE org_id`, no `project_id` column) — `projectId` threaded through for a future per-project override, unused today. No kit → `{ status: 'flag', ... }`, never a crash. Defined but **not currently wired into the orchestrator** (only `runBrandCheck` is — CC-P4 restored the post-generation check, not the pre-Arjun confirm step).
+  - `runBrandCheck({ orgId, projectId, variants, traceId, kit? })` — **Sonnet-4.6 with vision** (`DIYA_MODEL = 'claude-sonnet-4-6'`, `max_tokens: 256`, `AbortSignal.timeout(120_000)` added on restore), one call per variant (image by URL, never re-uploaded). No kit → flags every variant, zero LLM spend. A single variant's vision call failing flags only that variant, never silently passes.
+  - **Behind the provider seam** (CC-P4 Step 1): the orchestrator calls `getBrandProvider().runBrandCheck(...)` (`_shared/providers/`), whose `LocalBrandProvider` delegates to Diya — a Praveshika brand service slots in here without touching `aarav-orchestrate`.
+  - **Orchestrator wiring** (`applyBrandCheck()` in `aarav-orchestrate/index.ts`): called on every batch of new variants (normal turn + regenerate's fresh variants only; `keep` retains its prior verdict) — **invariant: no Aanya creative reaches the user without a Diya verdict.** If the check throws, every variant in that batch is fail-safe flagged. Logs a `diya` `agent_interactions` cost row when a real LLM call happened.
+  - **Scope caveat**: this pipeline (`aarav-orchestrate` = LeadGen-V2) is behind `LEADGEN_V2_ENABLED` (default **false**), so the invariant is real *within LeadGen-V2*, which is not user-facing by default. Diya does **not** run in the main Strategy/Creatives pages.
+  - `status: 'pass' | 'flag'` — `flag` is advisory only; `CreativeGrid` renders a badge + note and keeps flagged tiles selectable. Hard governance blocks are a future phase.
+- **Kavya** (`kavya.ts`) — content strategist. `detectKavyaIntent()` in the orchestrator runs before the Arjun→Aanya chain; SMM/content messages route here, campaign messages don't.
+  - `'plan'` (Sonnet, 4096 tok) — 30-day SMM calendar, bulk-inserted into `smm_calendar` on success (insert errors logged, non-fatal).
+  - `'caption'` (Haiku, 1024 tok) — single platform-optimised caption + hashtags.
+  - `'reel'` (Haiku, 1024 tok) — 3-section reel script, no DB write.
+  - Cost logged to `agent_interactions` as `agent: 'kavya'`. Client canvas rendering for Kavya turns is not yet implemented — turns show Aarav's text message only, canvas JSON sits in `agent_turns.canvas` for future UI.
+- **Dhruv** (`dhruv.ts`) — analyst, read-only (never changes campaign settings). `detectDhruvIntent()` checked before Kavya and Arjun→Aanya.
+  - `'reactive'` (Sonnet, 2048 tok) — conversational insight + optional `delegate_suggestion` (`'arjun'|'aanya'|null`).
+  - `'report'` (Sonnet, 4096 tok) — full monthly narrative report.
+  - `'dashboard'` (Haiku, 512 tok) — 3-5 severity-coloured cards.
+  - **Pre-computation invariant**: `buildMetricsContext()` (`_shared/metrics-query.ts`, pure SQL, no LLM cost) runs BEFORE the LLM call and before the Arjun→Aanya chain (cross-agent enrichment). Dhruv narrates a `MetricsContext` JSON, never sees raw rows — every number he cites is verifiable.
+  - **Alert checks** (threshold, no LLM): CPL spike (7d avg > 1.5× 30d avg, high), ad fatigue (frequency > 2.5, medium), CTR drop (7d avg < 70% of 30d avg, medium). No overspend alert — `campaign_metrics` has no budget column.
+  - **Background job**: `dhruv-anomaly-check/index.ts`, pg_cron hourly, `--no-verify-jwt`, zero LLM cost — high-severity alerts insert one deduplicated `notifications` row per org per day.
+  - **Dashboard cards** (`DhruvInsightCards.tsx`) call `buildMetricsContext()` client-side directly (zero LLM on load); Dhruv's LLM fires only on a conversational question.
+  - Cost logged to `agent_interactions` as `agent: 'dhruv'`.
+  - Seed script: `scripts/seed-dhruv-test-data.ts` — 31 days synthetic data, 3 campaigns, intentionally triggers CPL spike + ad fatigue. Cleanup: `DELETE FROM campaign_metrics WHERE campaign_id LIKE 'seed-%'`.
+- **Prompt versioning**: `_shared/agents/prompts.ts`, `loadAgentPrompt('arjun'|'aanya'|'diya'|'kavya'|'dhruv')`. All bodies are **PLACEHOLDER v1.0** — establish the JSON contract; real prompt engineering is a separate pass. Aanya's critique sub-prompt loads via `loadAanyaCritiquePrompt()`.
+- **JSON parsing**: every specialist uses `parseJsonObject()` (`_shared/agents/json-extract.ts`, brace-depth scanner + fence stripping) — never raw `JSON.parse` on LLM output.
+- **Langfuse**: every specialist LLM/image/vision call logs as a `GENERATION` (never a bare `langfuseSpan`) nested under the parent trace via `traceId`. Diya's confirm step (a DB lookup, not a model call) is the one exception — logged as a `langfuseSpan`. Image bytes never sent to Langfuse.
+- **Failure handling**: a failed specialist sets `DelegationStatus: 'failed'`, logs an `ERROR` generation, still writes `agent_interactions` if tokens were spent, and the client gets an Aarav-voiced fallback — raw errors never reach the response. Arjun failing aborts the turn; Aanya failing after Arjun still returns his strategy (creatives retriable via Regenerate); Diya failing returns Aanya's creatives, all fail-safe flagged.
+
+#### Image generation provider abstraction (`_shared/image-provider.ts`)
+`generateImage({ prompt, size?, quality?, providerHint?, traceId?, observationName? })` is the **only** place that constructs an image-generation API request — both `generate-image/index.ts` and `aanya.ts` call this, never OpenAI/Gemini directly. Two providers wired: **OpenAI GPT-Image-1** (default) and **Gemini 2.5 Flash Image** (`providerHint: 'gemini'`, server-side `GEMINI_API_KEY` — distinct trust boundary from the client-side `VITE_GEMINI_API_KEY` used by the deprecated Imagen 3 path). Provider selection: env var `IMAGE_PROVIDER`, default `'openai'`. A third provider means a new switch case + `ImageProvider` union member, no caller changes.
+- `describeImageForFlux` (`ai-service.ts`) is **not** an image generator — a Claude-vision helper describing an existing uploaded image for prompt enrichment. Flux is never called as a generator in this repo.
+- Returns `{ imageBase64, mimeType, providerUsed, costMeta }` — `unitCost` is approximate, good for cost-tracking, not invoicing-grade.
+- API keys read from `Deno.env` inside this module only.
+- One-off benchmark: `benchmark/image-providers.ts` (not deployed) — see file header for usage.
+
+#### `agent_interactions` table (cost ledger)
+Migration `20260616080000`. One row per specialist run per orchestrator invocation: `org_id, user_id, agent, trace_id, model, input_tokens, output_tokens, cost_usd, created_at`. Aarav writes a zero-cost stub row per turn. Diya's `runBrandConfirm` (no model call) writes no row; `runBrandCheck` writes one row aggregating the batch. RLS: org-scoped SELECT only; writes always via the service-role client in `aarav-orchestrate`.
+
+
+### 6. Langfuse — LLM observability
+All LLM calls trace to Langfuse (project AWAAS, `https://us.cloud.langfuse.com`). No-ops cleanly if `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` aren't set. `LANGFUSE_SECRET_KEY` is a Supabase Edge Function secret, never a `VITE_` var (same rule as the other API keys in this doc).
+
+**Shared client**: `supabase/functions/_shared/langfuse.ts` — hand-rolled against `POST /api/public/ingestion` (lighter than the OTel SDK for a short-lived Deno isolate). Exports `langfuseTrace` (one per request/flow), `langfuseGeneration` (actual LLM calls — always this, not `langfuseSpan`, for cost/token analytics), `langfuseSpan` (non-LLM orchestration steps only).
+
+**Server-side**: `aarav-orchestrate` traces per orchestration call (tagged `['leadgen-v2', 'aarav']`); `generate-image/index.ts` traces per image.
+
+**Client-side** (`src/lib/ai-service.ts`): anything through `aiCall`/`aiVision`/`describeImageForFlux` traces automatically. Since the Langfuse secret can't ship to the browser, these route through `langfuse-ingest` (requires a valid Supabase Authorization header, forwards using its own server-side secret, scrubs `sk-ant-...`/`sk-lf-...`/`Bearer ...` substrings defensively). `logToLangfuse()` is fire-and-forget (`.catch()`-swallowed — a tracing failure must never surface to the user). `getBrowserSessionId()` (one UUID per tab) groups multi-step flows into one Session. Vision messages are redacted to `[redacted image data]` before sending.
+- `AanyaMemory.tsx`'s `analyzeCreativeWithVision()` calls `claude-proxy` directly (not via `aiVision`) and traces as `aanya-memory-vision-analysis` via an inline `logToLangfuse` call.
+- High-value call sites pass an explicit `traceName` (`strategy-quick-generate`, `creatives-variant-generate`, etc.). Other call sites still get traced automatically under the default `claude-call`/`claude-vision` name — add an explicit `traceName` next time you touch one of those files.
+
+**Adding tracing to a new LLM call site**: client call through `aiCall`/`aiVision` → nothing to do, optionally pass `traceName`. Client call bypassing `ai-service.ts` → import `logToLangfuse`, call after the response, redact images first. New server-side Edge Function → import `langfuseTrace`/`langfuseGeneration` from `_shared/langfuse.ts`.
+
+---
+
+## Image Generation Provider — Switching Guide
+
+> Current: **OpenAI GPT-Image-1**. History: DALL-E 3 → NVIDIA NIM FLUX.1-schnell (unreliable, commit `dbab464`) → Google Gemini Imagen 3 (commit `01090f9`) → GPT-Image-1.
+
+**Current approach**: text (headlines, pricing, CTAs, feature boxes) is rendered directly into the image via Section 6 of the 9-section prompt, matching professional real-estate ad standards.
+
+**Known unreliability**: a controlled A/B test (same brief, "₹ only, never $" repeated in system prompt + both stages) still produced a `$` price instead of `₹`, for both Sonnet- and Haiku-authored prompts. This is a GPT-Image-1 rendering-level failure, not a prompt-writing one — Claude never touches pixels, so no amount of prompt engineering guarantees compliance. This is why the text-overlay layer system exists as a reliable parallel path (below); Section 6 itself is intentionally unchanged.
+
+**Two-stage generation** (`buildTwoStageQuickGenerateBrief`/`buildTwoStageVariantBriefs` in `senior-designer-prompts.ts`): splits what was one ~16000-token call into Stage 1 (concept + ad copy + `visual_anchor`, 1500 tok) → Stage 2 (3 parallel per-layout calls, 700-800 tok each). ≈35-40s total vs. the old single call's ~65s — dodges the `claude-proxy` 120s timeout. `visual_anchor` is a literal 60-100 word building description from Stage 1 that every Stage 2 call must reproduce verbatim — fixed cross-image architectural inconsistency (each of the 3 independent Stage 2 calls was previously free to invent its own building).
+
+**Why 9 sections**: GPT-Image-1 responds well to prose divided into clear functional sections (scene → composition → camera → lighting → color → text-render → brand → negatives → tech specs) — architectural clarity for both visual intent and typographic requirements. Same format as the original Imagen 3 prompts (`git show 24347b2:src/lib/senior-designer-prompts.ts`).
+
+**To revert to a previous provider**:
+- **Imagen 3**: `git show 01090f9` for `gemini-service.ts`; prompts at `git show 24347b2:src/lib/senior-designer-prompts.ts`. Requires `VITE_GEMINI_API_KEY`; drop the `generate-image` Edge Function call.
+- **DALL-E 3**: `model: 'gpt-image-1'` → `'dall-e-3'`, portrait size `1024x1536` → `1024x1792`, quality `'low'|'medium'|'high'` → `'standard'|'hd'` in `generate-image/index.ts`.
+
+**Provider-agnostic, keep regardless of active model**: the storage path + deterministic upsert pattern; `creative_assets.model_used` (update to match); the text-overlay layer system (layers on top of any background image).
+
+---
+
+## Text-Overlay Layer System
+
+**Why**: Section 6 baking text into the image is unreliable at the pixel-rendering level (see above) — no prompt engineering fixes it since Claude never touches pixels. This gives the app a reliable, editable, app-controlled alternative for the same text.
+
+**Scope (Phase 1 of 2)**: additive only — the AI image still renders baked text as before; the overlay is a second, independent layer. A future pass may simplify Section 6 to "reserve negative space" and stop baking text at all — real image-style risk (the Neelachala-style frame layout is partly built around baked typography), needs its own A/B validation first.
+
+**Why not Canva's text elements**: investigated and ruled out. Canva's Connect API `POST /v1/designs` only accepts `asset_id` — the image becomes an opaque background with no way to seed separate text elements without a pre-built Brand Template + Autofill API (not implemented). `canva-sync-design`'s export is always a flattened raster PNG too.
+
+**Data model**: `creative_assets.text_layers jsonb` — array of `TextLayer` (`src/lib/text-layers.ts`): `{ id, text, xPct, yPct, widthPct?, fontSizePx, fontWeight, color, align, backgroundColor?, paddingPx?, borderRadiusPx? }`. Authored against `TEXT_LAYER_REFERENCE_WIDTH` (1080px), scaled to actual display/export width at render time.
+
+**Files**: `src/lib/text-layers.ts` (`TextLayer` type, `buildDefaultLayers()`, `renderTextLayers()` → canvas compositor, flat JPEG for Download). `src/hooks/useMeasuredWidth.ts` (shared `ResizeObserver` hook so preview and editor scale identically). `src/components/TextLayerOverlay.tsx` (read-only preview, used by `ImageGalleryViewer` + `CreativeViewer`). `src/components/TextLayerEditor.tsx` (drag-to-reposition modal, toolbar, Save persists `text_layers`).
+
+**Seeding**: `StrategyResult.tsx` and `Creatives.tsx`'s upload loop both call `buildDefaultLayers` right after upload, fire-and-forget `.update({ text_layers })`. Every newly generated creative starts pre-populated and editable.
+
+**Download**: both viewers check `textLayers?.length` — bake via `renderTextLayers` if present (dimensions parsed from the layout label / hardcoded 1080×1080 for `CreativeViewer`), else raw download.
+
+---
+
+## History / Journey Feature (CC-P3)
+
+Persists every saved AI tool output so a campaign's full journey (strategy → ad_config → ad_creatives → ad_review) can be replayed, and feeds completed campaigns back into `aanya_training_creatives`.
+
+- **Service**: `src/lib/history-service.ts` — `saveToolOutput`/`listToolOutputs`/`getCampaignJourney`/`markStatus`/`deleteToolOutput`/`enforceRetentionCap`/`distillCampaign`, all **client-side** (authenticated user), so `tool_outputs` needs full org-scoped INSERT/UPDATE/DELETE RLS policies — NOT the SELECT-only `agent_interactions` shape. The original CC-P3 migration (`20260730130000`) mistakenly used the SELECT-only shape, silently breaking every save in prod; fixed in `20260731120000` (found by the Playwright e2e — unit tests mock Supabase and never exercise RLS). `deleteToolOutput` removes Storage objects (from `asset_refs`) **before** the DB row (non-fatal on storage failure), modeled on `creative-history.ts`'s `enforceCreativeHistoryLimit`. Tests: `src/lib/history-service.test.ts` (18 — built the repo's first chainable Supabase query-builder mock).
+- **Retention**: 30 rows per `(org_id, tool)`, enforced after every save (best-effort, never fails the save). Backstop: `history-retention-sweep` Edge Function on a weekly vault-backed pg_cron (`20260730140000`), same pattern as `dhruv-anomaly-check`.
+- **Distillation**: `distillCampaign(campaign_id)` copies the campaign's `creative_assets` into `aanya_training_creatives` (`source='own_ad'`, deduped on `storage_path`, `MAX_LIVE_CREATIVES=10` eviction reused from `meta-insights-sync`'s `arjunPromoteCreatives`), attaches best-effort `creatives.design_dna_tags` + latest `ad_review` payload as notes, then removes the campaign's `tool_outputs` + `creative_assets` (storage-first). Wired to the Campaigns page's status→completed control, gated by a confirm dialog.
+- **Shared generation components** (`src/components/generation/`): `StrategyGenerator` (form + senior-designer call + `creatives` save + "Save Strategy"→`saveToolOutput`; post-generation the form collapses to a summary and the generate button disables — one-shot, no regenerate) and `CreativeGenerator` (the 3-aspect-ratio image-gen core, `SINGLE_IMAGE_TESTING_MODE`-gated, "Save Creatives"→`saveToolOutput` with `asset_refs`). Extracted **from** Strategy.tsx/StrategyResult.tsx — **Strategy.tsx itself was deliberately NOT rewritten** (it's the most battle-tested flow; the components were ported from its logic, not made to import it). `CampaignWizard.tsx` deleted its ~200 lines of hand-rolled duplicate generation and composes these two + the extracted `generateAdConfig`/`analyzeAdCreative` helpers (`src/lib/ad-config-generator.ts`/`ad-review-analyzer.ts`, also now used by the standalone `AdConfig.tsx`/`AdReview.tsx`). The wizard creates its first real `campaigns` row on the Strategy step's save, then threads that `campaign_id` into every later step's `saveToolOutput`.
+- **Persistence wiring**: `AdConfig.tsx` gained its first-ever save path (`tool='ad_config'`, saved-configs list, mark-complete/delete). `AdReview.tsx` **dual-writes** — the existing `saveReview()`→`creatives` insert stays (5 consumers depend on it), plus an additional `saveToolOutput(tool='ad_review')`.
+- **UI**: `src/pages/History.tsx` (tool filter pills, date-grouped list, expansion → journey or single-stage view), rendered for both `history-ads` (Lead Gen nav) and `history-social` (Social Media nav) via a `domain` prop. Module-access keys `history_ads`/`history_social` (`20260730150000`, additive + backfilled per bug #43's precedent). Campaigns page row-expansion reuses `getCampaignJourney`.
+- **Budget display fix** (`Campaigns.tsx`): the `budget` column was migrated `numeric`→`jsonb` (`20260609150000`) but `Campaigns.tsx` still typed/read it as a plain number, showing a garbled/empty budget cell. Fixed to read `budget?.daily`. Also fixed the page's `STATUS_STYLES` (was `paused/ended/draft`, never matched a real value) to the new `campaigns_status_check` vocabulary `active/suspended/completed`.
+- **E2E**: `e2e/history-journey.spec.ts` (Playwright, `VITE_MOCK_AI=true`, scoped to `ZZ-INTERNAL-TEST`) — skips gracefully without `INTERNAL_TEST_USER_EMAIL/PASSWORD` (GitHub-secret-only). Real authenticated run not yet executed (no Playwright CI job, credentials not in the working tree). **[CORRECTED 2026-09-09]** A `playwright-e2e` job DOES exist (`typecheck.yml:203`) and `e2e/` now holds four specs (`history-journey`, `content-library`, `monitors`, `strategy-regenerate`). It remains advisory rather than required, and still skips without `INTERNAL_TEST_USER_EMAIL`/`PASSWORD`.
+
+---
+
+## CC-P5 — SMM history, Content Library, Dashboard calendar, reference-image pipeline
+
+Final feature PR of the cycle. Migration `20260803120000` (additive, +down in `rollbacks/`): `smm_calendar.project_id` (nullable FK → `projects`) and `creatives.description` (text) — both resolve bug #48 phantom keys (see #48); `description` is user-facing (Meta's ≤30-char slot, displayed in `Creatives.tsx`), so the ruling was add-column-and-restore. Hand-written `database.types.ts` updated for both.
+
+- **SMM → tool_outputs (history)**: `SMMPlanner.savePosts` and `SMMCreatives.saveToLibrary` now ALSO write a `tool_outputs` row (`tool='smm_planner'` / `'smm_creatives'`, `domain='social'`) — the durable history record, while `smm_calendar` stays the operational store. Both resolve the selected project → `project_id` on the calendar rows. Best-effort: a history/tool_outputs failure never fails the calendar save. Retention (30/tool) applies automatically. **SMM Creatives now generates ONE image** from the AI image prompt (MOCK-gated, single image), uploads it to `brand-assets` under `smm-creatives/{orgId}/…` (NOT a `creative_assets` row — that table is ads-specific), and populates `asset_refs`. `post_time` is HH:MM-guarded (the AI's `bestTime` is often prose → null).
+
+- **SMM → Meta publish (T5-6a, 2026-08-29)**: an SMM creative can now be posted from the SMM Creatives page. The **server path needed no change and was proven live first** — `meta-publish` takes `image_url` directly, so a real Instagram post (`18457596949139900`, permalink verified HTTP 200) was published from an SMM asset before any UI existed. Provenance rides **`published_assets.tool_output_id`** with `creative_asset_id` NULL: SMM images live in `brand-assets/smm-creatives/…` and deliberately have no `creative_assets` row, and that is the shape the table was built for. The UI half is one file — `SMMCreatives.tsx` mounts `MetaPostDialog` gated on `canOfferPublish(targets, !!imageUrl)`, passing `toolOutputId`. **The gate sequences itself**: `imageUrl` is null until Save to Library runs, which is also what creates the image and the `tool_outputs` row — so no extra guard is needed and a post can never precede its own provenance. Migration `20260829150000` adds `published_assets_has_provenance_check` (at least one of the two ids) as **NOT VALID** — one pre-existing row (a downgrade probe) has neither, and validating retroactively would mean either failing the migration or deleting real history, which the additive-only rule forbids. It enforces every new row; `VALIDATE CONSTRAINT` once that row is cleaned. Rejection **and** acceptance both probed in rolled-back transactions.
+- **pg_net is NOT installed on CC-TEST** (found 2026-08-29). `cron.job_run_details` shows `dhruv-anomaly-check` has failed **934 consecutive hourly runs** with `ERROR: schema "net" does not exist` — it has never once invoked the function. `meta-insights-sync` has no cron job on TEST at all, so the metrics rows there come from manual/UI triggers, not the scheduler. Bug #44's exact pattern repeating: a migration assuming an extension is present because something else "already uses it", true only where it was enabled by hand in the dashboard. **Consequence for the main-port merge: PROD must be confirmed to have `pg_net` AND to send the service-role bearer in its `cron.job` commands before that merge lands** — if PROD is like TEST, Dhruv's alerts, the weekly report and the retention sweep have all silently never run, which is a larger finding than the cron guard itself.
+- **Content Library rework** (`ContentLibrary.tsx`): unified source view = `tool_outputs`(domain=`social`, `smm_planner`+`smm_creatives`) UNION org-scoped `smm_calendar` (was a raw, un-org-scoped `smm_calendar` dump). Prominent pill filter bar **All | Planner | Creatives | Calendar** (default All) with live counts; cards show a source badge + date + thumbnail (from `asset_refs[0]`); expansion reuses the P3 renderer. Filter logic is a pure lib (`src/lib/content-library-filter.ts`, unit-tested). The P3 `JourneyView`/`SingleStageView`/`TOOL_LABELS`/`formatDate` were extracted from `History.tsx` into `src/components/history/JourneyViews.tsx` (shared by History + Content Library — don't re-inline them).
+- **Dashboard calendar** (`src/components/dashboard/DashboardCalendar.tsx`, rendered after `WeeklyPerformanceCard`): month-compact grid + today/upcoming agenda from `smm_calendar` (`post_date`+`post_time`), dot/bar per-day counts, inline mark-complete (status→`posted`), link-through to Content Calendar (`smm-calendar`). Read-only aggregation; date logic is a pure local-time lib (`src/lib/calendar-agenda.ts`, unit-tested — uses `isoDay`, never `toISOString`, to avoid UTC off-by-one).
+- **Reference-image style pipeline** (CC-P5 Step 4, **structured-text conditioning** — `generate-image` stays text-only, no endpoint change): `CreativeGenerator` gains an optional "Attach reference" (1 image, 5 MB cap, preview) + "Regenerate with reference". `analyzeReferenceStyle()` (`ai-service.ts`, Haiku vision, MOCK-gated fixture) extracts ONLY palette/layout/text_treatment as strict JSON (HARD RULE: no subject carry-over). `src/lib/reference-style.ts` (pure, tested): `ReferenceAnalysis` + `isValidReferenceAnalysis` + `sanitizePalette` + `buildReferenceStyleBlock` — composes the brief-append from analysis + THIS project's own media (`MediaProvider.listProjectMedia` + `describeImageForFlux` enrich) + logo (`MediaProvider.getLogo`); the no-subject rule is restated in the block. Reference uploaded to the `quick-references` bucket; `reference_analysis` + `reference_path` persisted into the `ad_creatives` tool_outputs payload. **Brand-check boundary**: the client `CreativeGenerator` flow has NO Diya (`LocalBrandProvider.runBrandCheck` throws by design — Diya runs server-side only in `aarav-orchestrate`/LeadGen-V2, where the order is verified generate→`applyBrandCheck`→surface). Extending the reference pipeline into the Aanya/aarav path (so Diya checks reference-generated creatives) is a documented follow-up.
+- **Seed script**: `scripts/seed-cc-monitor-demo.ts` — idempotent, ZZ-INTERNAL-TEST-scoped, ~30d `campaign_metrics`+`smm_metrics` + 7 timed `smm_calendar` rows (ZZ- prefixed). `SEED_EMIT_SQL=1` emits SQL to apply via `supabase db query --linked` when no service key is in-tree.
+
+
+## Key Tables
+
+RLS org-scoped on every table (`org_id = get_current_user_org_id()`, `TO authenticated` only, anon access removed — migration `20260610150000`). `profiles` has a BEFORE UPDATE trigger blocking self-privilege escalation on `role`, `module_access`, `daily_ai_limit`, `org_id`. **36 tables have RLS enabled** (verified directly via `grep 'ENABLE ROW LEVEL SECURITY' supabase/migrations/*.sql`, not just asserted).
+
+| Table | Migration | Purpose |
+|---|---|---|
+| `organizations` | `20260609120000` | Org identity + brand settings |
+| `profiles` | `20260409085002` | Auth user profiles — org_id, role, module_access, `tier` (default `'profile_2'`). Trigger auto-creates on signup |
+| `projects` | `20260409123924` | Real-estate projects per org |
+| `campaigns` | `20260409123924` | Ad campaigns per project |
+| `daily_metrics` | `20260409123924` | Daily ad spend/leads/clicks/impressions |
+| `notifications` | `20260409123924` | Per-user in-app notifications |
+| `ai_sessions` | `20260409123924` | AI interaction log. `project_ids uuid[]`. Token columns: `claude_input_tokens`, `claude_output_tokens`, `gemini_images_generated` |
+| `activity_log` | `20260411063514` | Audit trail of user actions |
+| `awaas_data_pool` | `20260411084151` | AWAAS market data reference pool |
+| `targeting_keywords` | `20260415072948` | Ad targeting keywords per project |
+| `chatbot_log` | `20260429081859` | AIChatbot conversation history |
+| `campaign_metrics` | `20260604120000` | Auto-fetched Meta Ads stats (pg_cron every 15 min) |
+| `creative_assets` | `20260604120000` | Generated images + editing lifecycle. `session_id uuid` groups 3-image sets. `text_layers jsonb` — see Text-Overlay Layer System. **`project_id`** (renamed from a mislabeled `campaign_id` in CC-P3, `20260730130000` — that column had never actually held a `campaigns.id`, only ever `projects.id`, since day one) now correctly FKs to `projects`. A **fresh** `campaign_id` column (real FK to `campaigns`) and `strategy_output_id` (FK to `tool_outputs`) were added in the same migration for the History/Journey feature below |
+| `tool_outputs` | `20260730130000` | CC-P3 History/Journey feature — one row per saved AI tool output (`domain`: ads/social; `tool`: strategy/ad_config/ad_creatives/ad_review/smm_planner/smm_creatives). `campaign_id` optional FK to `campaigns`. `asset_refs jsonb` (bucket/path/creative_asset_id array) drives `deleteToolOutput`'s storage-then-DB-row cleanup. 30-row-per-(org_id,tool) retention cap, weekly `history-retention-sweep` cron backstop. See "History / Journey Feature (CC-P3)" below |
+| `org_integrations` | `20260604120000`, admin-gated RLS `20260722100000`, publish targets `20260828120000` | Org-level API tokens (Meta, Google). SELECT/INSERT/UPDATE require `profiles.role='admin'` for the acting user — not just org membership (bug #42). **`publish_page_id`/`publish_ig_user_id`** (+ display-only `publish_page_name`/`publish_ig_username`) are the ONLY targets the publish functions accept — chosen by an admin, never the discovered `meta_page_id`. See "Meta Publishing (RB-PUB)" |
+| `published_assets` | `20260828130000`, draft tier `20260828140000` | One row per publish ATTEMPT through `meta-publish`, real or dry-run. `dry_run` = was Graph called at all; `published` = can anyone see it. dry_run/false-false/false-true = validated-only / **DRAFT** (real Meta object, invisible) / LIVE; a CHECK forbids `dry_run AND published`. **Service-role write path only, so RLS is SELECT-only by design** — the opposite of bug #46's `tool_outputs`, because a browser must never be able to forge a "we posted this" row |
+| `org_user_integrations` | `20260604120000` | Per-user OAuth tokens (Canva) |
+| `integration_sync_log` | `20260604120000` | Audit trail for sync attempts |
+| `competitors` | `20260609130000` | Competitor names per org. UNIQUE (org_id, name) |
+| `brand_kits` | `20260609130000` | Design system per org. **One row per org, no `project_id` column** |
+| `lead_funnel` | `20260609130000` | Weekly lead funnel metrics. `project_id uuid` enables join with `ai_sessions` on org_id + project_id + ISO week |
+| `organic_plans` | `20260609130000` | AI-generated weekly organic social plans |
+| `events_calendar` | `20260609130000` | Holidays/festivals/custom events for SMM planning |
+| `smm_calendar` | `20260609130000`, `project_id` `20260803120000` | Scheduled social media posts. `project_id` (nullable FK → `projects`, CC-P5) records which project a post belongs to (SMM Planner/Creatives populate it from the selected project) |
+| `smm_metrics` | `20260609130000` | Daily Instagram/Facebook snapshots. UNIQUE on (org_id, platform, date) |
+| `wizard_sessions` | `20260609130000` | Campaign Wizard multi-step session state |
+| `project_assets` | `20260609130000` | Reference images per project |
+| `project_design_systems` | `20260609130000` | Learned creative DNA per project. UNIQUE on project_id. `prompt_fragments jsonb` |
+| `benchmarks` | `20260609130000` | KPI benchmarks per org/project (7d/14d rolling) |
+| `creatives` | `20260609130000`, `description` `20260803120000` | AI-generated ad creative records. `description` (text, CC-P5) is Meta's ≤30-char ad description slot — authored + displayed, restored after bug #48 removed the phantom write |
+| `creative_performance` | `20260609130000` | Metrics linked to individual creatives |
+| `agent_turns` | `20260617120000` | One row per orchestrator invocation. Realtime target. `delegations jsonb`. `approved_at IS NOT NULL` = idempotency sentinel. `cap_hit boolean` |
+| `agent_messages` | `20260617120000` | Per-turn conversation record, written on every turn completion |
+| `agent_memory` | `20260617120000` | Approved campaign decisions, written on `action='approve'` only. **DO NOT add columns here** — semantic search is `agent_memory_chunks` |
+| `agent_memory_chunks` | `20260625120000` | pgvector memory layer. `embedding vector(1024)` nullable (fail-soft). `scope memory_scope` enum: decision/project/builder/domain/shared/agent. RPCs `match_memory_chunks` (hybrid scorer, SECURITY INVOKER) + `touch_memory_chunks`. Write path (`projectApprovedCampaign`) wired into approve; read path (`retrieveMemory`) built but not yet consumed by Arjun. |
+| `aanya_training_creatives` | `20260612235959` (table), `20260613000000` (RLS) | Real-world creatives Aanya trains on. `source`/`performance_tier` CHECKs. `vision_analysis jsonb`. Images in `brand-assets/aanya-training/{orgId}/` |
+
+### `creative_assets` column constraints (CHECK)
+- `funnel_stage`: `'awareness' | 'consideration' | 'conversion'`
+- `angle`: `'lifestyle' | 'architecture' | 'amenity' | 'community' | 'value'`
+- `status`: `'generating' | 'generated' | 'editing' | 'edited' | 'approved' | 'rejected'`
+- `editor_used`: `'canva' | 'adobe_express'`
+
+---
+
+## UI Components (custom, no external chart lib)
+
+| Component | Description |
+|---|---|
+| `MetricsFreshnessBadge` | Inline live/stale/offline badge, Realtime-driven |
+| `CampaignMetricsChart` | Stat cards + CSS bar chart + table. "Sync Now" calls `meta-insights-sync` directly |
+| `CreativeViewer` | 3-col grid, Realtime, full action set (approve/reject/regen/canva/adobe/edit-text/download), lightbox. Renders `TextLayerOverlay`; download bakes `text_layers` when present |
+| `ImageGalleryViewer` | Post-generation gallery, `localImages` state so edits update in place. "Sync from Canva" button. "Edit Text" opens `TextLayerEditor`. Same download-bake behavior |
+| `TextLayerOverlay` / `TextLayerEditor` | Read-only preview / drag-to-reposition editor — see Text-Overlay Layer System |
+| `AdobeExpressModal` | Embed SDK v4. Overwrite-in-place (`storagePath`) or legacy new-file mode |
+| `CanvaConnectButton` | Canva OAuth connect/disconnect |
+| `Sidebar` | Reads `generatingPage` from `NavigationContext` — amber spinner on the active nav item; all navigation stays clickable |
+| `AanyaMemory` | `src/pages/AanyaMemory.tsx`. Upload + tag (source/platform/tier/CPL/CTR). `analyzeCreativeWithVision` (Haiku) returns 9-section-aligned `VisionAnalysis` (hex colors, lens, typography element types) → maps directly into GPT-Image-1 prompt sections. "Synthesize DNA" (Sonnet) produces richer `best_performing_*` arrays. Crawl Parameters panel aggregates patterns, exports a crawl brief JSON — full operational guide for a crawling agent in `docs/aanya-memory-schema.md` |
+
+---
+
+## Aanya Trainer → Strategy Feedback Loop
+
+Closes the loop between real-world ad performance and Aanya's generation. Fully backend, no rating UI. All 7 phases shipped:
+
+1. **9-section Haiku analysis** — `analyzeCreativeWithVision` extracts section-aligned `VisionAnalysis`. `analyzeCompetitorWithDiya` (same model, competition-focused) for competitor/industry_reference uploads.
+2. **Richer DNA synthesis** — `synthesizeDNA` consumes structured fields, outputs concrete hex/lens/typography names.
+3. **Data retention** — `is_live boolean` on `aanya_training_creatives`; synthesis only deletes `is_live=false` rows. Arjun-promoted rows set `is_live=true`, capped at 10/org (oldest demoted).
+4. **Arjun performance promotion** — `arjunPromoteCreatives()` in `meta-insights-sync`, fire-and-forget after each org sync. Compares 14d CPL to `benchmarks.avg_14d`; promotes if ratio ≤ 0.95. Runs `runHaikuVision` (direct Anthropic API call).
+5. **Diya competitor analysis** — replaces Haiku analysis for competitor/industry_reference uploads; competitive intelligence folded into the synthesis prompt.
+6. **Section-level DNA injection** — `synthesizeDNA` outputs `prompt_fragments jsonb` → `project_design_systems.prompt_fragments`. `formatDesignDNA()` uses fragments when present, falls back to a soft-guidance block otherwise.
+7. **Ad-level Meta sync** — `syncAdMetrics()` upserts `ad_metrics`, fire-and-forget, enables future creative-level attribution.
+
+**Key rules**: DNA re-synthesis is manual (user clicks Synthesize) — no auto-trigger. `arjunPromoteCreatives`/`syncAdMetrics` errors are console-logged only, never surfaced. `analyzeCompetitorWithDiya` is client-side via `claude-proxy` + Haiku — NOT routed through the server-only `_shared/agents/diya.ts` (a prompt variant, not a separate function). `is_live=true` rows are never deleted by synthesis. Cap enforcement is per-org, not per-project (future: per-project when volume justifies it).
+
+---
+
+## Generation State (cross-component)
+
+`NavigationContext` carries `generatingPage`/`setGeneratingPage`. `Strategy.tsx` sets `'strategy'` while `submitting || geminiActive`, clears on unmount. Sidebar shows a spinner badge on the affected nav item; navigation stays freely clickable (in-progress state is lost on unmount if the user navigates away).
+
+## Quick Generate Ad flow (Strategy page)
+
+`handleQuickSubmit` **always** runs the Aanya senior-designer path — no `isNanobanana` gate or legacy branch.
+
+1. `QuickGenerateForm`: project, goal, brief, ad platform (AiSensy or Meta Ads Manager). Language selector + Quick Reference uploader always visible.
+2. `buildQuickGenerateBrief` builds senior-designer prompts with `ad_platform`. **Meta**: headline ≤40 chars, first 125 chars of primary_text a standalone hook, description ≤30 chars. **AiSensy**: headline = WhatsApp template header ≤60 chars, primary_text = conversational body 300-500 chars, description = quick-reply label ≤20 chars.
+3. Claude returns `SeniorDesignerResult` → `type: 'quick_senior'`.
+4. `SeniorDesignerResultPanel` auto-triggers Gemini/GPT-Image-1 generation on mount.
+5. 3 images → `brand-assets`, `creative_assets` rows inserted.
+6. `ImageGalleryViewer` renders with Canva + Adobe Express CTAs.
+
+## AI Token & Image Count Tracking
+
+`ai_sessions` stores per-session usage: `claude_input_tokens`, `claude_output_tokens`, `gemini_images_generated` (Imagen 3 legacy, no token API — per-image billing), `tokens_used` (legacy total). Populated by `ai-service.ts` (`aiCall`/`aiVision` return `_inputTokens`/`_outputTokens`) → `session-logger.ts`'s `logAiSession` → `Strategy.tsx`/`Creatives.tsx` accumulate and pass through. **Reports.tsx AI Activity table**: cost per session = `(in*3 + out*15)/1_000_000 + images*0.10`, cumulative banner for last 20 sessions.
+
+## AI Sessions ↔ Lead Funnel link
+
+`AiSessions.tsx` bulk-fetches `lead_funnel` rows for the unique `project_ids[0]` across strategy sessions, matches by `project_id|ISO-week-start(created_at)`, shows a green "N leads · N SV · N booked" pill when matched. **No write path exists yet** — `lead_funnel` rows must be populated externally for this to surface anything.
+
+---
+
+## Creatives page image flow (Nanobanana path)
+
+1. Select project + funnel stage + output platform → "Generate 3 Variants".
+2. `buildVariantBriefs` (with `ad_platform`) → 3 platform-specific text variants.
+3. One `sessionId` UUID for the batch.
+4. `generateImageWithGemini` per prompt → `uploadGeminiImageToSupabase({ sessionId, angleLabel, funnelStage, projectId })` → deterministic path, `creative_assets` row, `{ url, id, storagePath }`.
+5. `GalleryImage` objects always carry `id`.
+6. `ImageGalleryViewer` renders with Canva + Adobe Express CTAs. Adobe Express edit overwrites `storagePath` in place; Canva edit opens externally, "Sync from Canva" exports and overwrites.
+
+---
+
+
+---
+
+## Appendix — the original `## Rules` block, verbatim
+
+CLAUDE.md's Invariants section is the one-line-per-rule distillation of this.
+The full text is kept here because several rules carry reasoning that the
+one-liner cannot.
+
+- Every table has RLS with org_id scoping (`get_current_user_org_id()`, SECURITY DEFINER, migration `20260610150000`). `organizations` uses `id = get_current_user_org_id()`, `notifications`/`org_user_integrations` add `user_id = auth.uid()`.
+- `profiles` has a BEFORE UPDATE trigger blocking self-privilege escalation on `role`/`module_access`/`daily_ai_limit`/`org_id`. Admins can update other users' profiles via a separate policy.
+- Edge Functions use the service role key — never expose to the client. All images in Supabase Storage, never external URLs. Realtime for live UI, no polling. Never modify existing tables destructively — only ADD columns. Meta API: always async POST. Sync jobs: errors per-org, one org failing never blocks others. No charting libraries — CSS/inline-style bars. Migration timestamps `YYYYMMDDHHMMSS`, wrap ALTER in DO blocks.
+- **RLS is not a check a service-role Edge Function ever meets.** Every function touching `org_integrations` uses the service-role key, which bypasses RLS entirely — so bug #42's admin-gated policies protect the *client* and nothing else. The gate must be written out in the function. Three entry points can write an org's Meta connection and all three now route through `isOrgAdmin()` (`_shared/require-admin.ts`) rather than three hand-rolled copies: `meta-publish-targets` (had it), `meta-token-connect` and `meta-oauth-start` (did not — any org member could replace the org's access token, found 2026-08-29). Client-side gating in `SettingsPage.tsx` mirrors this so a member never sees a control that 403s, but the **server stays authoritative**.
+- **Cron-only functions must reject everything that is not pg_cron.** `meta-insights-sync`, `dhruv-anomaly-check`, `dhruv-weekly-report` and `history-retention-sweep` deploy `--no-verify-jwt` and all four originally took `_req` and ignored it — so an unauthenticated POST to the public URL ran a full all-org Meta sweep, a per-org Sonnet call, or a **delete** of rows and storage objects. Absent CORS does not help: it stops a browser *reading* a response, never a plain POST. `denyUnlessCron()` (`_shared/cron-guard.ts`) is now the first line of each: non-POST → 405 (OPTIONS included, with no CORS on the refusal), missing service-role key → 503 rather than falling open, wrong/absent bearer → 401, constant-time compare. **No new secret was needed** — pg_cron already sends `Authorization: Bearer <service_role_key>`, verified in `cron.job.command`; the functions simply never checked it.
+- **DOWN migrations** live in `supabase/rollbacks/` (not `supabase/migrations/` — the CLI only scans the latter, so they never auto-apply). Apply manually: `supabase db query --linked -f supabase/rollbacks/<file>.sql`.
+- **`match_memory_chunks` signature**: `(query_embedding vector, query_text text, filter_scope memory_scope DEFAULT NULL, filter_project uuid DEFAULT NULL, match_count int DEFAULT 10) RETURNS TABLE(id, content, scope, agent_name, salience, similarity, hybrid_score, created_at)`. SECURITY INVOKER — RLS enforces tenancy automatically. **Do not pass `org_id`** — not in the signature.
+- Storage: edited images always overwrite the original path (`upsert: true`), never accumulate files.
+- `uploadGeminiImageToSupabase` returns `{ url, id, storagePath }` — use `.url`, not the raw return value.
+- **`brand_kits` is strictly org-level** (`UNIQUE org_id`, no `project_id` column). Adding per-project branding needs a migration (add `project_id`, relax the UNIQUE) plus a `runBrandConfirm`/`runBrandCheck` query change. Do not add a `project_id` filter without that migration — it silently returns no kit and flags every creative.
+- **Edge Function DB types**: `supabase/functions/_shared/database.types.ts` is **hand-written**, not CLI-generated (`Update` types written out concretely to avoid a `never`-collapse in Deno's type inference). Update manually per migration. CLI regeneration path exists (`supabase gen types typescript --project-id mpvdpdxzqnidwyihyhbn`) but is unverified against this hand-written shape — always run `deno check` on `aarav-orchestrate/index.ts` before trusting generated output. All `createClient<Database>()` — never untyped `createClient()`.
+- **CI gate**: `.github/workflows/typecheck.yml` — **five** parallel jobs committed and running on every push/PR to `main`: `build` (`tsc --noEmit` strict + `vite build`), `client-unit-tests` (`npm test` — Vitest, real since CC-P3; previously claimed here as "uncommitted, don't assume it runs," now committed and actually running), `edge-typecheck` (`deno check` on all Edge Function entry points), `edge-unit-tests` (`deno test` on `_shared/agents/`), `ws1-6-isolation` (see below). `--no-verify` only skips the *local* pre-push hook mirror (which also now runs `npm test`) — it cannot skip these jobs themselves, which run server-side on GitHub regardless of how the push happened. `client-unit-tests` is not yet in branch-protection's required-checks list (a repo-settings change, deliberately left as a manual follow-up rather than done silently — see the branch-protection bullet below). New `supabase/functions/*/index.ts` → add to the `deno check` list here, `scripts/hooks/pre-push`, and `deploy-functions.yml`'s deploy loop. **[CORRECTED 2026-09-09]** There are **six** jobs, not five, and they run on **`[main, review-build]`**, not `main` alone: the sixth is `playwright-e2e` (`typecheck.yml:203`, advisory, not a required check). `review-build` was added to the trigger in `d589746`.
+- **Branch protection (added 2026-07-21, tightened same day; `client-unit-tests` added 2026-07-31)**: `main` requires **4** checks to pass — `Client build (TypeScript + Vite)`, `Client unit tests (Vitest)`, `Edge Function type check (Deno)`, `Edge Function unit tests (no credentials)` — before anything can land (`ws1-6-isolation` deliberately excluded: probe 7 depends on deployment state, not just code correctness, so it shouldn't block a merge the way a real code defect should). `Client unit tests (Vitest)` was added to the required set the moment it became a real committed CI job (CC-P3), closing the gap where a red unit-test run could still merge. `enforce_admins: true`, `allow_force_pushes: false`, `allow_deletions: false` — **no bypass for anyone, including admins.** Direct `git push` to `main` no longer works in practice: GitHub can't record a passing check against a commit that doesn't exist on the remote yet, so a brand-new commit pushed directly has no check history to satisfy the requirement and gets rejected. **All changes now go through a PR** — open a branch, push it, let CI run, merge once green. Before 2026-07-21, `main` had zero branch protection at all, so the "cannot be bypassed" framing above was aspirational for anything except the local pre-push hook; this is the first time it's actually true end to end.
+  - **CI was silently broken for ~a month** (every run since commit `92e7b4f`, 2026-06-26, failed) — nobody was watching. Fixed 2026-07-21: real pre-existing TS errors (`DhruvInsightCards.tsx` bad import path + unused `React` import; `Strategy.tsx` missing `meta_ad_account_id` field) plus an `edge-unit-tests` failure (`npm:@types/node` unresolvable) that looked like a Deno/npm interop bug — reproduced only on Linux CI, never locally on Windows even with the exact CI Deno binary — but wasn't one. **Root cause, confirmed via a temporary diagnostic step (removed once solved — see commits `6279f60`/`498e705` if this needs re-diagnosing)**: `deno check` (which never failed) always targets files directly inside `supabase/functions/`, so it walks up from each file's own directory and finds `deno.json`/`deno.lock` correctly. `deno test` was invoked from repo root against a *directory* target, one level removed from where `deno install` (`working-directory: supabase/functions`) actually populated `node_modules` — its config discovery for a directory target never resolved against that tree on the Linux runner, even though the diagnostic proved the package was installed correctly and its symlink was fully intact (both directly ruled out with evidence, not assumed). **Fix**: `deno test` now runs with `working-directory: supabase/functions` and relative paths, matching `deno check`/`deno install`'s discovery pattern. Stale cache was the leading theory before instrumenting — directly ruled out too (`Cache not found for input keys` on the very run that still failed).
+- **RLS isolation harness (WS1.6)**: `supabase/tests/isolation/` — 9 tests (8 cross-tenant probes + 1 static check) covering `agent_memory_chunks`, `profiles`, and the service-role write path in `handleApprove` (probe 7 — the one class of check pure-RLS probes can't reach). Modeled on the sibling `awaas-suite` repo's Gate P (same `lib.ts` probe shapes, separate implementation — no shared package). **Runs against `CommandCentre_Prod`** (`mpvdpdxzqnidwyihyhbn`); every seeded row is identifiably prefixed and removed by `cleanup-isolation-probes.sh`. **Correction (2026-07-30)**: this file previously claimed PROD was "the only Supabase project this repo has — no separate TEST project." That's false — `.env.cc-test.local` (gitignored, local-only, invisible to a plain `git grep`) points to a second, fully separate project (`yelmuykbqdyeikgbmkoq`), almost certainly the actual "TEST" project both the P0 and CC-P3 task ENV RULES refer to as off-limits/"in active use by review testers." The live Vercel review-build a real external tester uses almost certainly points there, not at PROD — confirmed with the user directly after nearly triggering an unnecessary rollback based on this same wrong claim. Wired into `typecheck.yml` as `ws1-6-isolation` with job-level secrets (never workflow-level, so other jobs never see the service-role key). Full detail, probe list, and coverage gaps: `supabase/tests/isolation/README.md`. **§5.1 Deviation Register item CLOSED 2026-07-21** — first green CI run: `29828405683`.
+- **Client unit tests (Vitest)**: `npm test` (single-pass) / `npm run test:watch`. Config `vitest.config.ts` (jsdom), setup `src/test/setup.ts`. Colocated `*.test.ts`. Mock via `vi.hoisted` + `vi.mock` at the module boundary — never mock individual Supabase query methods at call-site level. Files: `useAuth.test.ts` (3, bug #32), `supabase.test.ts` (10, bugs #33/#34), `text-layers.test.ts` (6), and (CC-P5) `reference-style.test.ts`, `calendar-agenda.test.ts`, `content-library-filter.test.ts`. The `include:` list in `vitest.config.ts` is explicit (not a repo-wide glob) — **add every new `*.test.ts` there or it won't run in CI.**
+- **Catch-block discipline**: any `catch` with a **destructive side effect** (signOut, navigate, delete, state wipe, DB write) MUST have a paired unit test proving it does NOT fire on a transient error. A generic `catch { destructiveAction() }` is always wrong — the action must fire only on a positively-confirmed specific failure case. Background-recurring functions (`onAuthStateChange`, `setInterval`, Realtime) with a catch+side-effect are highest-risk. Use `/code-review` before finishing any auth-adjacent task.
+- **Automated Edge Function deployment**: `.github/workflows/deploy-functions.yml` auto-deploys on every push to `main` touching `supabase/functions/**`. Requires repo secret `SUPABASE_ACCESS_TOKEN`. `meta-insights-sync`/`dhruv-anomaly-check` deploy with `--no-verify-jwt` (pg_cron callers). `workflow_dispatch` available for manual redeploys — **use this to verify the token/pipeline actually works before trusting it with a real deploy**, since it silently failed for a month with nobody noticing (see CI gate above). Separate workflow from `typecheck.yml` so a deploy failure never blocks type checks.
+- **Test files in `_shared/agents/`**: `aanya_test.ts` (4, credential-free), `aanya_budget_test.ts` (2, credential-free), `diya_smoke_test.ts` (2, one auto-runs since `kit:null` short-circuits, one auto-ignores without `SMOKE_*_URL`), `kavya_test.ts` (10, 5 credential-free + 5 gated behind `ANTHROPIC_API_KEY`), `dhruv_test.ts` (9, 5 credential-free + 4 gated). These are the only test files — don't add duplicates.
+- **Local pre-push hook** (optional, committed): `scripts/hooks/pre-push` mirrors CI. Opt in: `git config core.hooksPath scripts/hooks`. Runs npm test → typecheck → build → deno check → deno test. Bypass (`--no-verify`) only in a genuine emergency — CI is the real backstop.
+- **Insert/upsert column audit** (standing check): `scripts/audit-insert-columns.ts` — AST-scans every literal `.insert()`/`.upsert()` payload across `src/` + `supabase/functions/` and diffs its top-level keys against `information_schema.columns`, catching the bug-#47/#48 class (a wrong/phantom key that `tsc`/`deno check` can't see because `.insert<T>()` suppresses excess-property checking). Run: `deno run --node-modules-dir=none --allow-read --allow-write --allow-run --allow-env scripts/audit-insert-columns.ts` (shells `supabase db query --linked` for the linked project's columns, read-only as far as the DB is concerned; `--allow-write` is required because it stages the query in a temp file — without it the script dies with `NotCapable: Requires write access to <TMP>`) — or CI-portable with a pre-fetched snapshot: `COLUMNS_JSON=cols.json deno run --node-modules-dir=none --allow-read --allow-env …`. Exits non-zero on any violation (CI-gate candidate). Reports dynamic payloads (variable/spread/computed) + unresolved table names separately — never as violations. `--node-modules-dir=none` is required so Deno resolves `npm:typescript` from its own cache instead of the repo's npm `node_modules`.
+- **Edge Function deployment fallback** (Docker ECR CDN failure): when `supabase functions deploy` can't pull the runtime image, deploy via the Management API instead — inline the shared types, swap `esm.sh` imports for `npm:` specifiers, `PATCH https://api.supabase.com/v1/projects/mpvdpdxzqnidwyihyhbn/functions/{slug}` with the source body. `meta-insights-sync` was deployed this way (version 8, 2026-06-22).
+- **Internal test org (PROD)**: `ZZ-INTERNAL-TEST` (`organizations.id = 983c7c08-ffaf-402b-981a-a9cd22615cae`), one linked `admin`-role user (`zz-internal-test@awaas.internal`). Created 2026-07-29 via `scripts/seed-internal-test-org.ts` (idempotent — safe to re-run; refuses to run against anything but PROD, the opposite guard of `scripts/seed-cc-test-demo.ts`). Credentials stored as GitHub repo secrets `INTERNAL_TEST_USER_EMAIL`/`INTERNAL_TEST_USER_PASSWORD` (names only — values were never printed anywhere, including during creation: the service-role key needed for the Admin API call was extracted server-side from `cron.job.command` via SQL, never typed or echoed). No `org_integrations` row exists for this org and none should ever be added — it has no real Meta/Canva credentials to seed. **All future manual/CI test writes that need a real org on PROD should scope to this `org_id`** rather than creating throwaway orgs or, worse, writing into a real customer's data.
+- **Token efficiency**: keep LLM calls lean — only the context genuinely needed, no full conversation history or redundant fields. Focused single-purpose prompts over mega-prompts. Scope `max_tokens` to the task.
+- **Planning discipline**: extended reasoning / planning passes for architectural decisions, multi-step flows, and expensive-to-undo choices (schema changes, new Edge Functions, large refactors). Straightforward edits — act directly. When genuinely unsure, use `EnterPlanMode` before touching files.
+- **CLAUDE.md updates are mandatory** after every codebase change — see the top of this file.
+
+---
