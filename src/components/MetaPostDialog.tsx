@@ -50,13 +50,15 @@ interface MetaPostDialogProps {
   projectId?: string | null;
   /** Prefill, already composed by the caller from whatever ad copy it holds. */
   defaultCaption: string;
+  /** Which platform the dialog opens on. Ordering only — see publishOptions. */
+  preferredPlatform?: PublishPlatform;
   onClose: () => void;
 }
 
 export function MetaPostDialog({
-  targets, imageUrl, creativeAssetId, toolOutputId, projectId, defaultCaption, onClose,
+  targets, imageUrl, creativeAssetId, toolOutputId, projectId, defaultCaption, preferredPlatform, onClose,
 }: MetaPostDialogProps) {
-  const options = publishOptions(targets);
+  const options = publishOptions(targets, preferredPlatform);
   const [platform, setPlatform] = useState<PublishPlatform>(options[0]?.platform ?? 'facebook');
   const [caption, setCaption] = useState(defaultCaption);
   // Always opens on the safest tier. Not remembered between opens: a sticky

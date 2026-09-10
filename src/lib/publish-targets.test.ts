@@ -38,6 +38,22 @@ describe('publishOptions', () => {
   it('prefixes an IG handle so the target reads as an account, not a Page', () => {
     expect(publishOptions(FB_AND_IG)[1].name).toBe('@awaas_test');
   });
+
+  it('leaves the order alone when no preference is given', () => {
+    expect(publishOptions(FB_AND_IG).map((o) => o.platform)).toEqual(['facebook', 'instagram']);
+  });
+
+  it('moves the preferred platform first without adding or dropping any', () => {
+    expect(publishOptions(FB_AND_IG, 'instagram').map((o) => o.platform)).toEqual(['instagram', 'facebook']);
+    expect(publishOptions(FB_AND_IG, 'facebook').map((o) => o.platform)).toEqual(['facebook', 'instagram']);
+  });
+
+  it('ignores a preference for a platform this org cannot post to', () => {
+    // FB-only org asking for Instagram: still exactly the one real target.
+    expect(publishOptions(FB_ONLY, 'instagram')).toEqual([
+      { platform: 'facebook', name: 'AWAAS CC Test Page' },
+    ]);
+  });
 });
 
 describe('canOfferPublish', () => {

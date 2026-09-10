@@ -363,7 +363,10 @@ export default function SMMCreatives() {
                     onClick={() => setPublishOpen(true)}
                     style={{ marginTop: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid ' + C.accent, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                   >
-                    Post to Meta
+                    {/* SMM is an Instagram beat, but this org may be FB-only
+                        (the sandbox currently is). Naming a channel we cannot
+                        open on would be a lie on the button itself. */}
+                    {publishTargets.igUserId ? 'Post to Instagram' : 'Post to Meta'}
                   </button>
                 )}
               </div>
@@ -492,6 +495,7 @@ export default function SMMCreatives() {
           creativeAssetId={null}
           toolOutputId={toolOutputId}
           projectId={savedProjectId}
+          preferredPlatform="instagram"
           defaultCaption={[
             result?.engagementHook,
             result?.captionEn,

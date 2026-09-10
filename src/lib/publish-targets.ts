@@ -40,11 +40,18 @@ export interface PublishOption {
  * an IG publish rides the linked Page's access token, so an IG target without
  * a Page target cannot work and must not be offered.
  */
-export function publishOptions(t: PublishTargets): PublishOption[] {
+export function publishOptions(t: PublishTargets, preferred?: PublishPlatform): PublishOption[] {
   if (!t.pageId) return [];
   const out: PublishOption[] = [{ platform: 'facebook', name: t.pageName ?? t.pageId }];
   if (t.igUserId) {
     out.push({ platform: 'instagram', name: t.igUsername ? `@${t.igUsername}` : t.igUserId });
+  }
+  // Ordering only — which platform the dialog opens on. Nothing is added or
+  // removed, so a preference for a platform this org cannot post to is a
+  // no-op rather than an offer of something that would fail.
+  if (preferred) {
+    const i = out.findIndex((o) => o.platform === preferred);
+    if (i > 0) out.unshift(out.splice(i, 1)[0]);
   }
   return out;
 }
