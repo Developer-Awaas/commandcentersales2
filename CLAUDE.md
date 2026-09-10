@@ -114,12 +114,13 @@ Do not edit without explicit instruction, including incidentally: `meta-publish*
 | P1-CM-04 | DEFERRED | prompts | Section 6 reserve-negative-space A/B never run |
 | P1-CM-05 | CLOSED | ci | `typecheck.yml:203`; `e2e/` holds 4 specs |
 | P1-CM-06 | OPEN | edge | `retrieveMemory` (`_shared/agent-memory.ts:119`) has zero callers |
-| P1-CM-07 | OPEN | ci | branch-protection required-checks list unverified without `gh` |
+| P1-CM-07 | CLOSED | ci | `gh api .../branches/main/protection` 2026-09-10: 4 required checks (build, edge-typecheck, edge-unit-tests, client-unit-tests), `enforce_admins: true`, `strict: false`. `playwright-e2e` and `ws1-6-isolation` are advisory, by design |
+| S1-E2E | OPEN | ci | `e2e/history-journey.spec.ts:64` red on review-build since its first-ever CI run (34485282542). Untouched by that push; wizard save throws, `saved` never flips. Hypothesis: e2e targets PROD, and `tool_outputs.platform` (migration `20260814120000`) may never have been applied there. Advisory job, not blocking |
 | P1-CM-08 | DEFERRED | prompts | RB-P0 Rung-2 mask design documented, not built |
 | P1-CM-09 | OPEN | prompts | Kolosus clean-template ghost-text measurement never run |
 | P1-CM-10 | OPEN | prompts | Grand Mark visual A/B never run; default is `gpt-image-2`, `_shared/image-provider.ts:225` |
 | P1-CM-11 | OPEN | prompts | run-out to emptied-blocks is a soft preference the model does not always honour |
-| P1-CM-12 | OPEN | edge | image wall-clock margin against the Supabase plan tier unconfirmed |
+| P1-CM-12 | OPEN | edge | measured on TEST 2026-09-10, three SMM 1:1 text-to-image jobs: 143s, 138s, 150s. All three exceed the 135s sync cap — the async path is load-bearing, not a margin. Plan-tier ceiling still unconfirmed |
 | P1-CM-13 | OPEN | prompts | V5 panel assignment never run on a real multi-panel reference |
 | P1-CM-14 | FROZEN | meta | Sandbox IG link absent from `/me/accounts`; re-selecting FB-only destroys `publish_ig_user_id` |
 | P1-CM-15 | OPEN | client | T-001 two-generation SQL evidence not produced; `creatives` has no `strategy_id` or `session_id` — use `creative_assets.session_id` |
