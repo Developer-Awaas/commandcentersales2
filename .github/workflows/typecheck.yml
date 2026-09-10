@@ -45,6 +45,20 @@ jobs:
       - run: npm ci
 
       - run: npm test
+        env:
+          # src/lib/supabase.ts calls createClient() at module scope, so any
+          # test file that transitively imports it dies on import — not as a
+          # failing test, as an unhandled error that takes the whole file with
+          # it. Three files do (publish-targets, gemini-service,
+          # senior-designer-prompts); locally .env.local hides this, and this
+          # branch had never run CI until 2026-09-10, so nothing caught it.
+          #
+          # Placeholders, deliberately unreachable. Every supabase call in
+          # these tests is mocked; nothing here opens a socket. Real
+          # credentials in this job would be worse than useless — it is the
+          # one job that has no business touching a database.
+          VITE_SUPABASE_URL: http://localhost:54321
+          VITE_SUPABASE_ANON_KEY: unit-tests-do-not-call-out
 
   edge-typecheck:
     name: Edge Function type check (Deno)
