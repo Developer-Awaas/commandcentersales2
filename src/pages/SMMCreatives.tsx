@@ -50,6 +50,12 @@ export default function SMMCreatives() {
   const [holidays, setHolidays] = useState<any[]>([]);
   const [savingLib, setSavingLib] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // The storage path behind imageUrl. Kept because saveToLibrary needs the
+  // AssetRef (bucket + path), not the public URL, and the image is now made
+  // before the save rather than during it.
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgError, setImgError] = useState<string | null>(null);
   // Publishing. The image lives in brand-assets under smm-creatives/ and has
   // no creative_assets row (that table is ads-specific), so provenance for an
   // SMM post rides tool_output_id instead — which is exactly what
@@ -67,12 +73,25 @@ export default function SMMCreatives() {
     fetchPublishTargets().then(setPublishTargets).catch(() => setPublishTargets(EMPTY_TARGETS));
   }, []);
 
+  // The selected project's id. Looked up in three places before; one owner now.
+  const currentProjectId = (): string | null =>
+    projects.find(p => (p.name || p['Project Name']) === project)?.id || null;
+
   const generate = async () => {
     if (!isAiEnabled()) { showToast('AI features are currently unavailable', 'info'); return; }
     if (!description) { showToast('Describe what you want to create', 'info'); return; }
+    // T-001 class: a second Generate starts from nothing. Every artefact keyed
+    // to the previous result goes with it — the image, its storage path, and
+    // the provenance id the publish button gates on — so run 2 can never
+    // render run 1's picture under run 2's copy.
+    setResult(null);
     setImageUrl(null);
+    setImagePath(null);
+    setImgError(null);
+    setToolOutputId(null);
+    setSavedProjectId(null);
     setLoading(true);
-    startGeneration('Generating creative…');
+    startGeneration('Creating your post…');
     try {
       const proj = projects.find(p => (p.name || p['Project Name']) === project);
       const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform });
@@ -81,7 +100,11 @@ export default function SMMCreatives() {
         // Canonical form has no leading '#' — the UI adds exactly one. Doing
         // this here means smm_calendar and tool_outputs never store the
         // doubled shape either.
-        setResult({ ...res, hashtags: normalizeHashtags(res.hashtags) });
+        const next: any = { ...res, hashtags: normalizeHashtags(res.hashtags) };
+        setResult(next);
+        // The image is part of the result now, not part of saving it. Awaited
+        // so the button stays disabled across both phases.
+        if (next.nanoPrompt) await runImageStep(next.nanoPrompt, proj?.id ?? null);
         showToast('Creative generated!', 'success');
       } else {
         setResult(res?.raw ? { raw: res.raw } : null);
@@ -112,37 +135,53 @@ export default function SMMCreatives() {
     }
   };
 
+  // The image step. generate() owns it; "Try again" re-runs it alone, and
+  // saveToLibrary() falls back to it only when an earlier run failed and the
+  // user saves anyway. Returns the AssetRef so the caller can persist it.
+  const runImageStep = async (nanoPrompt: string, projectId: string | null): Promise<AssetRef | null> => {
+    setImgBusy(true);
+    setImgError(null);
+    try {
+      // Without costMeta the ledger defaults to feature='creatives', which
+      // made SMM spend indistinguishable from ads spend in
+      // agent_interactions (confirmed on a real $0.165 row, 2026-08-29).
+      const imgs = await generateImageWithGemini(nanoPrompt, '1:1', undefined, undefined, {
+        feature: 'smm-creative-gen',
+        projectId,
+      });
+      if (!imgs[0]) throw new Error('generation service returned no image');
+      const path = await uploadSmmImage(imgs[0].base64, imgs[0].mimeType);
+      if (!path) throw new Error('upload returned no path');
+      const { data } = supabase.storage.from('brand-assets').getPublicUrl(path);
+      setImagePath(path);
+      setImageUrl(data.publicUrl);
+      return { bucket: 'brand-assets', path };
+    } catch (imgErr) {
+      // The raw provider text stays in the console. The banner gets our copy —
+      // a model or storage error is not something a user can act on.
+      console.error('[SMM Creatives] image gen/upload failed:', imgErr);
+      setImgError(resolveGenerationErrorMessage({ error: 'the image could not be created' }));
+      return null;
+    } finally {
+      setImgBusy(false);
+    }
+  };
+
   const saveToLibrary = async () => {
     if (!result || result.raw) return;
     setSavingLib(true);
     try {
-      const projectId = projects.find(p => (p.name || p['Project Name']) === project)?.id || null;
+      const projectId = currentProjectId();
 
-      // Generate + upload ONE creative image from the AI's image prompt so the
-      // saved creative carries a real asset (asset_refs). MOCK_AI-gated inside
-      // generateImageWithGemini; single image only (respects the real-image-call
-      // discipline). Best-effort — a gen/upload failure still saves the text.
+      // The image already exists — generate() made it. Re-running here is the
+      // fallback for one case only: that generation failed and the user chose
+      // to save anyway. Still best-effort; a failure saves the text.
       const assetRefs: AssetRef[] = [];
-      if (result.nanoPrompt) {
-        try {
-          // Without costMeta the ledger defaults to feature='creatives', which
-          // made SMM spend indistinguishable from ads spend in
-          // agent_interactions (confirmed on a real $0.165 row, 2026-08-29).
-          const imgs = await generateImageWithGemini(result.nanoPrompt, '1:1', undefined, undefined, {
-            feature: 'smm-creative-gen',
-            projectId,
-          });
-          if (imgs[0]) {
-            const path = await uploadSmmImage(imgs[0].base64, imgs[0].mimeType);
-            if (path) {
-              assetRefs.push({ bucket: 'brand-assets', path });
-              const { data } = supabase.storage.from('brand-assets').getPublicUrl(path);
-              setImageUrl(data.publicUrl);
-            }
-          }
-        } catch (imgErr) {
-          console.error('[SMM Creatives] image gen/upload failed (non-fatal):', imgErr);
-        }
+      if (imagePath) {
+        assetRefs.push({ bucket: 'brand-assets', path: imagePath });
+      } else if (result.nanoPrompt) {
+        const ref = await runImageStep(result.nanoPrompt, projectId);
+        if (ref) assetRefs.push(ref);
       }
 
       // post_time is a `time` column — only pass a value that looks like HH:MM,
@@ -198,6 +237,9 @@ export default function SMMCreatives() {
       setSavingLib(false);
     }
   };
+
+  // One wait from the user's side: copy then image.
+  const busy = loading || imgBusy;
 
   const copy = (text: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
@@ -264,12 +306,14 @@ export default function SMMCreatives() {
         </div>
       </div>
 
-      <button onClick={generate} disabled={loading || !description} style={{
-        width: '100%', padding: 14, borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-        background: !loading && description ? C.accent : C.border, color: !loading && description ? C.bg : C.dim, border: 'none',
+      {/* Disabled across BOTH phases — the copy runs, then the image. One
+          button, one wait, so nobody clicks Generate again mid-image. */}
+      <button onClick={generate} disabled={busy || !description} style={{
+        width: '100%', padding: 14, borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: busy || !description ? 'default' : 'pointer',
+        background: !busy && description ? C.accent : C.border, color: !busy && description ? C.bg : C.dim, border: 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
       }}>
-        {loading ? <><RefreshCw size={16} className="animate-spin" /> Generating...</> : <><Sparkles size={16} /> Generate Creative</>}
+        {busy ? <><RefreshCw size={16} className="animate-spin" /> Creating your post… usually under a minute</> : <><Sparkles size={16} /> Generate Creative</>}
       </button>
 
       {/* Result */}
@@ -290,13 +334,31 @@ export default function SMMCreatives() {
               </button>
             </div>
 
-            {imageUrl && (
+            {(imageUrl || imgBusy || imgError) && (
               <div style={{ marginBottom: 12 }}>
-                <img src={imageUrl} alt="Generated creative" style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid ' + C.border, display: 'block' }} />
-                {/* Only after Save to Library: that is when the image exists AND
-                    the tool_outputs row that carries its provenance does. No
-                    extra guard needed — imageUrl is null until then. */}
-                {canOfferPublish(publishTargets, !!imageUrl) && (
+                {imageUrl && (
+                  <img src={imageUrl} alt="Generated creative" style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid ' + C.border, display: 'block' }} />
+                )}
+                {imgBusy && !imageUrl && (
+                  <p style={{ fontSize: 12, color: C.dim, margin: 0 }}>Creating your post… usually under a minute</p>
+                )}
+                {imgError && (
+                  <div style={{ background: C.red + '10', border: '1px solid ' + C.red + '40', borderRadius: 8, padding: 10, marginTop: imageUrl ? 8 : 0 }}>
+                    <p style={{ fontSize: 12, color: C.red, margin: 0 }}>{imgError}</p>
+                    <button
+                      onClick={() => { if (result.nanoPrompt) runImageStep(result.nanoPrompt, currentProjectId()); }}
+                      disabled={imgBusy}
+                      style={{ marginTop: 8, padding: '6px 12px', borderRadius: 6, border: '1px solid ' + C.red, background: 'none', color: C.red, fontSize: 12, fontWeight: 600, cursor: imgBusy ? 'default' : 'pointer' }}
+                    >
+                      {imgBusy ? 'Trying…' : 'Try again'}
+                    </button>
+                  </div>
+                )}
+                {/* Gate is toolOutputId, not imageUrl. The image now exists
+                    before the tool_outputs row does, and that row is what
+                    published_assets.tool_output_id points at — the only
+                    provenance an SMM post has (no creative_assets row). */}
+                {toolOutputId && canOfferPublish(publishTargets, !!imageUrl) && (
                   <button
                     onClick={() => setPublishOpen(true)}
                     style={{ marginTop: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid ' + C.accent, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
@@ -335,24 +397,34 @@ export default function SMMCreatives() {
             )}
           </div>
 
-          {result.nanoPrompt && (
-            <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', borderRadius: 12, padding: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa' }}>{platform} Prompt (1080×1080)</span>
-                <button onClick={() => copy(result.nanoPrompt)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
-              </div>
-              <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{result.nanoPrompt}</p>
-            </div>
-          )}
+          {/* Demoted: the picture is the result now, the prompts behind it are
+              for whoever wants to re-run one by hand. Native <details> — the
+              cards themselves are unchanged. */}
+          {(result.nanoPrompt || result.nanoPromptStory) && (
+            <details style={{ background: C.card, border: '1px solid ' + C.border, borderRadius: 12, padding: 16 }}>
+              <summary style={{ fontSize: 12, color: C.dim, cursor: 'pointer' }}>Image prompts</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                {result.nanoPrompt && (
+                  <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', borderRadius: 12, padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa' }}>{platform} Prompt (1080×1080)</span>
+                      <button onClick={() => copy(result.nanoPrompt)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                    </div>
+                    <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{result.nanoPrompt}</p>
+                  </div>
+                )}
 
-          {result.nanoPromptStory && (
-            <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', borderRadius: 12, padding: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa' }}>Story Prompt (1080×1920)</span>
-                <button onClick={() => copy(result.nanoPromptStory)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                {result.nanoPromptStory && (
+                  <div style={{ background: '#7c3aed10', border: '1px solid #7c3aed30', borderRadius: 12, padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#a78bfa' }}>Story Prompt (1080×1920)</span>
+                      <button onClick={() => copy(result.nanoPromptStory)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.accent }}>Copy</button>
+                    </div>
+                    <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{result.nanoPromptStory}</p>
+                  </div>
+                )}
               </div>
-              <p style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{result.nanoPromptStory}</p>
-            </div>
+            </details>
           )}
 
           {result.carouselSlides && result.carouselSlides.length > 0 && (
