@@ -93,6 +93,13 @@ Do not edit without explicit instruction, including incidentally: `meta-publish*
 
 ## Current state
 
+IDs below are **defined** in `docs/closeout-inventory.md` — the Phase 1 intake
+plus a dated session-state block per closeout. Read it before using any ID from
+this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
+(the three unapplied drafts, pre-flight counts, 17 constraint probes),
+`docs/runbooks/db-access.md` (PROD reads, parking work) and
+`docs/runbooks/test-cron-parity.md` (CC-TEST cron).
+
 | Inventory ID | Status | Owner | Evidence pointer |
 |---|---|---|---|
 | A1 | CLOSED | client | `a10e546`; `src/lib/hashtags.ts`, 15 tests |
