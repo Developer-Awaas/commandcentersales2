@@ -8,9 +8,8 @@ description: Use when a tester reports a bug or a CI job goes red — turning a 
 ## Intake (a report without these is bounced)
 
 - **Environment** — `cc.awaas.world` / TEST / PROD / local.
-- **Build stamp** — the `__COMMIT_SHA__` the tester actually saw. A report
-  against an unknown build cannot be reproduced or closed. Bounce it, ask for
-  the stamp, do not guess from `git log`.
+- **Build stamp** — the `__COMMIT_SHA__` the tester saw. An unknown build
+  cannot be reproduced. Bounce it; never guess from `git log`.
 - Steps, expected, observed.
 
 ## Then
