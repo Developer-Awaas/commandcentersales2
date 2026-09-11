@@ -34,10 +34,16 @@ park/review-creative-button: 7c1688f (Phase 5)
 | P1-CM-07 | Branch protection | PENDING HUMAN | — |
 
 ## Open inventory (definitions — authoritative)
-**Wave 5 (specs in CC_V2_ultracode_plan.md):** T5-M surface partition migration + A3/A5 CHECKs, runs alone · T5-1 RB-P3 synthesis cron + server-side prompt assembly (consumes retrieveMemory) · T5-6a SMM formats (gi2 size probe first) · T5-6b SMM directive module · T5-6c copy-creative + harness cells · T5-7 per-channel routing (retires FB-only) · T5-8 token USER→SYSTEM_USER (post-submission only) · T5-2 popup smoke · T5-3 P2.13 evidence · T5-4 pricing reconciliation · T5-5 differentiation verify-only.
-**NEW (Phase 1 gap analysis):** NEW-1 hide FB-only behind flag (Ph4) · NEW-2 ALTER image_jobs: job_type, provider, cost, started_at, terminal-state CHECK (Ph2) · NEW-3 integration_health: token expires_at, last sync, last error + cron run-log (schema Ph2, UI Ph4) · NEW-4 publish idempotency key + unique meta_post_id (Ph4) · NEW-5 Integration Health card + admin alerts (Ph4) · NEW-6 extend Playwright: publish-draft path (Ph5) · NEW-7 org_audit_events light audit log (Ph5) · NEW-8 shared AsyncJobPanel (status line, version strip, plain-language errors) (Ph3, reused by T5-6a).
+
+**`CC_V2_ultracode_plan.md` is LOST.** It is not in this repo, not in the
+session transcript, and is not recoverable. The definitions in this section are
+therefore **authoritative** — the only source for every ID below. Do not defer to
+the plan file; do not treat an ID as under-defined because the plan is missing.
+
+**Wave 5 (specs were in the lost plan file; the lines below are the spec):** T5-M surface partition migration + A3/A5 CHECKs, runs alone · T5-1 RB-P3 synthesis cron + server-side prompt assembly (consumes retrieveMemory) · T5-6a SMM formats (gi2 size probe first) · T5-6b SMM directive module · T5-6c copy-creative + harness cells · T5-7 per-channel routing (retires FB-only) · T5-8 token USER→SYSTEM_USER (post-submission only) · T5-2 popup smoke · T5-3 P2.13 evidence · T5-4 pricing reconciliation · T5-5 differentiation verify-only.
+**NEW (Phase 1 gap analysis):** NEW-1 hide FB-only behind flag (Ph4) · NEW-2 ALTER image_jobs: job_type, provider, cost, started_at, terminal-state CHECK (Ph2) — **status vocabulary is `queued|running|done|failed|timed_out`**: `'done'` is kept, not renamed to `'succeeded'`, so no UPDATE touches the 17 live rows and no deploy-order hazard exists · NEW-3 integration_health: **`token_expires_at timestamptz`** (that exact column name), last sync, last error + cron run-log (schema Ph2, UI Ph4) · NEW-4 publish idempotency key + unique meta_post_id (Ph4) · NEW-5 Integration Health card + admin alerts (Ph4) · NEW-6 extend Playwright: publish-draft path (Ph5) · NEW-7 org_audit_events light audit log (Ph5) · NEW-8 shared AsyncJobPanel (status line, version strip, plain-language errors) (Ph3, reused by T5-6a).
 **Review/learning track (retires C1/C2, absorbs C4):** R1 schema review_events (creative|strategy, rating, intent_tags[], comment, parent_creative_id) + rule lifecycle columns (Ph2) · R2 regenerate-with-intent → server-side prompt delta → child creative (Ph3) · R3 rating 👍/👎 + 3-tap strategy questionnaire (Ph3) · R4 tiered promotion job: N=3 same tag/project → project candidate; 2 projects → org candidate; activate on mean ≥4 over next 5; auto-retire on decline; bumps agent_personality_versions (Ph5) · R5 K4 harness gate before any rule activates (Ph5) · R6 "Aanya learned…" surface + Memory UI (Ph6).
-**Praveshika readiness:** M0 boundary rule + lint: brand-kit, meta-connect, projects, org only via adapters (Ph2) · M1 ports + local adapters + src/contracts/ DTOs (Ph5) · M2 meta-connect adapter (Ph4, frozen until then).
+**Praveshika readiness:** M0 boundary rule + lint: brand-kit, meta-connect, projects, org only via adapters (Ph2) · M1 ports + local adapters + src/contracts/ DTOs (Ph5) · M2 meta-connect adapter (Ph4, frozen until then) · M3 Praveshika token-broker contract (Ph7): Praveshika holds the client-owned Meta token and Command Center asks it for a short-lived page token per call, so no long-lived client token is ever stored here. Consumes T5-8; blocked until R-A clears.
 **From CLAUDE.md audit:** P1-CM-01 ad-level sync uses org-level ad account (P1, Ph4) · -02 Kavya canvas (Ph6) · -03 Langfuse trace names (Ph5) · -04 text-overlay phase 2 (Ph6) · -05/-10 stale claims (CORRECTED) · -06 retrieveMemory unconsumed (Ph2, T5-1) · -07 branch protection (human) · -08 zone extraction / Rung-2 mask (register) · -09 Kolosus directive unmeasured (Ph5, K4) · -11 run-out soft preference (register; R4 learns it) · -12 Edge 150s plan tier (Gate P decision) · -13 V5 real refs (Ph3, needs H1) · -14 Sandbox IG link (verify Ph4, likely stale) · -15 Creatives.tsx hashtags:[] intent (Ph6).
 **Register only:** C3 Promote-this-post (R-B scope) · Gate P infra items.
 
@@ -56,6 +62,9 @@ PROD reads via read-only role + psql, never `supabase link` · park by branch-ca
 ## Phase 2 plan (next session — one chat)
 Order: commit inventory + plan file → author 3 skills → PROD dump → T5-M alone (+A3, A5 probe, D2b trigger) → constraint-rejection probes → NEW-2 ALTER → NEW-3 + R1 schema → Opus schema gate → T5-1 build consuming retrieveMemory → cross-surface leak probe + bundle grep. All TEST-only; nothing deploys. Entry gate: D3a first tick evidence + branch-protection readout on screen.
 
+## Phase 7 — Convergence
+Praveshika convergence: M1 ports/adapters land, M2 meta-connect adapter is unfrozen, M3 token-broker contract replaces the stored system-user token (T5-8), and R6 surfaces what Aanya learned. Nothing in Phase 7 starts before R-A clears.
+
 ## Session state 2026-09-11
 
 S1 shipped and pushed: `b92781a` (image generates with the result, failures
@@ -68,8 +77,8 @@ visible), `398cdf0` (IG-first publish targets), `bf3a208` (CI Vitest env),
   `strict: false`; playwright-e2e and ws1-6-isolation advisory by design.
 - **P1-CM-12 measured.** Three real SMM 1:1 generations on TEST: 143s, 138s,
   150s. All over the 135s sync cap — the async path is load-bearing.
-- **P1-CM-16 OPEN** (carried in CLAUDE.md as `S1-E2E` — same item, reconcile
-  the ID on next edit): `history-journey.spec.ts:64` red since this branch's
+- **P1-CM-16 OPEN — canonical ID; `S1-E2E` is an alias for it.** CLAUDE.md's
+  state table still lists the alias; both name one item and P1-CM-16 wins: `history-journey.spec.ts:64` red since this branch's
   first-ever CI run, untouched by that push. Is the Playwright job's env
   pointed at PROD, and is `tool_outputs.platform` (`20260814120000`) missing
   there? Unconfirmed — needs the PROD read-only role.
