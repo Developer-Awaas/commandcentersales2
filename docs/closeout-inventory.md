@@ -48,7 +48,7 @@ the plan file; do not treat an ID as under-defined because the plan is missing.
 **Register only:** C3 Promote-this-post (R-B scope) · Gate P infra items.
 
 ## Decisions
-D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases.
+D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
 
 ## Standing rules added this phase
@@ -56,7 +56,7 @@ PROD reads via read-only role + psql, never `supabase link` · park by branch-ca
 
 ## Skills to author (Phase 2 open, Sonnet) → .claude/skills/<name>/SKILL.md
 - probe-prompt: template — read-only, freeze list, file:line + `\d` citations, hypothesis table SUPPORTED/REFUTED/UNTESTED, contradictions flagged not reconciled, ≤150-word summary.
-- deploy-verify: push authorization → CI run ID → `vercel promote` → stamp match on alias → SQL/row evidence → mark CLOSED; refuse to mark done without stamp.
+- deploy-verify: push authorization → CI run ID → auto-deploy to `cc-review` → stamp match on alias → SQL/row evidence → mark CLOSED; refuse to mark done without stamp.
 - test-triage: tester report → T-nnn; require env + build stamp; map to inventory ID or open new; assign class P0–P3 + phase; bounce reports lacking stamp.
 
 ## Phase 2 plan (next session — one chat)
@@ -70,8 +70,11 @@ Praveshika convergence: M1 ports/adapters land, M2 meta-connect adapter is unfro
 S1 shipped and pushed: `b92781a` (image generates with the result, failures
 visible), `398cdf0` (IG-first publish targets), `bf3a208` (CI Vitest env),
 `ab96cd1` (docs). CI run **34488963957** — all four required checks green.
-**Promote pending**: `cc.awaas.world` still serves `8a1d42c` ·
-2026-09-02T14:26:47.916Z; Saswat promotes by hand, CLI stays unlinked.
+**Deploy is automatic**: a push to `review-build` auto-deploys to
+`cc.awaas.world` (Vercel project `cc-review`). There is no manual promote step.
+Stamp verification stays mandatory. Verified 2026-09-12: the alias serves
+`ab96cd1` · 2026-09-10T14:25:38.204Z — the S1 docs commit, live with no
+promote performed.
 
 - **P1-CM-07 CLOSED.** 4 required checks, `enforce_admins: true`,
   `strict: false`; playwright-e2e and ws1-6-isolation advisory by design.
