@@ -1,17 +1,17 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Local dev + VITE_MOCK_AI=true only — no real Anthropic/GPT-Image-1 spend,
-// no real Supabase writes beyond what ZZ-INTERNAL-TEST is scoped for. See
-// e2e/history-journey.spec.ts's header for the credential requirement and
-// its graceful-skip behavior when they're absent (CI doesn't have them
-// wired up yet — see CLAUDE.md's CI gate section).
+// VITE_MOCK_AI=true means no real Anthropic/GPT-Image-1 spend, but the specs
+// do make real Supabase writes into the E2E org named by E2E_ORG_ID — the
+// TEST project on review-build, PROD's ZZ-INTERNAL-TEST on main. See
+// e2e/history-journey.spec.ts's header for the credential requirement and its
+// graceful skip when they're absent.
 const PORT = 5199;
 
 export default defineConfig({
   testDir: './e2e',
   // Generous: one test drives a full multi-step flow with several real
-  // PROD writes (creatives + campaign + tool_outputs inserts, then a
-  // distill that does sequential deletes).
+  // writes (creatives + campaign + tool_outputs inserts, then a distill
+  // that does sequential deletes).
   timeout: 120_000,
   fullyParallel: false,
   retries: 0,

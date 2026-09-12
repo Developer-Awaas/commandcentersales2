@@ -11,16 +11,27 @@
 // Storage objects for deleted creative_assets are left behind (orphaned
 // files cost space, not correctness — same philosophy as deleteToolOutput).
 //
-// Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Optional E2E_ORG_ID.
+// Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, E2E_ORG_ID — all required.
+// E2E_ORG_ID has no default: this script DELETES, and a stale default would
+// aim those deletes at whichever org the constant happened to name rather
+// than the one this environment actually seeded.
 import { createClient } from '@supabase/supabase-js';
 
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ORG_ID = process.env.E2E_ORG_ID ?? '983c7c08-ffaf-402b-981a-a9cd22615cae';
+const ORG_ID = process.env.E2E_ORG_ID?.trim();
 const E2E_PROJECT_NAME = 'ZZ-E2E Test Project';
 
 if (!URL || !KEY) {
   console.error('cleanup-e2e: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
+  process.exit(1);
+}
+if (!ORG_ID) {
+  console.error(
+    'cleanup-e2e: E2E_ORG_ID is empty or unset. Set it on the branch\'s GitHub ' +
+    'environment (review-build = the TEST org, main = PROD ZZ-INTERNAL-TEST). ' +
+    'Refusing to guess an org to delete from.',
+  );
   process.exit(1);
 }
 

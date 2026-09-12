@@ -5,17 +5,27 @@
 // creates is reachable from this project's id). Runs with the service-role
 // key (bypasses RLS) — same trust boundary as the isolation harness seed.
 //
-// Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Optional E2E_ORG_ID
-// (defaults to the known ZZ-INTERNAL-TEST org).
+// Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, E2E_ORG_ID — all required.
+// E2E_ORG_ID has no default on purpose: the target org differs per
+// environment (TEST on review-build, PROD on main), and a baked-in default
+// would silently seed the wrong project's org when the variable is missing.
 import { createClient } from '@supabase/supabase-js';
 
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ORG_ID = process.env.E2E_ORG_ID ?? '983c7c08-ffaf-402b-981a-a9cd22615cae';
+const ORG_ID = process.env.E2E_ORG_ID?.trim();
 export const E2E_PROJECT_NAME = 'ZZ-E2E Test Project';
 
 if (!URL || !KEY) {
   console.error('seed-e2e: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
+  process.exit(1);
+}
+if (!ORG_ID) {
+  console.error(
+    'seed-e2e: E2E_ORG_ID is empty or unset. Set it on the branch\'s GitHub ' +
+    'environment (review-build = the TEST org, main = PROD ZZ-INTERNAL-TEST). ' +
+    'Refusing to guess an org to write into.',
+  );
   process.exit(1);
 }
 

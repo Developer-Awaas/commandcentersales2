@@ -217,22 +217,29 @@ jobs:
   playwright-e2e:
     name: Playwright e2e (mock AI, ZZ-INTERNAL-TEST)
     runs-on: ubuntu-latest
-    # Advisory, NOT a required check (see branch protection): this touches
-    # PROD (writes scoped to ZZ-INTERNAL-TEST) and can flake on network — a
-    # red run here should inform, not block a merge, until it's proven
-    # stable. Secrets are job-level only (never workflow-level), mirroring
-    # ws1-6-isolation, so the other jobs never see the service-role key.
+    # This job targets the branch's GitHub environment — TEST for
+    # review-build, PROD for main; ws1-6-isolation stays PROD. The
+    # environment supplies both the secrets (its own override the
+    # repo-level ones) and E2E_ORG_ID, so the same workflow writes into
+    # whichever org that branch's environment names (D15a, P1-CM-16).
     #
-    # INTERNAL_TEST_USER_* are the ZZ-INTERNAL-TEST org's dedicated login
-    # (P0 Step 6). VITE_SUPABASE_URL/ANON_KEY are baked into the preview
-    # build so the app can reach PROD; every write the test makes is scoped
-    # to ZZ-INTERNAL-TEST by that login. SUPABASE_SERVICE_ROLE_KEY is used
-    # ONLY by the seed/cleanup scripts (bypass RLS to prepare + tear down
-    # the dedicated ZZ-E2E project's data), never by the app under test.
+    # Advisory, NOT a required check (see branch protection): it writes to
+    # a real project and can flake on network — a red run here should
+    # inform, not block a merge, until it's proven stable. Secrets are
+    # job-level only (never workflow-level), mirroring ws1-6-isolation, so
+    # the other jobs never see the service-role key.
+    #
+    # INTERNAL_TEST_USER_* are the E2E org's dedicated login (P0 Step 6).
+    # VITE_SUPABASE_URL/ANON_KEY are baked into the preview build so the
+    # app can reach that project; every write the test makes is scoped to
+    # the E2E org by that login. SUPABASE_SERVICE_ROLE_KEY is used ONLY by
+    # the seed/cleanup scripts (bypass RLS to prepare + tear down the
+    # dedicated ZZ-E2E project's data), never by the app under test.
     #
     # The spec self-skips when INTERNAL_TEST_USER_* are absent (see the
     # file header) — so if those secrets aren't set this job passes green
     # with "1 skipped" rather than failing.
+    environment: ${{ github.ref_name }}
     env:
       SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -256,6 +263,8 @@ jobs:
       # wizard needs to select it.
       - name: seed e2e project (ZZ-INTERNAL-TEST)
         run: node e2e/seed-e2e.mjs
+        env:
+          E2E_ORG_ID: ${{ vars.E2E_ORG_ID }}
 
       - run: npm run test:e2e
 
@@ -264,6 +273,8 @@ jobs:
       - name: cleanup e2e data
         if: always()
         run: node e2e/cleanup-e2e.mjs
+        env:
+          E2E_ORG_ID: ${{ vars.E2E_ORG_ID }}
 
       - uses: actions/upload-artifact@v4
         if: failure()
