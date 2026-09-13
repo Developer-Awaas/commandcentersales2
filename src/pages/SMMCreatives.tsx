@@ -313,7 +313,7 @@ export default function SMMCreatives() {
         background: !busy && description ? C.accent : C.border, color: !busy && description ? C.bg : C.dim, border: 'none',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
       }}>
-        {busy ? <><RefreshCw size={16} className="animate-spin" /> Creating your post… usually under a minute</> : <><Sparkles size={16} /> Generate Creative</>}
+        {busy ? <><RefreshCw size={16} className="animate-spin" /> Creating your post… this takes 2-3 minutes</> : <><Sparkles size={16} /> Generate Creative</>}
       </button>
 
       {/* Result */}
@@ -340,7 +340,7 @@ export default function SMMCreatives() {
                   <img src={imageUrl} alt="Generated creative" style={{ width: '100%', maxWidth: 360, borderRadius: 10, border: '1px solid ' + C.border, display: 'block' }} />
                 )}
                 {imgBusy && !imageUrl && (
-                  <p style={{ fontSize: 12, color: C.dim, margin: 0 }}>Creating your post… usually under a minute</p>
+                  <p style={{ fontSize: 12, color: C.dim, margin: 0 }}>Creating your post… this takes 2-3 minutes</p>
                 )}
                 {imgError && (
                   <div style={{ background: C.red + '10', border: '1px solid ' + C.red + '40', borderRadius: 8, padding: 10, marginTop: imageUrl ? 8 : 0 }}>

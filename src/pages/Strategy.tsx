@@ -1203,7 +1203,7 @@ export function Strategy() {
             className="mt-4 w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {submitting || geminiActive ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-            {submitting || geminiActive ? 'Generating… usually under a minute' : 'Quick Generate Ad'}
+            {submitting || geminiActive ? 'Generating… this takes 2-3 minutes' : 'Quick Generate Ad'}
           </button>
           {/* V5 STEP 2 — the button says WHY it's disabled. A dead button with no
               reason is the failure mode this replaces. */}
