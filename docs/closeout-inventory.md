@@ -94,3 +94,32 @@ promote performed.
   stopped for exactly this reason.
 
 **Next:** Phase 2 continue — drafts → gate revisions → TEST apply → smoke.
+
+## Session state 2026-09-15
+
+Local head `06f2391`, branch `review-build`, tree clean, **8 commits unpushed**
+(`d85daf2 567a3eb cecaeb7 c597cd3 23179ff 384d253 06f2391` + this one). Link is
+TEST `yelmuykbqdyeikgbmkoq`.
+
+Landed: `.temp/cli-latest` untracked; P1-CM-16 made canonical (`S1-E2E` its
+alias); NEW-2 pinned to `queued|running|done|failed|timed_out` — `'done'` kept,
+which removes the deploy-order hazard the gate flagged; NEW-3 pinned to
+`token_expires_at timestamptz`; M3 + Phase 7 defined; plan file declared LOST
+and this section authoritative. Three skills authored
+(`probe-prompt`, `deploy-verify`, `test-triage`). P1-CM-16 probed, then fixed by
+D15a (`384d253`) — **FIXED-UNVERIFIED, no CI run yet**. T-005 copy fix
+`06f2391`.
+
+**Stale above:** the 2026-09-11 P1-CM-16 bullet still reads OPEN; `384d253`
+supersedes it. Left as written rather than reconciled.
+
+**Not started:** gate steps 3–8 — PROD/TEST discovery `\d`, draft revisions,
+`new4` publish-idempotency migration, TEST apply, cross-tenant probe, smoke.
+
+**ACTION — credential exposure.** A PROD `service_role` JWT
+(`ref mpvdpdxzqnidwyihyhbn`, exp 2036) and the DB password were pasted into the
+2026-09-14 session transcript. **Rotate both.** They never reached a tool shell
+and were not used. PROD reads still require the read-only role per
+`docs/runbooks/db-access.md` — `service_role` is not that credential.
+
+**Next:** step 3 discovery, then gate revisions → TEST apply → smoke.
