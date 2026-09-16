@@ -114,7 +114,7 @@ legitimate rows through. One INSERT per CHECK, each expected to fail:
 | 3 | `UPDATE org_integrations SET meta_ad_account_id = 'act_12ab34'` | reject — the exact pair `normalizeAdAccountId` was written for |
 | 4 | `UPDATE projects SET meta_ad_account_id = '1538119047116545'` | reject `projects_ad_account_format_check` (bare digits, no prefix) |
 | 5 | `INSERT smm_calendar (hashtags) VALUES (ARRAY['#Patia','##Patia','patia'])` | **accept**, and store `{Patia}` — trigger normalises and dedupes |
-| 6 | `UPDATE image_jobs SET status = 'done'` | reject `image_jobs_status_check` after the rename |
+| 6 | `UPDATE image_jobs SET status = 'done'` | **accept** — `'done'` is kept per the NEW-2 ruling (no rename); `'succeeded'` is the value now rejected |
 | 7 | `INSERT image_jobs (surface) VALUES ('billboard')` | reject `image_jobs_surface_check` |
 | 8 | `INSERT review_events (rating_overall) VALUES (6)` | reject `review_events_rating_overall_check` |
 | 9 | `INSERT project_creative_guidelines (status,activated_at) VALUES ('active', NULL)` | reject `pcg_lifecycle_consistency_check` |

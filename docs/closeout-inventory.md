@@ -64,6 +64,10 @@ Order: commit inventory + plan file → author 3 skills → PROD dump → T5-M a
 
 ## Phase 7 — Convergence
 Praveshika convergence: M1 ports/adapters land, M2 meta-connect adapter is unfrozen, M3 token-broker contract replaces the stored system-user token (T5-8), and R6 surfaces what Aanya learned. Nothing in Phase 7 starts before R-A clears.
+**R-01 (Phase 7):** `scripts/seed-internal-test-org.ts` hard-refuses any URL
+without the PROD ref, so it cannot seed TEST's ZZ-INTERNAL-TEST org — on
+2026-09-16 that org was created on TEST by hand-written SQL. Make the target
+an explicit, per-environment input instead of a baked-in PROD guard.
 
 ## Session state 2026-09-11
 
