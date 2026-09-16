@@ -123,3 +123,23 @@ and were not used. PROD reads still require the read-only role per
 `docs/runbooks/db-access.md` — `service_role` is not that credential.
 
 **Next:** step 3 discovery, then gate revisions → TEST apply → smoke.
+
+## Session state 2026-09-16
+
+TEST-only. Local, **unpushed**. Revised drafts in `619e88e`; five migrations
+applied to TEST by psql, recorded in `schema_migrations`: `20260909120000` t5m,
+`120500` a3_validate, `121000` new2 (+T-006a trigger), `122000` r1, `123000`
+new4. 27 probes pass. Cross-tenant check passes: org A sees 0 org-B guideline
+rows, UPDATE/DELETE on them hit 0 rows, a forged INSERT is rejected. A5 probe
+row `4a23d769` deleted; provenance CHECK now VALID. TEST ZZ-INTERNAL-TEST org
+created: `0a86b9b5-49b9-4590-9805-0ad427d451e9`; e2e project `b4a54bb5`.
+
+**Blocked:** step 8 smoke — needs a signed-in TEST user. 9a profile link — no
+internal-test auth user exists on TEST.
+
+**Flagged, not reconciled:** `creative_assets` has an anon DELETE policy with
+`USING (true)`. `review_events` now carries two identical INSERT policies and
+parallel columns: subject_type/subject_id/ratings alongside
+entity_type/entity_id/rating. Gate probe 6 is inverted by the `'done'` ruling.
+`seed-internal-test-org.ts` refuses non-PROD, so the org was created with SQL.
+The A5 VALIDATE is not a migration, so PROD needs it by hand.

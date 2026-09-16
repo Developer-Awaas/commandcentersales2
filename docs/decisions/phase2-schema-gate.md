@@ -1,6 +1,6 @@
 # Phase 2 schema gate
 
-Three drafted migrations. **None applied.** Every count below is from CC-TEST
+Three drafted migrations (five after the 2026-09-16 revision). **Applied to TEST 2026-09-16; not PROD** — see the inventory session state. Every count below is from CC-TEST
 (`yelmuykbqdyeikgbmkoq`) on 2026-09-09. PROD counts are missing — see the last
 section.
 
