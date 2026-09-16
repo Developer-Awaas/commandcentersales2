@@ -1,5 +1,5 @@
 -- ============================================================
--- DRAFT — NOT APPLIED. Phase 2 gate: docs/decisions/phase2-schema-gate.md
+-- Phase 2 gate: docs/decisions/phase2-schema-gate.md
 --
 -- T5-M surface partition + A3 + D2b.
 --
@@ -13,6 +13,9 @@
 -- The brief said "only if step 4 shows it absent"; it does not. One row still
 -- violates it, so VALIDATE would fail — see the gate doc.
 --
+-- Revised 2026-09-16 per schema gate: A3 CHECKs are NOT VALID here and
+-- validated in 20260909120500_a3_validate.sql; creative_assets.surface added.
+--
 -- Fix-forward only. No down migration.
 -- ============================================================
 
@@ -25,6 +28,18 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'aanya_training_creatives_surface_check') THEN
     ALTER TABLE aanya_training_creatives
       ADD CONSTRAINT aanya_training_creatives_surface_check
+      CHECK (surface IN ('leadgen', 'smm'));
+  END IF;
+END $$;
+
+ALTER TABLE creative_assets
+  ADD COLUMN IF NOT EXISTS surface text NOT NULL DEFAULT 'leadgen';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'creative_assets_surface_check') THEN
+    ALTER TABLE creative_assets
+      ADD CONSTRAINT creative_assets_surface_check
       CHECK (surface IN ('leadgen', 'smm'));
   END IF;
 END $$;
@@ -84,8 +99,9 @@ BEGIN
 END $$;
 
 -- ── A3: act_ prefix enforced at the column ─────────────────────────────────
--- Pre-flight on CC-TEST 2026-09-09: 0 violating rows in either table, so both
--- can be added VALID. normalizeAdAccountId() stays the writer; this is the
+-- Added NOT VALID (new writes are checked immediately, no table scan under
+-- this lock); 20260909120500_a3_validate.sql validates existing rows.
+-- normalizeAdAccountId() stays the writer; this is the
 -- backstop for the one remaining un-normalised writer (_shared/meta-oauth.ts,
 -- A4b, frozen) and for any hand-edited row.
 DO $$
@@ -93,12 +109,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'org_integrations_ad_account_format_check') THEN
     ALTER TABLE org_integrations
       ADD CONSTRAINT org_integrations_ad_account_format_check
-      CHECK (meta_ad_account_id IS NULL OR meta_ad_account_id ~ '^act_\d+$');
+      CHECK (meta_ad_account_id IS NULL OR meta_ad_account_id ~ '^act_\d+$') NOT VALID;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'projects_ad_account_format_check') THEN
     ALTER TABLE projects
       ADD CONSTRAINT projects_ad_account_format_check
-      CHECK (meta_ad_account_id IS NULL OR meta_ad_account_id ~ '^act_\d+$');
+      CHECK (meta_ad_account_id IS NULL OR meta_ad_account_id ~ '^act_\d+$') NOT VALID;
   END IF;
 END $$;
 

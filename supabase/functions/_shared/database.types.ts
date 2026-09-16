@@ -703,6 +703,7 @@ export interface Database {
           approved_at: string | null
           created_at: string
           updated_at: string
+          surface: 'leadgen' | 'smm'
         }
         Insert: {
           id?: string
@@ -727,6 +728,7 @@ export interface Database {
           approved_at?: string | null
           created_at?: string
           updated_at?: string
+          surface?: 'leadgen' | 'smm'
         }
         Update: {
           id?: string
@@ -751,6 +753,7 @@ export interface Database {
           approved_at?: string | null
           created_at?: string
           updated_at?: string
+          surface?: 'leadgen' | 'smm'
         }
         Relationships: Rel[]
       }
@@ -1511,31 +1514,49 @@ export interface Database {
           id: string
           org_id: string
           user_id: string | null
-          status: 'queued' | 'done' | 'failed'
+          status: 'queued' | 'running' | 'done' | 'failed' | 'timed_out'
           storage_path: string | null
           error: string | null
           created_at: string
           completed_at: string | null
+          job_type: string | null
+          provider: string | null
+          model: string | null
+          cost_usd: number | null
+          started_at: string | null
+          surface: 'leadgen' | 'smm' | null
         }
         Insert: {
           id?: string
           org_id: string
           user_id?: string | null
-          status?: 'queued' | 'done' | 'failed'
+          status?: 'queued' | 'running' | 'done' | 'failed' | 'timed_out'
           storage_path?: string | null
           error?: string | null
           created_at?: string
           completed_at?: string | null
+          job_type?: string | null
+          provider?: string | null
+          model?: string | null
+          cost_usd?: number | null
+          started_at?: string | null
+          surface?: 'leadgen' | 'smm' | null
         }
         Update: {
           id?: string
           org_id?: string
           user_id?: string | null
-          status?: 'queued' | 'done' | 'failed'
+          status?: 'queued' | 'running' | 'done' | 'failed' | 'timed_out'
           storage_path?: string | null
           error?: string | null
           created_at?: string
           completed_at?: string | null
+          job_type?: string | null
+          provider?: string | null
+          model?: string | null
+          cost_usd?: number | null
+          started_at?: string | null
+          surface?: 'leadgen' | 'smm' | null
         }
         Relationships: Rel[]
       }
@@ -1684,6 +1705,16 @@ export interface Database {
           editor_ops: Json | null
           created_by: string | null
           created_at: string
+          surface: 'leadgen' | 'smm'
+          rating_overall: number | null
+          processed_at: string | null
+          source: string | null
+          entity_type: 'creative' | 'strategy' | null
+          entity_id: string | null
+          rating: number | null
+          intent_tags: string[] | null
+          comment: string | null
+          parent_creative_id: string | null
         }
         Insert: {
           id?: string
@@ -1699,6 +1730,16 @@ export interface Database {
           editor_ops?: Json | null
           created_by?: string | null
           created_at?: string
+          surface?: 'leadgen' | 'smm'
+          rating_overall?: number | null
+          processed_at?: string | null
+          source?: string | null
+          entity_type?: 'creative' | 'strategy' | null
+          entity_id?: string | null
+          rating?: number | null
+          intent_tags?: string[] | null
+          comment?: string | null
+          parent_creative_id?: string | null
         }
         Update: {
           id?: string
@@ -1714,6 +1755,16 @@ export interface Database {
           editor_ops?: Json | null
           created_by?: string | null
           created_at?: string
+          surface?: 'leadgen' | 'smm'
+          rating_overall?: number | null
+          processed_at?: string | null
+          source?: string | null
+          entity_type?: 'creative' | 'strategy' | null
+          entity_id?: string | null
+          rating?: number | null
+          intent_tags?: string[] | null
+          comment?: string | null
+          parent_creative_id?: string | null
         }
         Relationships: Rel[]
       }
@@ -1742,6 +1793,7 @@ export interface Database {
           ad_platform: 'meta' | 'google' | null
           layout_tags: Json | null
           created_at: string
+          surface: 'leadgen' | 'smm'
         }
         Insert: {
           id?: string
@@ -1766,6 +1818,7 @@ export interface Database {
           ad_platform?: 'meta' | 'google' | null
           layout_tags?: Json | null
           created_at?: string
+          surface?: 'leadgen' | 'smm'
         }
         Update: {
           id?: string
@@ -1790,6 +1843,7 @@ export interface Database {
           ad_platform?: 'meta' | 'google' | null
           layout_tags?: Json | null
           created_at?: string
+          surface?: 'leadgen' | 'smm'
         }
         Relationships: Rel[]
       }
@@ -2019,6 +2073,7 @@ export interface Database {
           published: boolean
           posted_by: string | null
           posted_at: string
+          idempotency_key: string | null
         }
         Insert: {
           id?: string
@@ -2036,6 +2091,7 @@ export interface Database {
           published?: boolean
           posted_by?: string | null
           posted_at?: string
+          idempotency_key?: string | null
         }
         Update: {
           id?: string
@@ -2053,6 +2109,168 @@ export interface Database {
           published?: boolean
           posted_by?: string | null
           posted_at?: string
+          idempotency_key?: string | null
+        }
+        Relationships: Rel[]
+      }
+
+      // T5-M + R1 (20260909120000, 20260909122000). Full CRUD RLS — written from src/.
+      project_creative_guidelines: {
+        Row: {
+          id: string
+          org_id: string
+          project_id: string | null
+          surface: 'leadgen' | 'smm'
+          rule_text: string
+          created_by: string | null
+          created_at: string
+          scope: 'project' | 'org'
+          status: 'proposed' | 'active' | 'retired'
+          evidence_count: number
+          source_review_ids: string[]
+          activated_at: string | null
+          retired_at: string | null
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          project_id?: string | null
+          surface?: 'leadgen' | 'smm'
+          rule_text: string
+          created_by?: string | null
+          created_at?: string
+          scope?: 'project' | 'org'
+          status?: 'proposed' | 'active' | 'retired'
+          evidence_count?: number
+          source_review_ids?: string[]
+          activated_at?: string | null
+          retired_at?: string | null
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          project_id?: string | null
+          surface?: 'leadgen' | 'smm'
+          rule_text?: string
+          created_by?: string | null
+          created_at?: string
+          scope?: 'project' | 'org'
+          status?: 'proposed' | 'active' | 'retired'
+          evidence_count?: number
+          source_review_ids?: string[]
+          activated_at?: string | null
+          retired_at?: string | null
+        }
+        Relationships: Rel[]
+      }
+
+      // T5-M (20260909120000). Full CRUD RLS — written from src/.
+      curation_log: {
+        Row: {
+          id: string
+          org_id: string
+          project_id: string | null
+          surface: 'leadgen' | 'smm'
+          subject_type: string
+          subject_id: string | null
+          action: string
+          reason: string | null
+          actor_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          project_id?: string | null
+          surface?: 'leadgen' | 'smm'
+          subject_type: string
+          subject_id?: string | null
+          action: string
+          reason?: string | null
+          actor_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          project_id?: string | null
+          surface?: 'leadgen' | 'smm'
+          subject_type?: string
+          subject_id?: string | null
+          action?: string
+          reason?: string | null
+          actor_id?: string | null
+          created_at?: string
+        }
+        Relationships: Rel[]
+      }
+
+      // NEW-3 (20260909122000). SELECT-only RLS — service-role writers only.
+      integration_health: {
+        Row: {
+          id: string
+          org_id: string
+          provider: 'meta' | 'google_ads' | 'canva' | 'openai' | 'anthropic'
+          status: 'ok' | 'degraded' | 'failing' | 'unconfigured'
+          checked_at: string
+          last_ok_at: string | null
+          token_expires_at: string | null
+          error_code: string | null
+          error_message: string | null
+          details: Json
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          provider: 'meta' | 'google_ads' | 'canva' | 'openai' | 'anthropic'
+          status: 'ok' | 'degraded' | 'failing' | 'unconfigured'
+          checked_at?: string
+          last_ok_at?: string | null
+          token_expires_at?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          details?: Json
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          provider?: 'meta' | 'google_ads' | 'canva' | 'openai' | 'anthropic'
+          status?: 'ok' | 'degraded' | 'failing' | 'unconfigured'
+          checked_at?: string
+          last_ok_at?: string | null
+          token_expires_at?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          details?: Json
+        }
+        Relationships: Rel[]
+      }
+
+      // 20260909122000. No org_id; RLS on with no policy — service role only.
+      cron_run_log: {
+        Row: {
+          id: string
+          jobname: string
+          started_at: string
+          finished_at: string | null
+          status: 'running' | 'succeeded' | 'failed'
+          error: string | null
+        }
+        Insert: {
+          id?: string
+          jobname: string
+          started_at?: string
+          finished_at?: string | null
+          status?: 'running' | 'succeeded' | 'failed'
+          error?: string | null
+        }
+        Update: {
+          id?: string
+          jobname?: string
+          started_at?: string
+          finished_at?: string | null
+          status?: 'running' | 'succeeded' | 'failed'
+          error?: string | null
         }
         Relationships: Rel[]
       }

@@ -1,5 +1,5 @@
 -- ============================================================
--- DRAFT — NOT APPLIED. Phase 2 gate: docs/decisions/phase2-schema-gate.md
+-- Phase 2 gate: docs/decisions/phase2-schema-gate.md
 --
 -- R1 review schema + rule lifecycle + NEW-3 integration_health + cron_run_log.
 --
@@ -15,15 +15,27 @@
 -- subject_type, subject_id, strategy_type, platform, ratings, improvement_text,
 -- edit_summary, editor_ops, created_by, created_at.
 --
+-- Revised 2026-09-16 per schema gate: the R1 inventory columns (entity_type,
+-- entity_id, rating, intent_tags, comment, parent_creative_id) are added —
+-- none existed on CC-TEST. They sit alongside the older subject_type /
+-- subject_id / ratings columns, which are NOT reconciled here.
+-- integration_health gains token_expires_at (NEW-3).
+--
 -- Fix-forward only. No down migration.
 -- ============================================================
 
 -- ── R1: review_events ──────────────────────────────────────────────────────
 ALTER TABLE review_events
-  ADD COLUMN IF NOT EXISTS surface        text NOT NULL DEFAULT 'leadgen',
-  ADD COLUMN IF NOT EXISTS rating_overall integer,
-  ADD COLUMN IF NOT EXISTS processed_at   timestamptz,
-  ADD COLUMN IF NOT EXISTS source         text;
+  ADD COLUMN IF NOT EXISTS surface            text NOT NULL DEFAULT 'leadgen',
+  ADD COLUMN IF NOT EXISTS rating_overall     integer,
+  ADD COLUMN IF NOT EXISTS processed_at       timestamptz,
+  ADD COLUMN IF NOT EXISTS source             text,
+  ADD COLUMN IF NOT EXISTS entity_type        text,
+  ADD COLUMN IF NOT EXISTS entity_id          uuid,
+  ADD COLUMN IF NOT EXISTS rating             integer,
+  ADD COLUMN IF NOT EXISTS intent_tags        text[],
+  ADD COLUMN IF NOT EXISTS comment            text,
+  ADD COLUMN IF NOT EXISTS parent_creative_id uuid;
 
 DO $$
 BEGIN
@@ -34,6 +46,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'review_events_rating_overall_check') THEN
     ALTER TABLE review_events ADD CONSTRAINT review_events_rating_overall_check
       CHECK (rating_overall IS NULL OR (rating_overall >= 1 AND rating_overall <= 5));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'review_events_entity_type_check') THEN
+    ALTER TABLE review_events ADD CONSTRAINT review_events_entity_type_check
+      CHECK (entity_type IN ('creative', 'strategy'));
   END IF;
 END $$;
 
@@ -102,6 +118,7 @@ CREATE TABLE IF NOT EXISTS integration_health (
   status         text NOT NULL,
   checked_at     timestamptz NOT NULL DEFAULT now(),
   last_ok_at     timestamptz,
+  token_expires_at timestamptz,
   error_code     text,
   error_message  text,
   details        jsonb NOT NULL DEFAULT '{}'::jsonb,
