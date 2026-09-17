@@ -149,6 +149,9 @@ this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
 | T-010 | CLOSED (TEST) | db | `41e9c37` `78cb813` `f891965`; 0 policies on TEST are `true` or anon. PROD via the Phase 7 batch |
 | T-011 | OPEN | db/client | `chatbot_log` org/user ids are client-supplied text. P1, Phase 3 |
 | PH2 | CLOSED | db | Phase 2 applied on TEST only; digest in `docs/closeout-inventory.md`. PROD = `docs/decisions/phase7-prod-batch.md`, behind the merge-readiness gate |
+| T-007a/b | DONE (unpushed) | client | `3ba1a17` SMM uses org brand kit; `3939677` no unattached-logo claims. prompt-eval pending (golden refs absent) |
+| T-007c/d | OPEN | client | logo compositing + `''` fallback (Ph3); brand_kit key mismatch, fonts, Aarav brand context (Ph3, T5-1) |
+| T-012 | OPEN (P0) | prompts/edge | all measured Lead Gen prompts (5.3–6.6k chars) lose Sections 7–9 to the 4000-char cut at `generate-image/index.ts:177` |
 | R-A | OPEN | meta | Meta app review in flight; reviewer account `meta-review@awaas.world` |
 | Q16 | CLOSED | meta | seeded-demo journey, one identity everywhere |
 

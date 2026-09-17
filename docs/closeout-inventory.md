@@ -142,6 +142,19 @@ prompt loses Sections 7–9 to the silent 4,000-char cut. Stage 2 asks for
 chars. Fix options: a character budget in Stage 2, moving brand/negatives
 ahead of the narrative, or raising the cut to the provider's real limit.
 Decide before T5-1.
+Also: in hero mode, `buildHeroEditPrompt` appends its "no on-image text or
+logos" override at the end (`senior-designer-prompts.ts`, `return
+${preamble}…${override}`), so with every prompt over 4,000 chars that override
+is always cut.
+
+**T-007a DONE (`3ba1a17`)** — live on TEST: the ZZ-INTERNAL-TEST kit
+(`#6A1B9A`/`#F9A825`, seeded as a test fixture) reached the nanoPrompt;
+`image_jobs` done in 145s; `smm-creative-gen` ledger row $0.165. The client is
+not deployed until the push.
+**T-007b DONE (`3939677`)** — split by path: BRAND_LOGO roles are kept for
+the export pack; image prompts reserve empty top-left space. The required
+`scripts/prompt-eval.ts` run is **pending**: its golden refs
+(`scripts/eval-refs/`) are not in the repo.
 
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
