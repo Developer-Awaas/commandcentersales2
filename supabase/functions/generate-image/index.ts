@@ -175,6 +175,11 @@ Deno.serve(async (req: Request) => {
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
 
   const safePrompt = prompt.slice(0, 4000)
+  // T-006 evidence: the cut is silent, so record how often it bites and by how
+  // much. Measurement only — the limit itself is unchanged.
+  const promptChars = prompt.length
+  const promptTruncated = promptChars > safePrompt.length
+  console.log(JSON.stringify({ event: 'generate-image.prompt', feature: feature ?? 'creatives', promptChars, promptTruncated, hero: !!heroImage }))
 
   // The single generation body, shared by the sync and async paths — extracted
   // rather than duplicated so the two can never drift. Returns the image or
@@ -231,7 +236,7 @@ Deno.serve(async (req: Request) => {
     await langfuseTrace(traceId, {
       name: 'generate-image',
       tags: ['image-gen', model],
-      metadata: { size, quality },
+      metadata: { size, quality, promptChars, promptTruncated },
       input: { prompt: safePrompt },
     })
 
