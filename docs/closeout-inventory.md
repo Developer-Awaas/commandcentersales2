@@ -102,6 +102,12 @@ reconnecting Canva writes a fresh row. The architecture doc
 as the `INTERNAL_TEST_USER_*` identity. Confirm the `review-build` environment
 secrets hold `saswat-review-admin`'s credentials, or TEST e2e login fails.
 
+**Merge-readiness gate (PROD migration):** the Phase 7 PROD batch
+(`docs/decisions/phase7-prod-batch.md`) runs only when all four hold:
+(a) Meta submission ID logged, (b) Phases 3–5 closed, (c) internal reviewer
+sign-off, (d) e2e green on `review-build`. CC PROD is a frozen baseline with no
+traffic; its permissive policies are fixed in that batch, not before.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
