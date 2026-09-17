@@ -47,6 +47,33 @@ the plan file; do not treat an ID as under-defined because the plan is missing.
 **From CLAUDE.md audit:** P1-CM-01 ad-level sync uses org-level ad account (P1, Ph4) · -02 Kavya canvas (Ph6) · -03 Langfuse trace names (Ph5) · -04 text-overlay phase 2 (Ph6) · -05/-10 stale claims (CORRECTED) · -06 retrieveMemory unconsumed (Ph2, T5-1) · -07 branch protection (human) · -08 zone extraction / Rung-2 mask (register) · -09 Kolosus directive unmeasured (Ph5, K4) · -11 run-out soft preference (register; R4 learns it) · -12 Edge 150s plan tier (Gate P decision) · -13 V5 real refs (Ph3, needs H1) · -14 Sandbox IG link (verify Ph4, likely stale) · -15 Creatives.tsx hashtags:[] intent (Ph6).
 **Register only:** C3 Promote-this-post (R-B scope) · Gate P infra items.
 
+## Security and schema follow-ups (recorded 2026-09-17)
+
+**T-008 (P0) CLOSED on TEST** — `74ab075`: `creative_assets` DELETE scoped to
+the caller's org. PROD exposure not yet probed.
+
+**T-009 (Phase 3, before R2/R3):** move `src/lib/review-service.ts:59` and
+`supabase/functions/ingest-review/index.ts:~140` off `subject_type` /
+`subject_id` / `ratings` onto `entity_type` / `entity_id` / `rating`, then drop
+the three legacy columns in a forward migration. The drop must not ship before
+the writers: `submitReview` swallows insert errors, so review capture would
+fail silently.
+
+**T-010 (P0, awaiting approval):** the rest of `20260604120000`'s permissive
+policies. Audit on TEST, 2026-09-16 — every policy with `true` or role `anon`:
+
+| Table | Policy | Cmd | Roles | USING | WITH CHECK | State |
+|---|---|---|---|---|---|---|
+| awaas_data_pool | Allow anon insert awaas_data_pool | INSERT | anon, authenticated | | true | open |
+| awaas_data_pool | Allow anon select awaas_data_pool | SELECT | anon, authenticated | true | | open |
+| awaas_data_pool | Allow anon update awaas_data_pool | UPDATE | anon, authenticated | true | true | open |
+| awaas_data_pool | Authenticated users can read awaas pool | SELECT | authenticated | true | | open (cross-org read) |
+| chatbot_log | Allow anon insert for chatbot logs | INSERT | anon | | true | open |
+| chatbot_log | Allow anon select for chatbot logs | SELECT | anon | true | | open — **anyone can read all chat text** |
+| chatbot_log | Allow anon update chatbot_log | UPDATE | anon, authenticated | true | true | open |
+| creative_assets | Allow anon delete creative_assets | DELETE | anon, authenticated | true | | fixed, T-008 |
+| org_user_integrations | Allow anon delete org_user_integrations | DELETE | anon, authenticated | true | | open |
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
