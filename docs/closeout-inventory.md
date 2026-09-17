@@ -108,6 +108,26 @@ secrets hold `saswat-review-admin`'s credentials, or TEST e2e login fails.
 sign-off, (d) e2e green on `review-build`. CC PROD is a frozen baseline with no
 traffic; its permissive policies are fixed in that batch, not before.
 
+**T-007 — brand kit not reaching image generation** (probe 2026-09-17), split:
+- **T-007a (P0, now):** SMM Creatives uses the org's brand kit. It was
+  hard-coded `#1B4332 #2DD4A8` at `src/lib/smm-prompts.ts:129`. Colours, fonts,
+  motifs and `design_aesthetic` go in as text; `''` counts as absent; no logo.
+- **T-007b (P0, now):** remove every prompt claim about an asset that is not
+  attached: single-call `BRAND_LOGO` manifest entries, the replicate line
+  "via the strings above", and SMM's "logo placement". Replace them with "leave
+  clean space in a stated corner for a logo placed later".
+- **T-007c (P1, Phase 3):** composite the logo after generation. Fix the `??`
+  fallback that lets `''` through at `StrategyResult.tsx:1543` and
+  `overlay-recompose.ts:72`; place the logo automatically instead of leaving it
+  unplaced; extend to SMM and Quick Generate.
+- **T-007d (P1, Phase 3, inside T5-1):** the `brand_kit`/`brandKit` field
+  mismatch at `senior-designer-prompts.ts:1116`; fonts dropped at `:1086-1093`;
+  Aarav→Aanya gets no brand context (`aarav-orchestrate/index.ts:413,924`).
+
+**T-006 evidence:** `generate-image/index.ts:177` cuts prompts to 4,000
+characters without saying so. Instrumented to log the length before the cut;
+see the session state for measurements.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
