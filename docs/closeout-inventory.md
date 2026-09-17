@@ -124,9 +124,24 @@ traffic; its permissive policies are fixed in that batch, not before.
   mismatch at `senior-designer-prompts.ts:1116`; fonts dropped at `:1086-1093`;
   Aarav→Aanya gets no brand context (`aarav-orchestrate/index.ts:413,924`).
 
-**T-006 evidence:** `generate-image/index.ts:177` cuts prompts to 4,000
-characters without saying so. Instrumented to log the length before the cut;
-see the session state for measurements.
+**T-006 evidence (2026-09-17):** `generate-image/index.ts:177` cuts prompts
+to 4,000 characters without saying so. Instrumented in `cdc20e5` (not
+deployed). Measured without deploying: three real assembled prompts, plus the
+other two layouts of each Lead Gen run.
+- **Lead Gen (Quick Generate, two-stage, ZZ e2e project, two briefs):**
+  main 6,304 / 6,635 chars; portrait 5,263 / 5,759; story 5,868 / 5,958. The
+  hero wrapper adds 460. **All six are truncated.** SECTION 7 (brand & project
+  elements) starts at 3,993–5,147 and SECTION 8/9 (negatives, technical specs)
+  at 4,399–6,385, so the image model never sees the brand section, the
+  negative prompts or the aspect/quality specs.
+- **SMM:** nanoPrompt 1,955 chars. Not truncated.
+
+**T-012 (P0, candidate cause of demo instability):** every Lead Gen image
+prompt loses Sections 7–9 to the silent 4,000-char cut. Stage 2 asks for
+500–800 words (`senior-designer-prompts.ts:1339`), and 800 words ≈ 5,000+
+chars. Fix options: a character budget in Stage 2, moving brand/negatives
+ahead of the narrative, or raising the cut to the provider's real limit.
+Decide before T5-1.
 
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
