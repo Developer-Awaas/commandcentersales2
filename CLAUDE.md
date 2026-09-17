@@ -144,6 +144,11 @@ this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
 | R1 … R6 | DEFERRED | unassigned | no definition in repo or session transcript — define before use |
 | M0, M1, M2 | DEFERRED | unassigned | no definition in repo or session transcript — define before use |
 | C3, C4 | DEFERRED | unassigned | no definition in repo or session transcript — define before use |
+| T-008 | CLOSED (TEST) | db | `74ab075`; `creative_assets` anon DELETE removed. PROD via `docs/decisions/phase7-prod-batch.md` |
+| T-009 | OPEN | client/edge | move `review-service.ts:59` + `ingest-review` to `entity_*`/`rating`, then drop legacy `review_events` columns. Phase 3, before R2/R3 |
+| T-010 | CLOSED (TEST) | db | `41e9c37` `78cb813` `f891965`; 0 policies on TEST are `true` or anon. PROD via the Phase 7 batch |
+| T-011 | OPEN | db/client | `chatbot_log` org/user ids are client-supplied text. P1, Phase 3 |
+| PH2 | CLOSED | db | Phase 2 applied on TEST only; digest in `docs/closeout-inventory.md`. PROD = `docs/decisions/phase7-prod-batch.md`, behind the merge-readiness gate |
 | R-A | OPEN | meta | Meta app review in flight; reviewer account `meta-review@awaas.world` |
 | Q16 | CLOSED | meta | seeded-demo journey, one identity everywhere |
 
