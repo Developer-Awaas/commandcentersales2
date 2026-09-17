@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { getOrgId, DEFAULT_CREATIVE_PLATFORM } from '../lib/constants';
 import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { generateImageWithGemini } from '../lib/gemini-service';
+import { getBrandProvider } from '../lib/providers';
 import { saveToolOutput, type AssetRef } from '../lib/history-service';
 import { buildSMMCreativePrompt } from '../lib/smm-prompts';
 import { resolveGenerationErrorMessage } from '../lib/smm-generation-error';
@@ -94,7 +95,10 @@ export default function SMMCreatives() {
     startGeneration('Creating your post…');
     try {
       const proj = projects.find(p => (p.name || p['Project Name']) === project);
-      const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform });
+      // T-007a: the org's own kit. A failed read degrades to no brand
+      // directives rather than blocking the post.
+      const brandKit = await getBrandProvider().getBrandKit(getOrgId()).catch(() => null);
+      const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform, brandKit });
       const res = await aiCall(prompt);
       if (res && !res.error && !res.raw) {
         // Canonical form has no leading '#' — the UI adds exactly one. Doing

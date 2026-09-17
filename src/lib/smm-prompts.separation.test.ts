@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildSMMCreativePrompt } from './smm-prompts';
+import { buildSMMCreativePrompt, brandKitDirectives } from './smm-prompts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,5 +46,40 @@ describe('SMM creative prompts are a separate template from the ad-strategy libr
     const source = readFileSync(join(__dirname, '..', 'pages', 'SMMCreatives.tsx'), 'utf8');
     expect(source).toMatch(/from ['"]\.\.\/lib\/smm-prompts['"]/);
     expect(source).not.toMatch(/senior-designer-prompts/);
+  });
+});
+
+// T-007a: the org's own brand kit, never a baked-in palette.
+describe('SMM creative prompt uses the org brand kit', () => {
+  const base = { type: 'company_branding', description: 'Diwali greeting', platform: 'Nanobanana (Gemini)' };
+  const kit = {
+    primary_color: '#BC1E2D', secondary_color: '#7A0D22', accent_color: '', text_color: '  ',
+    primary_font: 'Inter', secondary_font: '', display_font: 'Bebas Neue',
+    design_aesthetic: 'premium_minimal', cultural_motifs: ['konark_wheel_subtle', ''],
+    logo_color_url: '',
+  };
+
+  it('carries the kit colours, fonts, aesthetic and motifs', () => {
+    const prompt = buildSMMCreativePrompt({ ...base, brandKit: kit });
+    expect(prompt).toContain('primary #BC1E2D, secondary #7A0D22');
+    expect(prompt).toContain('Fonts: primary Inter, display Bebas Neue');
+    expect(prompt).toContain('Design aesthetic: premium minimal');
+    expect(prompt).toContain('Cultural motifs (subtle, never dominant): konark wheel subtle');
+    expect(prompt).toContain('BRAND KIT colours (exact hex) and fonts above');
+  });
+
+  it("treats '' and whitespace as absent, never as a value", () => {
+    const lines = brandKitDirectives(kit);
+    expect(lines).toContain('- Colours (use these exact hex codes, no other brand colours): primary #BC1E2D, secondary #7A0D22');
+    expect(lines).toContain('- Cultural motifs (subtle, never dominant): konark wheel subtle');
+    expect(lines.join(' ')).not.toMatch(/accent|text\s|secondary Inter/);
+    expect(brandKitDirectives({ primary_color: '', cultural_motifs: [''] })).toEqual([]);
+  });
+
+  it('never hard-codes a palette when the org has no kit', () => {
+    for (const brandKit of [undefined, null, {}]) {
+      const prompt = buildSMMCreativePrompt({ ...base, brandKit });
+      expect(prompt).not.toMatch(/#1B4332|#2DD4A8|BRAND KIT/);
+    }
   });
 });

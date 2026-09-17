@@ -84,6 +84,38 @@ export function buildSMMPlannerPrompt(data: {
 }
 
 // ============================================================
+// BRAND KIT DIRECTIVES (T-007a)
+// ============================================================
+// A brand_kits row as the brand provider returns it (open shape). Typed
+// locally: this file must never import the ad-strategy library.
+export type SMMBrandKit = Record<string, unknown>;
+
+// Blank columns default to '' — '' means "not set", never a value.
+const present = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+const label = (v: string) => v.trim().replace(/_/g, ' ');
+
+/** Text directives for the org's brand kit. Empty when nothing is set. */
+export function brandKitDirectives(kit?: SMMBrandKit | null): string[] {
+  if (!kit) return [];
+  const pick = (keys: [string, string][]) =>
+    keys.filter(([k]) => present(kit[k])).map(([k, name]) => `${name} ${(kit[k] as string).trim()}`);
+
+  const colours = pick([
+    ['primary_color', 'primary'], ['secondary_color', 'secondary'], ['accent_color', 'accent'],
+    ['text_color', 'text'], ['background_color', 'background'],
+  ]);
+  const fonts = pick([['primary_font', 'primary'], ['secondary_font', 'secondary'], ['display_font', 'display']]);
+  const motifs = Array.isArray(kit.cultural_motifs) ? kit.cultural_motifs.filter(present).map(label) : [];
+
+  const out: string[] = [];
+  if (colours.length) out.push('- Colours (use these exact hex codes, no other brand colours): ' + colours.join(', '));
+  if (fonts.length) out.push('- Fonts: ' + fonts.join(', '));
+  if (present(kit.design_aesthetic)) out.push('- Design aesthetic: ' + label(kit.design_aesthetic));
+  if (motifs.length) out.push('- Cultural motifs (subtle, never dominant): ' + motifs.join(', '));
+  return out.length ? ["BRAND KIT (this organisation's own):", ...out] : [];
+}
+
+// ============================================================
 // SMM CREATIVES PROMPT
 // ============================================================
 export function buildSMMCreativePrompt(data: {
@@ -93,6 +125,7 @@ export function buildSMMCreativePrompt(data: {
   holiday?: string;
   event?: string;
   platform: string;   // Nanobanana, Canva, etc.
+  brandKit?: SMMBrandKit | null;
 }) {
   const typeLabels: Record<string, string> = {
     company_branding: 'Company Branding Post — showcase the brand, values, team, office',
@@ -116,6 +149,10 @@ export function buildSMMCreativePrompt(data: {
   }
 
   lines.push('CREATIVE PLATFORM: ' + data.platform);
+
+  const brand = brandKitDirectives(data.brandKit);
+  if (brand.length) lines.push('', ...brand);
+
   lines.push('');
   lines.push('Return JSON:');
   lines.push('{');
@@ -126,7 +163,7 @@ export function buildSMMCreativePrompt(data: {
   lines.push('  "bestTime": "optimal posting time",');
   lines.push('  "bestPlatform": "instagram or facebook or both",');
   lines.push('  "postType": "static or carousel or reel or story",');
-  lines.push('  "nanoPrompt": "COMPLETE ' + data.platform + ' prompt for 1080x1080: visual style, elements, colors hex, text overlay, layout, logo placement, mood, brand colors #1B4332 #2DD4A8",');
+  lines.push('  "nanoPrompt": "COMPLETE ' + data.platform + ' prompt for 1080x1080: visual style, elements, colors hex, text overlay, layout, logo placement, mood' + (brand.length ? ', and the BRAND KIT colours (exact hex) and fonts above' : '') + '",');
   lines.push('  "nanoPromptStory": "Same for 1080x1920 story format",');
   lines.push('  "carouselSlides": ["slide 1 content", "slide 2 content"] ,');
   lines.push('  "reelScript": "script with timestamps if reel/video",');
