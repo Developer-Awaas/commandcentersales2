@@ -74,6 +74,14 @@ policies. Audit on TEST, 2026-09-16 — every policy with `true` or role `anon`:
 | creative_assets | Allow anon delete creative_assets | DELETE | anon, authenticated | true | | fixed, T-008 |
 | org_user_integrations | Allow anon delete org_user_integrations | DELETE | anon, authenticated | true | | open |
 
+**9a CLOSED on TEST (2026-09-17):** `saswat-review-admin@awaas.internal`
+(`941f3596`) is the internal test user by decision. Its profile moved from
+Demo Builder (`1a0f7ac3-8053-4aee-824c-75f27681ce64`) to ZZ-INTERNAL-TEST
+(`0a86b9b5-49b9-4590-9805-0ad427d451e9`), role `admin`; it no longer sees
+Demo Builder data. Rollback: set `profiles.org_id` back to `1a0f7ac3…`.
+`E2E_ORG_ID` is set on the `review-build` environment. Its `module_access`
+has no SMM module keys; check before using it for the SMM smoke.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
