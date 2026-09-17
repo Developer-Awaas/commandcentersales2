@@ -208,3 +208,31 @@ parallel columns: subject_type/subject_id/ratings alongside
 entity_type/entity_id/rating. Gate probe 6 is inverted by the `'done'` ruling.
 `seed-internal-test-org.ts` refuses non-PROD, so the org was created with SQL.
 The A5 VALIDATE is not a migration, so PROD needs it by hand.
+
+## Phase 2 digest — CLOSED 2026-09-17
+
+**Applied on TEST** (psql, recorded in `schema_migrations`, probes pass):
+Phase 2 `20260909120000` t5m, `120500` a3_validate, `121000` new2 (+T-006a
+`started_at` trigger), `122000` r1, `123000` new4. The A5 orphan was deleted and
+the provenance CHECK is VALID. Also applied: `20260916121000` r1_cleanup (the
+duplicate policy, plus R-02 as SQL). DOWN files exist for every migration.
+
+**Security:** T-008 (`creative_assets` anon DELETE) and T-010
+(`org_user_integrations`, `awaas_data_pool`, `chatbot_log`) are closed on
+TEST. 0 policies on TEST are `true` or open to anon.
+
+**Opened:** T-009 (retire the legacy `review_events` columns — writers first,
+Phase 3, before R2/R3). T-011 (`chatbot_log` client-supplied text identity,
+P1, Phase 3). The 9a side effect (orphaned Canva row) and the e2e
+secret-identity check are recorded above.
+
+**9a:** ZZ-INTERNAL-TEST org on TEST is `0a86b9b5-49b9-4590-9805-0ad427d451e9`;
+the test user is `saswat-review-admin`. Step 8 smoke: not yet run.
+
+**PROD:** nothing applied. `docs/decisions/phase7-prod-batch.md` is the only
+ordered list. It is gated on the merge-readiness gate: Meta submission ID,
+Phases 3–5 closed, reviewer sign-off, e2e green on `review-build`. CC PROD is
+not hosted; PROD probes are cancelled permanently.
+
+**Push manifest (held until the e2e secrets are confirmed):** 22 commits,
+`d7cac49`…`190a0ae`, plus this digest.
