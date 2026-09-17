@@ -59,8 +59,9 @@ the three legacy columns in a forward migration. The drop must not ship before
 the writers: `submitReview` swallows insert errors, so review capture would
 fail silently.
 
-**T-010 (P0, awaiting approval):** the rest of `20260604120000`'s permissive
-policies. Audit on TEST, 2026-09-16 — every policy with `true` or role `anon`:
+**T-010 (P0) CLOSED on TEST 2026-09-17** — `41e9c37`, `78cb813`, `f891965`;
+PROD in `docs/decisions/phase7-prod-batch.md`. The rest of `20260604120000`'s permissive
+policies. After the fix, 0 policies on TEST are `true` or open to anon. Audit on TEST, 2026-09-16 — every policy with `true` or role `anon`:
 
 | Table | Policy | Cmd | Roles | USING | WITH CHECK | State |
 |---|---|---|---|---|---|---|
@@ -81,6 +82,25 @@ Demo Builder (`1a0f7ac3-8053-4aee-824c-75f27681ce64`) to ZZ-INTERNAL-TEST
 Demo Builder data. Rollback: set `profiles.org_id` back to `1a0f7ac3…`.
 `E2E_ORG_ID` is set on the `review-build` environment. Its `module_access`
 has no SMM module keys; check before using it for the SMM smoke.
+
+**T-011 (P1, Phase 3):** `chatbot_log.org_id` / `user_id` are `text`, filled
+client-side from `localStorage` (`src/lib/constants.ts:17-23`; insert at
+`src/lib/chatbot-service.ts:167`) with a `'dev-user-001'` default. RLS scopes by
+org only, so a signed-in user can write rows under any `user_id` in their org.
+On TEST, all 8 rows carry org A's id under `ca8a01ed`, a user now in org B.
+Fix: `uuid` columns, identity derived server-side (column defaults from
+`auth.uid()` / `get_current_user_org_id()` or an Edge write), and a
+backfill-or-quarantine decision for the existing rows. It is the same
+tamperable-identity class the §5.1 Deviation Register
+(`docs/decisions/architecture.md`) records as closed.
+
+**Side effect of 9a, open:** the only TEST `org_user_integrations` row (Canva,
+`b46ce58a`) belongs to `941f3596` but still carries Demo Builder's `org_id`.
+Its owner is now in ZZ-INTERNAL-TEST, so RLS hides the row from them;
+reconnecting Canva writes a fresh row. The architecture doc
+(`docs/decisions/architecture.md:365`) names `zz-internal-test@awaas.internal`
+as the `INTERNAL_TEST_USER_*` identity. Confirm the `review-build` environment
+secrets hold `saswat-review-admin`'s credentials, or TEST e2e login fails.
 
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
