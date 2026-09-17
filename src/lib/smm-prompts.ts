@@ -163,7 +163,7 @@ export function buildSMMCreativePrompt(data: {
   lines.push('  "bestTime": "optimal posting time",');
   lines.push('  "bestPlatform": "instagram or facebook or both",');
   lines.push('  "postType": "static or carousel or reel or story",');
-  lines.push('  "nanoPrompt": "COMPLETE ' + data.platform + ' prompt for 1080x1080: visual style, elements, colors hex, text overlay, layout, logo placement, mood' + (brand.length ? ', and the BRAND KIT colours (exact hex) and fonts above' : '') + '",');
+  lines.push('  "nanoPrompt": "COMPLETE ' + data.platform + ' prompt for 1080x1080: visual style, elements, colors hex, text overlay, layout, clean uncluttered top-left corner left empty for a logo placed later (never draw a logo or logo placeholder), mood' + (brand.length ? ', and the BRAND KIT colours (exact hex) and fonts above' : '') + '",');
   lines.push('  "nanoPromptStory": "Same for 1080x1920 story format",');
   lines.push('  "carouselSlides": ["slide 1 content", "slide 2 content"] ,');
   lines.push('  "reelScript": "script with timestamps if reel/video",');

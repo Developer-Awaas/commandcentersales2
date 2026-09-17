@@ -243,7 +243,7 @@ function getGoalStrategy(goal: string, _funnel: string): string {
 - Composition: 80% visual / 20% information density
 - Color: Brand palette restraint — 2 colors max
 - Copy hierarchy: Tagline/brand statement → company name (small)
-- Mandatory: Logo, tagline. NO direct sell elements.
+- Mandatory: clean top-left logo space (logo placed later), tagline. NO direct sell elements.
 - Default angle types: Trust-led, legacy-led, vision-led, craftsmanship-led`,
 
     awareness: `AWARENESS (TOFU)
@@ -332,17 +332,27 @@ function formatDesignDNA(dna: ProjectDesignSystem): string {
   return dnaBlock;
 }
 
+// T-007b: in-app generation never receives a logo file (generate-image takes
+// text plus hero/supporting photos only), so no image prompt may claim one or
+// draw one. The logo is placed after generation (T-007c).
+export const LOGO_SPACE_DIRECTIVE = 'LOGO SPACE: do not draw, invent or placeholder any logo, wordmark, emblem or project lockup. Keep the top-left corner (x:3–11%, y:3–12%) clean and uncluttered — plain background only — because the brand logo is placed there after generation.';
+
+// The numbered list below serves the downloadable Reference Image Pack
+// (ReferenceImagePack.tsx), where BRAND_LOGO_* files ARE bundled. It is not
+// what in-app generation attaches — hence the note that heads it in the prompt.
+const REFERENCE_PACK_NOTE = 'These are numbered for the downloadable reference pack only. The image prompts you write are ALSO sent to in-app generation, which never receives the logo or project-lockup files and does not receive photos in this order — so never cite an image by number and never state that a logo is attached.';
+
 function buildReferenceManifest(input: CreativeBriefInput): { manifest: string[], count: number } {
   const refs: string[] = [];
   let imgIndex = 1;
 
   // 1. Brand logo (color version preferred)
   if (input.brand_kit?.logo_color_url) {
-    refs.push(`Image ${imgIndex} [BRAND_LOGO_COLOR]: Place this exact logo in the top-left corner at 8% of frame width. Preserve color, proportions, and clear-space margins. Do not redraw, recolor, or stylize.`);
+    refs.push(`Image ${imgIndex} [BRAND_LOGO_COLOR]: (reference pack only) Place this exact logo in the top-left corner at 8% of frame width. Preserve color, proportions, and clear-space margins. Do not redraw, recolor, or stylize.`);
     imgIndex++;
   }
   if (input.brand_kit?.logo_white_url) {
-    refs.push(`Image ${imgIndex} [BRAND_LOGO_WHITE]: White-version logo for use over dark areas. Use this version if the background in the logo zone is darker than 50% gray.`);
+    refs.push(`Image ${imgIndex} [BRAND_LOGO_WHITE]: (reference pack only) White-version logo for use over dark areas. Use this version if the background in the logo zone is darker than 50% gray.`);
     imgIndex++;
   }
 
@@ -358,7 +368,7 @@ function buildReferenceManifest(input: CreativeBriefInput): { manifest: string[]
 
     const projectLogo = input.project_assets.find(a => a.asset_type === 'project_logo');
     if (projectLogo) {
-      refs.push(`Image ${imgIndex} [PROJECT_LOGO]: Project lockup. Position below or beside the brand logo at 60% of brand logo size. Preserve exactly.`);
+      refs.push(`Image ${imgIndex} [PROJECT_LOGO]: (reference pack only) Project lockup. Position below or beside the brand logo at 60% of brand logo size. Preserve exactly.`);
       imgIndex++;
     }
 
@@ -565,8 +575,9 @@ ${strategy}
 ## 5. DESIGN DNA (learned from past performance)
 ${dnaBlock}
 
-## 6. REFERENCE IMAGES (${count} provided)
-${manifest.length > 0 ? manifest.join('\n') : 'No reference images provided — generate from text only. Be extra-detailed in the scene narrative to compensate.'}
+## 6. REFERENCE IMAGES (${count} in the downloadable reference pack)
+${manifest.length > 0 ? `${REFERENCE_PACK_NOTE}\n${manifest.join('\n')}` : 'No reference images provided — generate from text only. Be extra-detailed in the scene narrative to compensate.'}
+${LOGO_SPACE_DIRECTIVE}
 
 ## 7. LANGUAGE LAYERS
 ${languageBlock}
@@ -590,7 +601,7 @@ Below are THREE REFERENCE EXAMPLES — one per layout paradigm. Your output must
 ━━━ REFERENCE A — nanobanana_prompt_main (GRAPHIC_DESIGN_FRAME, 1:1) ━━━
 
 SECTION 1: SCENE NARRATIVE
-A premium graphic design composition — NOT a photographed outdoor scene. The entire 1024×1024 canvas is anchored by a full-bleed deep navy (#1A3A5C) background. Two framed building photographs are placed as photo cards in the upper 60% of the frame. The composition reads as a structured grid: logo + mixed-weight headline at top → dual photo panels with caption bars and price badge → 2×2 feature checklist → centered gold CTA button → full-width gold footer contact strip. Professional Indian real estate ad standard.
+A premium graphic design composition — NOT a photographed outdoor scene. The entire 1024×1024 canvas is anchored by a full-bleed deep navy (#1A3A5C) background. Two framed building photographs are placed as photo cards in the upper 60% of the frame. The composition reads as a structured grid: clean logo space + mixed-weight headline at top → dual photo panels with caption bars and price badge → 2×2 feature checklist → centered gold CTA button → full-width gold footer contact strip. Professional Indian real estate ad standard.
 
 SECTION 2: SUBJECT & COMPOSITION
 LAYOUT TYPE: GRAPHIC_DESIGN_FRAME
@@ -598,11 +609,11 @@ BACKGROUND: Full-bleed #1A3A5C navy fills 100% of the 1024×1024 canvas — no s
 DECORATIVE GEOMETRY: Two hatched-stripe circle shapes in #C9A961 gold at 35% opacity — one partially cropped in top-right corner (diameter ~18% of frame), one partially visible bottom-right (diameter ~14%). Thin gold (#C9A961) L-bracket corner lines (2px weight, 14pt arm length) at all four corners of each photo card.
 PHOTO PANEL 1 (LEFT, LARGE): Building exterior photo card. Position: x:3–58%, y:20–63%. White 2px border. Gold L-bracket corners. PHOTO_CAPTION_BAR at bottom: "NAYAPALLI, BBSR" white bold all-caps on navy strip.
 PHOTO PANEL 2 (RIGHT, SMALL): Alternate building angle or entrance photo card. Position: x:62–97%, y:15–56%. Same white border + gold brackets. PRICE_BADGE overlaps bottom section of this panel.
-ZONE TOP (y:3–17%): Logo top-left at 8% frame width. MIXED_WEIGHT_HEADLINE centered across remaining width.
+ZONE TOP (y:3–17%): Clean empty logo space top-left at 8% frame width (logo placed later — draw nothing there). MIXED_WEIGHT_HEADLINE centered across remaining width.
 ZONE MIDDLE (y:64–80%): FEATURE_CHECKLIST — 4 items in 2×2 grid with gold ✓ icons.
 ZONE CTA (y:81–89%): Single centered CTA_BUTTON.
 ZONE FOOTER (y:90–100%): Full-width FOOTER_STRIP.
-Reading order: Logo + Headline → Photos + Price → Features → CTA → Footer.
+Reading order: Headline → Photos + Price → Features → CTA → Footer.
 
 SECTION 3: CAMERA & LENS
 No single camera perspective — this is a graphic design frame. Left photo card uses 24mm wide-angle, 5° low-angle. Right photo card uses 35mm prime, three-quarter view. Both maintain tilt-shift vertical correction and sharp editorial quality.
@@ -623,7 +634,7 @@ TEXT ELEMENT 1 — MIXED_WEIGHT_HEADLINE (RENDER IN IMAGE)
   Font: "READY" = Bebas Neue or Impact ExtraBold condensed; "to" = Dancing Script or Great Vibes italic script; "MOVE" = same as "READY"
   Size: "READY"/"MOVE" = 72–80pt ultra-bold condensed; "to" = 56pt italic script
   Color: "READY"/"MOVE" = #FFFFFF white; "to" = #C9A961 gold
-  Position: Centered, y:5–16%, spanning full usable width between logo and right edge
+  Position: Centered, y:5–16%, spanning full usable width between the logo space and right edge
   Background: Transparent
   Treatment: Single line, tight tracking on condensed caps, the italic script "to" flows naturally between the two bold words at slightly smaller size
 
@@ -674,7 +685,7 @@ TEXT ELEMENT 6 — FOOTER_STRIP (RENDER IN IMAGE)
   Treatment: Phone left-aligned with 4% margin; website right-aligned with 4% margin. RERA number (if provided) centered in small 9pt type.
 
 SECTION 7: BRAND & PROJECT ELEMENTS
-Logo: Top-left, x:3–11%, y:3–12%, 8% frame width — keep zone clear of headline overlap.
+Logo space: top-left, x:3–11%, y:3–12% — leave clean and empty (logo placed after generation, never drawn); keep headline out of it.
 DECORATIVE GEOMETRY: Hatched-stripe circle (diagonal lines, 45°, 3px spacing) in #C9A961 at 35% opacity — one in top-right corner partially cropped (radius extends to x:82–100%, y:0–18%), one in bottom-right partially visible (center near x:95%, y:88%). These are purely compositional breathing elements on the flat navy background.
 Photo card corners: Gold (#C9A961) L-bracket lines at all four corners of both photo panels — inner corner treatment, 2px line weight, 14pt arm length each direction.
 
@@ -739,7 +750,7 @@ TEXT ELEMENT 4 — CTA_BUTTON (RENDER IN IMAGE)
   Background: #C9A961 gold pill, 12pt padding sides
 
 SECTION 7: BRAND & PROJECT ELEMENTS
-Logo top-left at 7% frame width, y:3–10% — sky zone ensures clean white/gold contrast. No decorative geometry — photorealistic scene must feel uncluttered.
+Logo space: top-left, y:3–10%, in the sky zone — leave clean and empty (logo placed after generation, never drawn). No decorative geometry — photorealistic scene must feel uncluttered.
 
 SECTION 8: NEGATIVE PROMPTS
 DO NOT use a flat background — this MUST be a real photographic exterior scene. DO NOT add feature checklists or footer strips — this layout is intentionally minimal. DO NOT invent building architecture. Text must be legible against the sky zone.
@@ -798,7 +809,7 @@ TEXT ELEMENT 3 — CTA_BUTTON (RENDER IN IMAGE)
   Background: #C9A961 gold wide rounded-rectangle, ~65% frame width, height 46–52pt
 
 SECTION 7: BRAND & PROJECT ELEMENTS
-Logo: Top-center or top-left, y:1–5%, small (6% frame width) — does not compete with headline. Photo card gets gold L-bracket corners. No other decorative elements — headline IS the decoration.
+Logo space: top-left, y:1–5% — leave clean and empty (logo placed after generation, never drawn); does not compete with headline. Photo card gets gold L-bracket corners. No other decorative elements — headline IS the decoration.
 
 SECTION 8: NEGATIVE PROMPTS
 DO NOT make the photo card larger than 35% of vertical frame — the HEADLINE is the hero, not the building photo. DO NOT add a feature checklist — maximum 3 text elements for Stories. DO NOT use earth tones or nature photography backgrounds. DO NOT render blurry, pixelated, or distorted text — all characters must be crisp and fully legible at mobile screen size. DO NOT allow headline text to overflow or clip at frame edges — maintain 4% side margin minimum. DO NOT blur the footer or merge it with the CTA zone. DO NOT render the photo card taller than 37% of the 1792px canvas height.
@@ -1132,8 +1143,9 @@ ${strategy}
 ## DESIGN DNA
 ${dnaBlock}
 
-## REFERENCE IMAGES (${count} provided)
-${manifest.length > 0 ? manifest.join('\n') : 'None provided.'}
+## REFERENCE IMAGES (${count} in the downloadable reference pack)
+${manifest.length > 0 ? `${REFERENCE_PACK_NOTE}\n${manifest.join('\n')}` : 'None provided.'}
+${LOGO_SPACE_DIRECTIVE}
 
 ## LANGUAGE LAYERS
 ${languageBlock}
@@ -1193,7 +1205,7 @@ SECTION 2: SUBJECT & COMPOSITION
 BACKGROUND: Full-bleed brand primary color fills 100% of canvas — no sky, no landscape.
 PHOTO PANEL 1 (LEFT, LARGE): Building exterior photo card, white border, gold L-bracket corners, PHOTO_CAPTION_BAR at bottom with locality.
 PHOTO PANEL 2 (RIGHT, SMALL): Alternate angle, PRICE_BADGE overlapping bottom section.
-ZONE TOP: Logo + MIXED_WEIGHT_HEADLINE. ZONE MIDDLE: FEATURE_CHECKLIST 2×2 grid. ZONE CTA: centered CTA_BUTTON. ZONE FOOTER: full-width FOOTER_STRIP.
+ZONE TOP: clean logo space (top-left, empty) + MIXED_WEIGHT_HEADLINE. ZONE MIDDLE: FEATURE_CHECKLIST 2×2 grid. ZONE CTA: centered CTA_BUTTON. ZONE FOOTER: full-width FOOTER_STRIP.
 
 SECTION 3: CAMERA & LENS
 Left photo: 24mm wide-angle, 5° low-angle. Right photo: 35mm prime, three-quarter view.
@@ -1214,7 +1226,7 @@ TEXT ELEMENT 6 — FOOTER_STRIP: phone left, website right, full-width gold bar.
 Each element needs Content/Font/Size/Color/Position/Background/Treatment, using real values substituted for every placeholder.
 
 SECTION 7: BRAND & PROJECT ELEMENTS
-Logo top-left, 8% frame width. Gold L-bracket corners on both photo cards.
+Logo space top-left, left clean and empty. Gold L-bracket corners on both photo cards.
 
 SECTION 8: NEGATIVE PROMPTS
 DO NOT render as a photographed scene — this is a graphic design frame. DO NOT invent colors outside the brand palette. DO NOT omit the footer strip or feature checklist. Text must be crisp, zero garbled characters.
@@ -1248,7 +1260,7 @@ TEXT ELEMENT 4 — CTA_BUTTON: lower-right pill.
 Each element needs Content/Font/Size/Color/Position/Background, using real values substituted for every placeholder.
 
 SECTION 7: BRAND & PROJECT ELEMENTS
-Logo top-left, 7% frame width, sky zone. No decorative geometry — must feel uncluttered.
+Logo space top-left in the sky zone, left clean and empty. No decorative geometry — must feel uncluttered.
 
 SECTION 8: NEGATIVE PROMPTS
 DO NOT use a flat background — this MUST be a real photographic exterior scene. DO NOT add feature checklists or footer strips. DO NOT invent architecture beyond VISUAL ANCHOR.
@@ -1281,7 +1293,7 @@ TEXT ELEMENT 3 — CTA_BUTTON: wide rounded-rectangle, ~65% frame width.
 Each element needs Content/Font/Size/Color/Position/Background, using real values substituted for every placeholder.
 
 SECTION 7: BRAND & PROJECT ELEMENTS
-Logo top-center, small, does not compete with headline. Photo card gets gold L-bracket corners.
+Logo space top-left, left clean and empty. Photo card gets gold L-bracket corners.
 
 SECTION 8: NEGATIVE PROMPTS
 DO NOT make the photo card larger than 35% of vertical frame — headline is the hero. DO NOT add a feature checklist — max 3 text elements. DO NOT render blurry or distorted text.
@@ -1558,7 +1570,7 @@ export function buildReplicatePrompt(
     // RB-P10 STEP 2 — AI-designed empty rule: DISSOLVE uncopied text containers
     // (unlike blank mode, which keeps them empty as chip targets).
     'For any text zone that has NO corresponding string above: DISSOLVE it — REMOVE that container/panel/band/pill entirely and let the surrounding design/background continue seamlessly through where it was. Do NOT leave an empty panel, and NEVER fill it with reference text or invented text. (Only zones that receive one of the exact strings above keep their container.)',
-    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and its specific phone-number digits. This project supplies its own logo/price/contact via the strings above; never copy them from image 1.',
+    'Competitor identity: remove image 1\'s logo, brand marks, wordmarks, emblems, QR codes, watermarks, company name and its specific phone-number digits. Price and contact come only from the exact strings above; never copy them from image 1. Do not draw any logo: leave the top-left corner clean and uncluttered for this project\'s logo, which is placed after generation.',
     'Change nothing else — no new elements, no extra text, no invented building details beyond the two attached images.',
   ].join('\n\n');
 }

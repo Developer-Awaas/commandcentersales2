@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildingAngleDirective, buildPhotoReplacementDirective, buildReplicateLayoutPrompt, buildReplicatePrompt, buildPanelAssignmentDirective } from './senior-designer-prompts';
+import { buildingAngleDirective, buildPhotoReplacementDirective, buildReplicateLayoutPrompt, buildReplicatePrompt, buildPanelAssignmentDirective, LOGO_SPACE_DIRECTIVE } from './senior-designer-prompts';
 import { orderPhotoPanels, type PhotoPanel } from './reference-style';
 
 describe('RB-P9 — two-tier building-angle policy', () => {
@@ -124,5 +124,19 @@ describe('buildPanelAssignmentDirective', () => {
     const without = buildReplicatePrompt({ headline: 'X' }, 1);
     expect(without).toMatch(/REPLACE ALL PHOTOGRAPHY/);
     expect(without).not.toMatch(/PHOTO SECTION ASSIGNMENT/);
+  });
+});
+
+// T-007b: in-app generation never receives a logo file, so no prompt may claim one.
+describe('T-007b — no claim of an unattached logo', () => {
+  it('replicate (AI-designed) no longer says the logo arrives "via the strings above"', () => {
+    const p = buildReplicatePrompt({ headline: 'Live Above It All', price: '₹82 Lac onwards' });
+    expect(p).not.toMatch(/logo[^.]*via the strings above/i);
+    expect(p).toMatch(/Do not draw any logo: leave the top-left corner clean and uncluttered/);
+  });
+
+  it('the logo-space directive forbids drawing a logo and names the corner', () => {
+    expect(LOGO_SPACE_DIRECTIVE).toMatch(/do not draw/i);
+    expect(LOGO_SPACE_DIRECTIVE).toMatch(/top-left corner/);
   });
 });

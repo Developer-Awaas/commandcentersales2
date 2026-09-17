@@ -76,6 +76,12 @@ describe('SMM creative prompt uses the org brand kit', () => {
     expect(brandKitDirectives({ primary_color: '', cultural_motifs: [''] })).toEqual([]);
   });
 
+  it('asks for clean logo space, never a drawn logo (T-007b)', () => {
+    const prompt = buildSMMCreativePrompt(base);
+    expect(prompt).not.toContain('logo placement');
+    expect(prompt).toContain('top-left corner left empty for a logo placed later');
+  });
+
   it('never hard-codes a palette when the org has no kit', () => {
     for (const brandKit of [undefined, null, {}]) {
       const prompt = buildSMMCreativePrompt({ ...base, brandKit });
