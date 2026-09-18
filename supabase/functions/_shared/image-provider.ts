@@ -34,6 +34,7 @@
 
 import { langfuseTrace, langfuseGeneration } from './langfuse.ts'
 import { reserveImageBudget } from './review-budget.ts'
+import { prioritizeConstraints } from './image-prompt-order.ts'
 
 export type ImageProvider = 'openai' | 'gemini'
 
@@ -112,6 +113,24 @@ function resolveProvider(hint?: ImageProvider): ImageProvider {
 // This remains the SYNC ceiling specifically because the 150s request wall
 // clock still applies there. It is no longer the only bound — see below.
 export const IMAGE_FETCH_TIMEOUT_MS = 135_000
+
+// T-012 — prompt ceiling. Was 4,000 at every call site, which silently dropped
+// SECTION 7/8/9 (brand, negatives, technical specs) from every measured Lead
+// Gen prompt (5.3k–6.6k chars, TEST 2026-09-17).
+//
+// 32,000 is the documented maximum for the GPT image models on /v1/images/*
+// (OpenAI API reference for the `prompt` parameter; dall-e-3 is 4,000 and
+// dall-e-2 1,000 — this repo uses neither). gpt-image-2's own model page
+// states no limit, and an empirical probe needs OPENAI_API_KEY, which is a
+// server-side secret a human has to run — so this figure is documentation, not
+// something verified here. It is a safety net, not a target: real prompts are
+// ~7k, and prioritizeConstraints() puts the constraints first so a cut at ANY
+// ceiling loses prose rather than brand/negative/technical direction.
+export const MAX_PROMPT_CHARS = 32_000
+
+// Gemini's own ceiling is NOT documented alongside OpenAI's and was never
+// measured here, so that path keeps the historical conservative cut.
+const GEMINI_MAX_PROMPT_CHARS = 4_000
 
 // A flat 135s was sized for the worst case that existed when it was written
 // (5 reference images). Replicate mode's per-panel assignment (V5) makes the
@@ -248,7 +267,7 @@ async function generateWithOpenAI(
 
   const size = input.size ?? '1024x1024'
   const quality = input.quality ?? 'medium'
-  const safePrompt = input.prompt.slice(0, 4000)
+  const safePrompt = prioritizeConstraints(input.prompt).slice(0, MAX_PROMPT_CHARS)
   const model = resolveImageModel(input.model)
 
   return withRetry(async () => {
@@ -305,7 +324,7 @@ async function editWithOpenAI(input: EditImageInput): Promise<GenerateImageResul
 
   const size = input.size ?? '1024x1024'
   const quality = input.quality ?? 'medium'
-  const safePrompt = input.prompt.slice(0, 4000)
+  const safePrompt = prioritizeConstraints(input.prompt).slice(0, MAX_PROMPT_CHARS)
   const model = resolveImageModel(input.model)
 
   return withRetry(async () => {
@@ -377,7 +396,7 @@ async function generateWithGemini(
   const apiKey = Deno.env.get('GEMINI_API_KEY') ?? ''
   if (!apiKey) throw new Error('GEMINI_API_KEY secret is not set')
 
-  const safePrompt = input.prompt.slice(0, 4000)
+  const safePrompt = prioritizeConstraints(input.prompt).slice(0, GEMINI_MAX_PROMPT_CHARS)
   const aspectRatio = sizeToGeminiAspectRatio(input.size)
 
   return withRetry(async () => {

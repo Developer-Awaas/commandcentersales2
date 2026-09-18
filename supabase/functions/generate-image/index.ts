@@ -47,6 +47,8 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import type { Database } from '../_shared/database.types.ts'
 import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
 import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS, imageFetchTimeoutMs, TIMEOUT_ASYNC_CAP_MS } from '../_shared/image-provider.ts'
+import { MAX_PROMPT_CHARS } from '../_shared/image-provider.ts'
+import { prioritizeConstraints } from '../_shared/image-prompt-order.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
@@ -174,12 +176,14 @@ Deno.serve(async (req: Request) => {
   // Map caller dimensions to the closest supported size
   const size = height > width ? '1024x1536' : width > height ? '1536x1024' : '1024x1024'
 
-  const safePrompt = prompt.slice(0, 4000)
-  // T-006 evidence: the cut is silent, so record how often it bites and by how
-  // much. Measurement only — the limit itself is unchanged.
+  // T-012: constraints first, then cut at the provider ceiling (not 4,000).
+  // The old cut dropped SECTION 7/8/9 from every measured Lead Gen prompt.
+  const orderedPrompt = prioritizeConstraints(prompt)
+  const safePrompt = orderedPrompt.slice(0, MAX_PROMPT_CHARS)
+  // T-006 evidence: the cut is silent, so record when it bites and by how much.
   const promptChars = prompt.length
   const promptTruncated = promptChars > safePrompt.length
-  console.log(JSON.stringify({ event: 'generate-image.prompt', feature: feature ?? 'creatives', promptChars, promptTruncated, hero: !!heroImage }))
+  console.log(JSON.stringify({ event: 'generate-image.prompt', feature: feature ?? 'creatives', promptChars, promptTruncated, maxPromptChars: MAX_PROMPT_CHARS, hero: !!heroImage }))
 
   // The single generation body, shared by the sync and async paths — extracted
   // rather than duplicated so the two can never drift. Returns the image or

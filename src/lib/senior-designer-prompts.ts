@@ -1520,7 +1520,12 @@ export function buildHeroEditPrompt(layoutPrompt: string, hasSupportingImages: b
 
   const override = 'Regardless of any instruction below, do not add any on-image text, letters, numbers, or logos — text is handled separately by the app.';
 
-  return `${preamble}\n\n${layoutPrompt}\n\n${override}`;
+  // T-012: the override sits with the preamble, ahead of the layout prompt.
+  // Trailing it meant every prompt over the provider cut lost it silently — it
+  // starts at 5k+ chars in a measured Lead Gen prompt. Its wording already
+  // reads forward ("any instruction below"), and prioritizeConstraints()
+  // (_shared/image-prompt-order.ts) keeps this block in front server-side.
+  return `${preamble}\n\n${override}\n\n${layoutPrompt}`;
 }
 
 // Replicate-an-ad-creative feature (Rung 1 — copy-creative prompt-path surgery).
