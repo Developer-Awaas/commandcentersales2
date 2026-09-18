@@ -49,6 +49,7 @@ import { langfuseTrace, langfuseGeneration } from '../_shared/langfuse.ts'
 import { editImage, resolveImageModel, openaiImageUnitCost, supportsInputFidelity, IMAGE_FETCH_TIMEOUT_MS, imageFetchTimeoutMs, TIMEOUT_ASYNC_CAP_MS } from '../_shared/image-provider.ts'
 import { MAX_PROMPT_CHARS } from '../_shared/image-provider.ts'
 import { prioritizeConstraints } from '../_shared/image-prompt-order.ts'
+import { classifyImageError, formatClassifiedError } from '../_shared/image-error.ts'
 import { reserveImageBudget, ImageBudgetExceededError } from '../_shared/review-budget.ts'
 import { recordApiCost } from '../_shared/api-cost.ts'
 
@@ -366,6 +367,13 @@ Deno.serve(async (req: Request) => {
     const jobId = job.id
     EdgeRuntime.waitUntil((async () => {
       try {
+        // T-006a: transition BEFORE the provider call, not after — the DB
+        // trigger (20260909121000) stamps started_at on this exact edge, so
+        // duration is derivable even when the isolate dies mid-generation and
+        // never reaches the try/catch below. A row still 'queued' when the
+        // reaper finds it means this update itself never ran.
+        await db.from('image_jobs').update({ status: 'running' }).eq('id', jobId)
+
         const { base64, mimeType } = await generateOnce()
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
         const path = `image-jobs/${orgId}/${jobId}.png`
@@ -378,11 +386,14 @@ Deno.serve(async (req: Request) => {
           .update({ status: 'done', storage_path: path, completed_at: new Date().toISOString() })
           .eq('id', jobId)
       } catch (err) {
-        const message = err instanceof ImageBudgetExceededError
-          ? 'review budget reached'
-          : err instanceof Error ? err.message : String(err)
+        // T-006a: classified reason, not a raw provider dump. wall_clock and
+        // reaper are never produced here — see _shared/image-error.ts.
+        const classified = err instanceof ImageBudgetExceededError
+          ? { class: 'unknown' as const, message: 'review budget reached' }
+          : classifyImageError(err)
+        const message = formatClassifiedError(classified)
         // Terminal state is mandatory: without it the client waits on a row
-        // that never changes until the 10-minute reaper catches it.
+        // that never changes until the reaper catches it.
         await db.from('image_jobs')
           .update({ status: 'failed', error: message, completed_at: new Date().toISOString() })
           .eq('id', jobId)
