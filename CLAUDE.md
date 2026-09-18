@@ -151,7 +151,7 @@ this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
 | PH2 | CLOSED | db | Phase 2 applied on TEST only; digest in `docs/closeout-inventory.md`. PROD = `docs/decisions/phase7-prod-batch.md`, behind the merge-readiness gate |
 | T-007a/b | DONE (unpushed) | client | `3ba1a17` SMM uses org brand kit; `3939677` no unattached-logo claims. prompt-eval pending (golden refs absent) |
 | T-007c/d | OPEN | client | logo compositing + `''` fallback (Ph3); brand_kit key mismatch, fonts, Aarav brand context (Ph3, T5-1) |
-| T-012 | OPEN (P0) | prompts/edge | all measured Lead Gen prompts (5.3–6.6k chars) lose Sections 7–9 to the 4000-char cut at `generate-image/index.ts:177` |
+| T-012 | FIXED-UNDEPLOYED | prompts/edge | `2c5faf1`; cut raised to `MAX_PROMPT_CHARS` 32k + `prioritizeConstraints()` puts SECTION 7–9 first. Edge not deployed to TEST yet |
 | R-A | OPEN | meta | Meta app review in flight; reviewer account `meta-review@awaas.world` |
 | Q16 | CLOSED | meta | seeded-demo journey, one identity everywhere |
 

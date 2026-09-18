@@ -7,12 +7,16 @@
  *   → generateImageWithGemini(nanoPrompt, '1:1', …, { feature: 'smm-creative-gen' })
  * No prompt text lives in this file.
  *
- * Signs in as the TEST e2e account (.env.review.local), whose org is
- * ZZ-INTERNAL-TEST. Prints the assembled text prompt and the nanoPrompt that
- * went to the image provider; the image itself is not saved.
+ * Signs in as the dedicated TEST e2e account (.env.e2e.local — E2E_EMAIL /
+ * E2E_PASSWORD), whose org is ZZ-INTERNAL-TEST. Never the reviewer account:
+ * its org is Demo Builder, which stays pristine for the human Meta reviewer,
+ * and every LLM call here writes an agent_interactions cost row.
+ *
+ * Prints the assembled text prompt and the nanoPrompt that went to the image
+ * provider; the image itself is not saved.
  *
  * Run:  npx tsx scripts/smm-brand-live-check.ts [--no-image]
- * Reqs: .env.local pointing at TEST, .env.review.local. Costs one Claude call
+ * Reqs: .env.local pointing at TEST, .env.e2e.local. Costs one Claude call
  *       and (without --no-image) one image generation.
  */
 import fs from 'node:fs';
@@ -25,7 +29,7 @@ const env = (file: string, re: RegExp) => {
 };
 // src/lib/supabase.ts reads its config at module load — env first, then import.
 env('.env.local', /^(VITE_[A-Z_]+)=(.*)$/);
-env('.env.review.local', /^(REVIEW_[A-Z_]+)=(.*)$/);
+env('.env.e2e.local', /^(E2E_[A-Z_]+)=(.*)$/);
 
 const memoryStorage = () => {
   const store = new Map<string, string>();
@@ -54,7 +58,7 @@ const memoryStorage = () => {
 async function main() {
   const { supabase } = await import('../src/lib/supabase');
   const { error: authErr, data: auth } = await supabase.auth.signInWithPassword({
-    email: process.env.REVIEW_EMAIL!, password: process.env.REVIEW_PASSWORD!,
+    email: process.env.E2E_EMAIL!, password: process.env.E2E_PASSWORD!,
   });
   if (authErr || !auth.user) throw new Error(`sign-in failed: ${authErr?.message}`);
   const { data: profile } = await supabase.from('profiles').select('org_id').eq('id', auth.user.id).single();

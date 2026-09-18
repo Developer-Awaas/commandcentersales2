@@ -141,7 +141,7 @@ prompt loses Sections 7–9 to the silent 4,000-char cut. Stage 2 asks for
 500–800 words (`senior-designer-prompts.ts:1339`), and 800 words ≈ 5,000+
 chars. Fix options: a character budget in Stage 2, moving brand/negatives
 ahead of the narrative, or raising the cut to the provider's real limit.
-Decide before T5-1.
+**CLOSED by T-012 (`2c5faf1`)**, measurements in that commit message.
 Also: in hero mode, `buildHeroEditPrompt` appends its "no on-image text or
 logos" override at the end (`senior-designer-prompts.ts`, `return
 ${preamble}…${override}`), so with every prompt over 4,000 chars that override
@@ -155,6 +155,32 @@ not deployed until the push.
 the export pack; image prompts reserve empty top-left space. The required
 `scripts/prompt-eval.ts` run is **pending**: its golden refs
 (`scripts/eval-refs/`) are not in the repo.
+
+**Accounts on TEST (2026-09-18).** `saswat-review-admin@awaas.internal` is
+back in Demo Builder (`1a0f7ac3-8053-4aee-824c-75f27681ce64`), which stays
+pristine for the human Meta reviewer and is never a CI or harness target.
+CI and harnesses use `e2e@awaas.internal` (auth id `d8981615`), admin in
+ZZ-INTERNAL-TEST (`0a86b9b5-49b9-4590-9805-0ad427d451e9`) with the full
+22-key `module_access` including the four SMM modules. Its password is in
+gitignored `.env.e2e.local` (`E2E_EMAIL` / `E2E_PASSWORD`); the
+`review-build` GitHub environment's `INTERNAL_TEST_USER_*` secrets must hold
+the same pair. `scripts/smm-brand-live-check.ts` reads that file — never the
+reviewer credentials. No sample images were seeded: every e2e spec is
+state-tolerant and image bytes come from `VITE_MOCK_AI` fixtures.
+
+**Demo Builder was written to once, by me, not by CI:** the 2026-09-18 T-012
+measurement ran under the reviewer account minutes after it was moved back,
+leaving 7 `agent_interactions` cost rows (~$0.22, `senior-designer-stage1`
+and `-stage2-*`, 06:49–06:51Z). No `tool_outputs`, `agent_turns`, creatives or
+images. Left in place — deleting spend history would corrupt the T5-4
+reconciliation — flagged here instead.
+
+**T-007b eval SKIPPED by decision (2026-09-18).** The invariant requires one
+`scripts/prompt-eval.ts` run per `senior-designer-prompts.ts` prompt edit.
+Waived here because T-007b only removes claims about attachments that were
+never attached and adds a reserve-space directive; it changes no creative
+direction. The H1 golden references (`scripts/eval-refs/`) are still absent
+and remain **blocking for T-007c and T5-6**.
 
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
