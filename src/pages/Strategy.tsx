@@ -1200,6 +1200,7 @@ export function Strategy() {
           <button
             onClick={handleQuickSubmit}
             disabled={submitting || geminiActive || unassignedPanels.length > 0}
+            data-testid="quick-generate-submit"
             className="mt-4 w-full py-3 rounded-lg bg-brand text-white font-semibold text-sm flex items-center justify-center gap-2 hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
             {submitting || geminiActive ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}

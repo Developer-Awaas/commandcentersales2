@@ -46,10 +46,16 @@ test('Strategy: a second Quick Generate renders a NEW image, not the first one',
   const firstImage = page.locator('img[src*="generated-creatives"]').first();
 
   await generate.click();
-  // The button's in-flight copy is also the UX assertion: disabled, and stating
-  // a time expectation rather than leaving a spinner to be read as a hang.
-  const busy = page.getByRole('button', { name: /generating… usually under a minute/i });
+  // T-014: was matched on the button's exact in-flight copy, which went stale
+  // the moment T-005 reworded it ("usually under a minute" -> "this takes
+  // 2-3 minutes") — the spec broke on a copy change, not a real regression.
+  // data-testid locates the button; the UX intent (disabled, and stating a
+  // time expectation rather than leaving a bare spinner to be read as a hang)
+  // is still checked, via /minute/i — true of both the old and new wording,
+  // so the next copy tweak doesn't retire this assertion again.
+  const busy = page.getByTestId('quick-generate-submit');
   await expect(busy).toBeDisabled();
+  await expect(busy).toHaveText(/minute/i);
 
   await expect(firstImage).toBeVisible({ timeout: GEN_TIMEOUT });
   const firstSrc = await firstImage.getAttribute('src');
