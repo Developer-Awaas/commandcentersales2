@@ -353,3 +353,38 @@ not hosted; PROD probes are cancelled permanently.
 
 **Push manifest (held until the e2e secrets are confirmed):** 22 commits,
 `d7cac49`…`190a0ae`, plus this digest.
+## Phase 2 closing digest — 2026-09-18
+
+**Applied to TEST**: 10 migrations (t5m, a3_validate, new2, r1, new4, T-008
+`creative_assets` RLS fix, r1_cleanup, three T-010 RLS fixes). All probes
+pass; PROD untouched, gated on `docs/decisions/phase7-prod-batch.md`.
+
+**Security closed**: T-008 and T-010 removed every anon/`true` RLS policy on
+TEST — verified with anon read/write/delete probes, then live in the browser
+under the e2e account.
+
+**T-012 (prompt truncation)**: the silent 4,000-char cut is now
+`MAX_PROMPT_CHARS` (32,000, OpenAI's documented ceiling) plus
+`prioritizeConstraints()`, which puts brand/negative/technical sections
+ahead of prose. Before: all 6 measured Lead Gen prompts (5.4k–8.0k chars)
+lost Sections 7–9. After: all present, even under a hypothetical 4k cut.
+Verified live through the deployed `generate-image` (v27).
+
+**T-007a/b**: SMM Creatives reads the org's brand kit instead of a
+hard-coded palette (a); no prompt claims an unattached logo, reserving space
+instead (b). Both verified live — correct brand colours, empty logo corner,
+across two separate browser generations.
+
+**T-006a**: `image_jobs` transitions to `running` before the provider call,
+stamping `started_at` — duration now derivable, verified live on 2 real
+jobs. Failures classify into `provider_5xx`/`provider_timeout`/`unknown`.
+**T-006b (new, open)**: the reaper's wider running-catching migration
+(`20260918120000`) is committed but not yet applied to TEST.
+
+**T-013**: `cc.awaas.world` was pinned to a pre-demo promote (`ab96cd1`),
+not a broken pipeline — Saswat re-promoted in the Vercel dashboard.
+**T-014**: fixed — a stale copy-matched selector, not a regression.
+
+**Still open**: T-006b, T-007c/d, T-009, T-011. H1 golden reference images
+(`scripts/eval-refs/`) remain absent — blocks T-007c and T5-6.
+
