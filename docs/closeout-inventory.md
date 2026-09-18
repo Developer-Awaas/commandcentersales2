@@ -182,6 +182,27 @@ never attached and adds a reserve-space directive; it changes no creative
 direction. The H1 golden references (`scripts/eval-refs/`) are still absent
 and remain **blocking for T-007c and T5-6**.
 
+**T-013 (P0) — cc.awaas.world not picking up new deploys.** Two pushes today
+(`039d942`, `4285f63`) each show a genuine Vercel `Production` deployment
+success within ~15s (GitHub commit status "Vercel": success; Deployments API
+`environment: Production`), yet `cc.awaas.world` still serves the Sept 10
+bundle (`__COMMIT_SHA__ = ab96cd18ba97…`) 2+ hours later — same JS filename
+(`index-BN0fio2P.js`), `X-Vercel-Cache: HIT`, `Age` climbing 1:1 with the
+clock, `Last-Modified` frozen at 2026-09-15. Not a propagation-delay fluke:
+confirmed stale after both deploys, ~15 min apart. The per-deployment preview
+URL (`cc-review-n37jvwrs3-…vercel.app`) is behind Vercel SSO, so it could not
+be checked directly from here. Contradicts the 2026-09-15 CLAUDE.md note that
+push auto-deploys with no manual promote — needs a human on the Vercel
+dashboard (Awaas-Suite's-projects → cc-review) to check the domain alias.
+**Do not mark any client-side fix CLOSED from source until this verifies.**
+
+**T-014 (P2) — new e2e failure, not triaged.**
+`e2e/strategy-regenerate.spec.ts` (2026-09-18, run 35335329352): the
+"Generating… usually under a minute" button was never found within 5s, so
+`toBeDisabled()` failed on a missing element. `history-journey.spec.ts`
+stayed red on the same known issue as P1-CM-16/S1-E2E (a modal intercepts the
+"Exit Wizard" click). Both advisory; CI's 4 required checks passed both runs.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
