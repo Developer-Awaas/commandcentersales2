@@ -182,6 +182,29 @@ never attached and adds a reserve-space directive; it changes no creative
 direction. The H1 golden references (`scripts/eval-refs/`) are still absent
 and remain **blocking for T-007c and T5-6**.
 
+**T-013 CLOSED 2026-09-18** — Saswat promoted the build in the Vercel
+dashboard (domain was pinned to `ab96cd1` from the pre-demo promote).
+`cc.awaas.world` now serves `c568261` (`Age: 2`, fresh `Last-Modified`).
+
+**T-014 triaged, not fixed.** `e2e/strategy-regenerate.spec.ts` runs against a
+CI-built preview (`playwright.config.ts`'s `webServer`: `npm run build &&
+npm run preview`), never the deployed client — so it is unrelated to T-013.
+Root cause: `06f2391` (T-005, 2026-09-13) renamed the button's text from
+"Generating… usually under a minute" to "…this takes 2-3 minutes"; the spec
+at `:51` still searches for the old string. Not fixed here, per instruction.
+
+**Step 5 CLOSED 2026-09-18.** `generate-image` deployed to TEST alone
+(`--use-api`), version 26 → 27; rollback baseline recorded as `1e5eec1` (last
+commit before this session's changes to it) but not needed. One live Lead Gen
+Quick Generate, e2e account, ZZ org, through the deployed function:
+- Prompt: 6,443 chars; Sections 7/8/9 all present.
+- `image_jobs`: `done`, `started_at` now stamped (T-006a live-verified —
+  duration 2m02s, derivable for the first time), `error` empty.
+- Generated PNG (1024×1024, verified by download + visual read): on-brand
+  purple/gold (the seeded ZZ kit), correct project data (Patia, Bhubaneswar,
+  ZZ-E2E Test Project), **and an empty reserved box in the logo corner — no
+  drawn logo** (T-007b live-verified). Nothing visibly wrong; no rollback.
+
 **T-013 (P0) — cc.awaas.world not picking up new deploys.** Two pushes today
 (`039d942`, `4285f63`) each show a genuine Vercel `Production` deployment
 success within ~15s (GitHub commit status "Vercel": success; Deployments API
@@ -194,7 +217,6 @@ URL (`cc-review-n37jvwrs3-…vercel.app`) is behind Vercel SSO, so it could not
 be checked directly from here. Contradicts the 2026-09-15 CLAUDE.md note that
 push auto-deploys with no manual promote — needs a human on the Vercel
 dashboard (Awaas-Suite's-projects → cc-review) to check the domain alias.
-**Do not mark any client-side fix CLOSED from source until this verifies.**
 
 **T-014 (P2) — new e2e failure, not triaged.**
 `e2e/strategy-regenerate.spec.ts` (2026-09-18, run 35335329352): the
