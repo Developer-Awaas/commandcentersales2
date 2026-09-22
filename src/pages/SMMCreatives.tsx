@@ -108,7 +108,38 @@ export default function SMMCreatives() {
         setResult(next);
         // The image is part of the result now, not part of saving it. Awaited
         // so the button stays disabled across both phases.
-        if (next.nanoPrompt) await runImageStep(next.nanoPrompt, proj?.id ?? null);
+        if (next.nanoPrompt) {
+          const ref = await runImageStep(next.nanoPrompt, proj?.id ?? null);
+          // T-016 (R-A): persist provenance the moment the image exists, not
+          // on a manual Save — Post to Instagram/Meta gates on toolOutputId
+          // (below) and previously that meant an unavoidable Save-first step.
+          // This writes ONLY the tool_outputs row (status 'in_progress' — the
+          // closest existing value to "draft"; the CHECK constraint has no
+          // 'draft' and adding one needs a migration, out of scope here —
+          // T-016b). It never touches smm_calendar: that INSERT is the actual
+          // scheduling decision (today's date, a status of 'planned') and
+          // stays exclusively behind the user's own Save to Library click.
+          if (ref) {
+            try {
+              const saved = await saveToolOutput({
+                orgId: getOrgId(),
+                domain: 'social',
+                tool: 'smm_creatives',
+                campaignId: null,
+                payload: { creative: next, creative_type: type, project: project || null, project_id: proj?.id ?? null },
+                assetRefs: [ref],
+                status: 'in_progress',
+              });
+              setToolOutputId(saved?.id ?? null);
+              setSavedProjectId(proj?.id ?? null);
+            } catch (autoErr) {
+              // Best-effort — the image and copy are still fully usable;
+              // Post to Instagram/Meta just stays hidden until Save to
+              // Library runs its own (unchanged) fallback save.
+              console.error('[SMM Creatives] auto-save provenance failed (non-fatal):', autoErr);
+            }
+          }
+        }
         showToast('Creative generated!', 'success');
       } else {
         setResult(res?.raw ? { raw: res.raw } : null);
@@ -216,22 +247,38 @@ export default function SMMCreatives() {
       }
 
       // History: durable tool_outputs record with the generated asset ref(s).
+      // T-016: generate() already auto-saved this row the moment the image
+      // existed (status 'in_progress') so publishing never had to wait on
+      // this click — reuse that row (UPDATE, never a second INSERT) and
+      // promote it to 'saved'. payload is rewritten too, since the project
+      // dropdown isn't locked after generation and may have changed.
       // Best-effort — a history failure must never fail the calendar save.
       try {
-        const saved = await saveToolOutput({
-          orgId: getOrgId(),
-          domain: 'social',
-          tool: 'smm_creatives',
-          campaignId: null,
-          payload: { creative: result, creative_type: type, project: project || null, project_id: projectId },
-          assetRefs,
-          status: 'saved',
-        });
-        // Provenance for a later publish. Best-effort like the rest of this
-        // block: if history failed, publishing still works, the row just
-        // carries no tool_output_id.
-        setToolOutputId(saved?.id ?? null);
-        setSavedProjectId(projectId);
+        if (toolOutputId) {
+          const { error: updErr } = await supabase.from('tool_outputs').update({
+            payload: { creative: result, creative_type: type, project: project || null, project_id: projectId },
+            status: 'saved',
+          }).eq('id', toolOutputId);
+          if (updErr) throw updErr;
+          setSavedProjectId(projectId);
+        } else {
+          // Fallback: auto-save never ran (no image) or failed silently —
+          // the original insert path, unchanged.
+          const saved = await saveToolOutput({
+            orgId: getOrgId(),
+            domain: 'social',
+            tool: 'smm_creatives',
+            campaignId: null,
+            payload: { creative: result, creative_type: type, project: project || null, project_id: projectId },
+            assetRefs,
+            status: 'saved',
+          });
+          // Provenance for a later publish. Best-effort like the rest of this
+          // block: if history failed, publishing still works, the row just
+          // carries no tool_output_id.
+          setToolOutputId(saved?.id ?? null);
+          setSavedProjectId(projectId);
+        }
       } catch (histErr) {
         console.error('[SMM Creatives] tool_outputs (smm_creatives) save failed (non-fatal):', histErr);
       }
