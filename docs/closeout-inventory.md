@@ -283,12 +283,31 @@ abandoned/unsaved SMM generation, not just explicit saves — a busy org could
 push a genuinely `saved` post out of the cap sooner than before. Shared
 across every tool; not touched here.
 
+**T-017 (P1, diagnosed 2026-09-22, not fixed — read-only task).** Saswat,
+signed in as the Meta reviewer on Demo Builder, hit "Generation failed: the
+image could not be created" then got signed out, ~07:27Z. Root cause:
+`useAuth.ts:139`'s `signOut` calls bare `supabase.auth.signOut()` — no
+`scope`, so it defaults to `'global'` and revokes every refresh token for
+that user. My T-016 evidence run (~07:15Z, same reviewer account, explicitly
+authorized) signed out via the app's real Sign Out button ~11-12 minutes
+before his generation — a plausible token-refresh failure mid-poll. The
+error text itself comes from `SMMCreatives.tsx:198`'s generic catch (pre-
+existing, not part of T-016), which overwrites any real thrown error —
+including a storage-download 401 in `downloadJobImage()` (`gemini-service.ts`)
+once the job finishes server-side (written by the edge function's
+service-role client, so unaffected by the browser's session) but the
+browser's own token has already died. **Not confirmed against `image_jobs` or
+Supabase auth logs — TEST (`yelmuykbqdyeikgbmkoq`) is paused**, blocking
+both. Fix candidate for whoever picks this up: `signOut()` everywhere in this
+app should probably default to `scope: 'local'`, since `saswat-review-admin`
+and other reviewer accounts are shared across concurrent sessions by design.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
 
 ## Standing rules added this phase
-PROD reads via read-only role + psql, never `supabase link` · park by branch-carry, never stash · SQL in prompts must cite `\d` output or say "adapt to actual columns" · every user-visible-surface prompt carries [R-A IMPACT] until D9 logged.
+PROD reads via read-only role + psql, never `supabase link` · park by branch-carry, never stash · SQL in prompts must cite `\d` output or say "adapt to actual columns" · every user-visible-surface prompt carries [R-A IMPACT] until D9 logged. · any harness, script, or browser session that signs into a shared/reviewer account MUST call `signOut({ scope: 'local' })`, never the bare `signOut()` (SDK default is `scope: 'global'` — revokes every refresh token for that user, including sessions someone else is actively using).
 
 ## Skills to author (Phase 2 open, Sonnet) → .claude/skills/<name>/SKILL.md
 - probe-prompt: template — read-only, freeze list, file:line + `\d` citations, hypothesis table SUPPORTED/REFUTED/UNTESTED, contradictions flagged not reconciled, ≤150-word summary.
