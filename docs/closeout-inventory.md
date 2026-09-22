@@ -329,6 +329,31 @@ log source, not a data point either way.
 **Fixed by D17** (`useAuth.ts:139` → `signOut({ scope: 'local' })`, this
 commit).
 
+**T-022 (P1, pre-recording) CLOSED 2026-09-22.** A live SMM caption on an
+org with no brand kit read "At [Brand Name]" — the model invented a
+template token because nothing told it the real name. `brand_kits` has no
+name column at all (colours/fonts/tagline/voice/logos only) — the fallback
+chain is actually organisation name -> project name, not "brand kit name"
+as first framed; flagging that discrepancy rather than inventing a column.
+
+Fix (`src/lib/smm-prompts.ts`): `resolveBrandName(orgName, projectName)`
+(org -> project -> `'our company'` last resort) feeds an explicit
+`BRAND NAME: X — use this exact name` line plus a standalone instruction
+forbidding any bracketed placeholder, always present whether or not a brand
+kit exists. `stripPlaceholders()` is the backstop — deep-walks the parsed AI
+JSON and replaces any surviving `[...]`-style token with the resolved name;
+`SMMCreatives.tsx` fetches `organizations.name` alongside its existing
+projects/holidays fetch and runs every result through the guard before
+`setResult`. 5 new tests (13 total in the file); typecheck clean; 276/276
+unit tests.
+
+Live evidence: ZZ-INTERNAL-TEST's brand kit was captured then temporarily
+deleted (exact row restored after, same id and values — verified). One real
+generation: prompt carried `BRAND NAME: ZZ-INTERNAL-TEST` and the
+no-placeholder instruction; the model's own raw caption already said "at
+ZZ-INTERNAL-TEST" — no placeholder to strip this run, guard present but not
+exercised. `bracketPlaceholderSurvived=false`, `orgNameInCaption=true`.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.

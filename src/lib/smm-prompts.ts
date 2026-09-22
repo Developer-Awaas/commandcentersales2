@@ -116,6 +116,38 @@ export function brandKitDirectives(kit?: SMMBrandKit | null): string[] {
 }
 
 // ============================================================
+// BRAND NAME RESOLUTION (T-022)
+// ============================================================
+// brand_kits carries no name column (colours/fonts/tagline/voice only), so
+// the fallback chain is organisation name -> project name. A last-resort
+// generic term only fires if both are somehow blank (org_id is NOT NULL and
+// organizations.name defaults to '', so this should be rare in practice).
+export function resolveBrandName(orgName?: string | null, projectName?: string | null): string {
+  if (present(orgName)) return orgName!.trim();
+  if (present(projectName)) return projectName!.trim();
+  return 'our company';
+}
+
+// Matches the exact failure mode seen live: a model-written "[Brand Name]"
+// (or any other bracketed template token) surviving into the caption because
+// nothing told it what the real name was. Deliberately generic — catches any
+// [...]-style placeholder, not just this one string, and is the backstop for
+// when the prompt instruction below is ignored.
+const PLACEHOLDER_RE = /\[[^\[\]]{1,60}\]/g;
+
+/** Deep-replaces every [...]-style placeholder in a parsed AI JSON result. */
+export function stripPlaceholders<T>(value: T, brandName: string): T {
+  if (typeof value === 'string') return value.replace(PLACEHOLDER_RE, brandName) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => stripPlaceholders(v, brandName)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = stripPlaceholders(v, brandName);
+    return out as T;
+  }
+  return value;
+}
+
+// ============================================================
 // SMM CREATIVES PROMPT
 // ============================================================
 export function buildSMMCreativePrompt(data: {
@@ -126,6 +158,7 @@ export function buildSMMCreativePrompt(data: {
   event?: string;
   platform: string;   // Nanobanana, Canva, etc.
   brandKit?: SMMBrandKit | null;
+  orgName?: string | null;
 }) {
   const typeLabels: Record<string, string> = {
     company_branding: 'Company Branding Post — showcase the brand, values, team, office',
@@ -150,9 +183,18 @@ export function buildSMMCreativePrompt(data: {
 
   lines.push('CREATIVE PLATFORM: ' + data.platform);
 
+  // T-022: a live generation on an org with no brand kit produced "At
+  // [Brand Name]" — the model invented a template token because nothing told
+  // it what the real name was. brandName is resolved by the caller
+  // (org -> project) and always present, brand kit or not.
+  const brandName = resolveBrandName(data.orgName, data.project?.name ?? data.project?.['Project Name']);
+  lines.push('BRAND NAME: ' + brandName + ' — use this exact name wherever the brand is referenced.');
+
   const brand = brandKitDirectives(data.brandKit);
   if (brand.length) lines.push('', ...brand);
 
+  lines.push('');
+  lines.push('NEVER write a bracketed placeholder or template token — no "[Brand Name]", "[Company Name]", "[insert X]", or similar. Use "' + brandName + '" (or leave it out) instead, everywhere, including inside captions, hashtags, and image prompts.');
   lines.push('');
   lines.push('Return JSON:');
   lines.push('{');

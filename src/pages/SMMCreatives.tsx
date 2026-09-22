@@ -6,7 +6,7 @@ import { aiCall, isAiEnabled } from '../lib/ai-service';
 import { generateImageWithGemini } from '../lib/gemini-service';
 import { getBrandProvider } from '../lib/providers';
 import { saveToolOutput, type AssetRef } from '../lib/history-service';
-import { buildSMMCreativePrompt } from '../lib/smm-prompts';
+import { buildSMMCreativePrompt, resolveBrandName, stripPlaceholders } from '../lib/smm-prompts';
 import { resolveGenerationErrorMessage } from '../lib/smm-generation-error';
 import { useToast } from '../contexts/ToastContext';
 import { useGenerationLock } from '../hooks/useGenerationLock';
@@ -49,6 +49,9 @@ export default function SMMCreatives() {
   const [result, setResult] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);
   const [holidays, setHolidays] = useState<any[]>([]);
+  // T-022: brand-name fallback (org -> project) so the model always has a
+  // real name to write with, brand kit or not.
+  const [orgName, setOrgName] = useState<string | null>(null);
   const [savingLib, setSavingLib] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   // The storage path behind imageUrl. Kept because saveToLibrary needs the
@@ -69,6 +72,7 @@ export default function SMMCreatives() {
   useEffect(() => {
     supabase.from('projects').select('*').eq('is_active', true).eq('org_id', getOrgId()).then(({ data }) => setProjects(data || []));
     supabase.from('events_calendar').select('*').eq('org_id', getOrgId()).order('date').then(({ data }) => setHolidays(data || []));
+    supabase.from('organizations').select('name').eq('id', getOrgId()).maybeSingle().then(({ data }) => setOrgName(data?.name || null));
     // Read-only; returns EMPTY_TARGETS for a member or an unconfigured org, so
     // the button simply never renders rather than failing on click.
     fetchPublishTargets().then(setPublishTargets).catch(() => setPublishTargets(EMPTY_TARGETS));
@@ -98,13 +102,16 @@ export default function SMMCreatives() {
       // T-007a: the org's own kit. A failed read degrades to no brand
       // directives rather than blocking the post.
       const brandKit = await getBrandProvider().getBrandKit(getOrgId()).catch(() => null);
-      const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform, brandKit });
+      const prompt = buildSMMCreativePrompt({ type, description, project: proj, holiday, event, platform, brandKit, orgName });
       const res = await aiCall(prompt);
       if (res && !res.error && !res.raw) {
         // Canonical form has no leading '#' — the UI adds exactly one. Doing
         // this here means smm_calendar and tool_outputs never store the
         // doubled shape either.
-        const next: any = { ...res, hashtags: normalizeHashtags(res.hashtags) };
+        // T-022: the prompt instruction is a request, not a guarantee — this
+        // is the backstop. Same fallback chain (org -> project) as the prompt.
+        const brandName = resolveBrandName(orgName, proj?.name);
+        const next: any = stripPlaceholders({ ...res, hashtags: normalizeHashtags(res.hashtags) }, brandName);
         setResult(next);
         // The image is part of the result now, not part of saving it. Awaited
         // so the button stays disabled across both phases.
