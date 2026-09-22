@@ -186,6 +186,16 @@ and remain **blocking for T-007c and T5-6**.
 dashboard (domain was pinned to `ab96cd1` from the pre-demo promote).
 `cc.awaas.world` now serves `c568261` (`Age: 2`, fresh `Last-Modified`).
 
+**T-013 RECURRED 2026-09-22, reclassified as a standing requirement, not a
+one-off.** Push `4309a6b` (T-016): CI green, Vercel's own records showed a
+completed deploy within ~20s, but `cc.awaas.world` kept serving the prior
+commit (`639ee1f`) until Saswat promoted by hand again. Two independent
+occurrences (2026-09-18, 2026-09-22) against one clean auto-deploy
+(2026-09-12) — the review-build → `cc.awaas.world` Vercel promote is not
+reliably automatic. CLAUDE.md's Deploy rule and the `deploy-verify` skill
+now say so; every push needs a stamp check and a live human on standby to
+promote, not an assumption either way.
+
 **T-014 triaged, not fixed.** `e2e/strategy-regenerate.spec.ts` runs against a
 CI-built preview (`playwright.config.ts`'s `webServer`: `npm run build &&
 npm run preview`), never the deployed client — so it is unrelated to T-013.
@@ -305,6 +315,14 @@ visible), `398cdf0` (IG-first publish targets), `bf3a208` (CI Vitest env),
 Stamp verification stays mandatory. Verified 2026-09-12: the alias serves
 `ab96cd1` · 2026-09-10T14:25:38.204Z — the S1 docs commit, live with no
 promote performed.
+
+**CORRECTED 2026-09-22 (see T-013 below) — the "no manual promote step" claim
+above is wrong as a standing fact.** It held once, on 2026-09-12. It failed
+twice more in this repo's life, on 2026-09-18 and again on 2026-09-22 —
+both times CI was green and Vercel's own records showed a successful deploy,
+but `cc.awaas.world` kept serving the previous commit until Saswat promoted
+by hand in the Vercel dashboard. Treat every deploy as needing a stamp check
+and be ready to ask for a manual promote — see CLAUDE.md's Deploy rule.
 
 - **P1-CM-07 CLOSED.** 4 required checks, `enforce_admins: true`,
   `strict: false`; playwright-e2e and ws1-6-isolation advisory by design.

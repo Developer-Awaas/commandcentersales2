@@ -14,8 +14,13 @@ Nothing is done until a stamp or a row proves it.
 2. **CI run ID.** `gh run list` — record the number. Four required checks must
    be green (`build`, `client-unit-tests`, `edge-typecheck`, `edge-unit-tests`).
    `playwright-e2e` and `ws1-6-isolation` are advisory by design.
-3. **Promote.** Vercel promotion is manual and the CLI stays unlinked — ask
-   Saswat; never promote yourself.
+3. **Promote.** Confirmed unreliable, not just cautious default: review-build
+   → `cc.awaas.world` auto-deployed clean once (2026-09-12) and then needed a
+   manual Vercel-dashboard promote on 2026-09-18 and again on 2026-09-22,
+   both times after CI was green and Vercel's own records already showed a
+   completed deploy. Never assume either way — go straight to step 4. If the
+   stamp doesn't match, ask Saswat to promote in the dashboard; the CLI stays
+   unlinked and you never promote yourself.
 4. **Stamp match.** Fetch the alias and compare `__COMMIT_SHA__` to the SHA you
    pushed. **Assert on content, never on HTTP status** — the SPA catch-all
    returns 200 for files that do not exist.
