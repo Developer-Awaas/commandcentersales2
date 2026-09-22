@@ -225,6 +225,54 @@ dashboard (Awaas-Suite's-projects → cc-review) to check the domain alias.
 stayed red on the same known issue as P1-CM-16/S1-E2E (a modal intercepts the
 "Exit Wizard" click). Both advisory; CI's 4 required checks passed both runs.
 
+**T-016 (R-A blocker) CLOSED on TEST/live 2026-09-22.** SMM Creatives now
+persists a `tool_outputs` row (status `in_progress`) the moment the image
+finishes generating — `generate()`, not `saveToLibrary()`. Post to
+Instagram/Meta is gated on that id and now appears immediately, with no Save
+click. `saveToLibrary()` reuses the same id (`UPDATE ... status='saved'`),
+never a second `INSERT`; the `smm_calendar` insert (the actual scheduling
+decision) still fires only on that explicit click. No migration; no frozen
+surface touched.
+
+Live evidence, ZZ-INTERNAL-TEST (e2e account): `tool_outputs` row
+`7b247855…` created 4s after the image, `in_progress`; Save to Library
+promoted the *same* id to `saved` (`created_at` unchanged, no duplicate row);
+its own `smm_calendar` row landed only on that click.
+
+Live evidence, Demo Builder (Saswat, one narrow authorised exception — see
+below): "Post to Instagram" rendered immediately after generation, no Save
+click; dialog opened with Instagram preselected, Dry run checked by default;
+ran it → "Validated — nothing posted"; `published_assets` row `5eee453d…`
+carries `tool_output_id` = the auto-saved row, `platform: instagram`,
+`dry_run: true`, `published: false`, no `meta_post_id`.
+
+**Demo Builder touched once, narrowly, with Saswat's explicit sign-off** —
+step 12 needs a Meta-connected org and ZZ has none. Residue: one
+`image_jobs` row (done), one `tool_outputs` row (`in_progress`, never
+saved), one `agent_interactions` cost row, one `published_assets` dry-run
+row (`published: false`). No `smm_calendar` row — Save to Library was never
+clicked there. Left in place per the standing T5-4 rule (don't delete spend
+history); flagged here rather than reversed.
+
+**T-016a (deferred, unassigned phase):** SMM "Edit in Canva" — dropped from
+T-016 by decision. The only existing Canva integration
+(`canva-open-editor`, called from `CreativeViewer.tsx`) is hard-bound to
+`creative_assets`, which SMM images deliberately don't have a row in. Needs
+either a frozen-surface exception or a second provenance table for SMM
+images; neither is authorized here.
+
+**T-016b (deferred, Phase 3):** `tool_outputs.status` has no `'draft'` value
+(`CHECK IN ('saved','in_progress','completed')`); adding one needs a
+migration, out of scope for T-016. Auto-save uses `'in_progress'` as the
+closest existing value. Phase 3: a real draft status plus Content Library
+filtering by it.
+
+**T-016 risk flagged, not fixed:** `enforceRetentionCap` (30 rows per
+`(org, tool)`, evicts oldest regardless of status) now also counts every
+abandoned/unsaved SMM generation, not just explicit saves — a busy org could
+push a genuinely `saved` post out of the cap sooner than before. Shared
+across every tool; not touched here.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
