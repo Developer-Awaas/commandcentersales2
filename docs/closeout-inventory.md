@@ -283,32 +283,51 @@ abandoned/unsaved SMM generation, not just explicit saves — a busy org could
 push a genuinely `saved` post out of the cap sooner than before. Shared
 across every tool; not touched here.
 
-**T-017 (P1, diagnosed 2026-09-22, not fixed — read-only task).** Saswat,
-signed in as the Meta reviewer on Demo Builder, hit "Generation failed: the
-image could not be created" then got signed out, ~07:27Z. Root cause:
-`useAuth.ts:139`'s `signOut` calls bare `supabase.auth.signOut()` — no
-`scope`, so it defaults to `'global'` and revokes every refresh token for
-that user. My T-016 evidence run (~07:15Z, same reviewer account, explicitly
-authorized) signed out via the app's real Sign Out button ~11-12 minutes
-before his generation — a plausible token-refresh failure mid-poll. The
-error text itself comes from `SMMCreatives.tsx:198`'s generic catch (pre-
-existing, not part of T-016), which overwrites any real thrown error —
-including a storage-download 401 in `downloadJobImage()` (`gemini-service.ts`)
-once the job finishes server-side (written by the edge function's
-service-role client, so unaffected by the browser's session) but the
-browser's own token has already died. **CONFIRMED 2026-09-22 (project unpaused)** — `image_jobs` shows exactly one
-row since 07:00Z, mine (07:12:41-07:14:53, done); Saswat's ~07:27Z attempt
-created no row at all, so the failure was at the very first authenticated
-call, before any job could be created server-side. `auth.sessions` and
-`auth.refresh_tokens` hold **zero rows for this user** (`941f3596…`) across
-their entire history, while both tables are well-populated for other users —
-exactly what a `scope: 'global'` sign-out produces. `auth.audit_log_entries`
-has 0 rows total on this project (audit logging not populated here), so no
-timestamped revocation log line was available, but the sessions/
-refresh_tokens absence is direct positive evidence on its own. Fix candidate
-for whoever picks this up: `signOut()` everywhere in this app should
-probably default to `scope: 'local'`, since `saswat-review-admin` and other
-reviewer accounts are shared across concurrent sessions by design.
+**T-023 (P1, diagnosed 2026-09-22) CLOSED by D17.** [Renamed from an
+earlier draft "T-017" — that ID is already Meta Ads.] Saswat, signed in as
+the Meta reviewer on Demo Builder, hit "Generation failed: the image could
+not be created" then got signed out, ~07:27Z. Root cause: `useAuth.ts:139`'s
+`signOut` called bare `supabase.auth.signOut()` — no `scope`, so it defaulted
+to `'global'` and revoked every refresh token for `saswat-review-admin`. My
+T-016 evidence run (~07:15Z, same reviewer account, explicitly authorized)
+signed out via the app's real Sign Out button ~11-12 minutes before his
+generation. The error text is `SMMCreatives.tsx:198`'s generic catch
+(pre-existing, not part of T-016), which overwrites any real thrown error —
+uniquely reachable only from inside `runImageStep`, so his copy/caption step
+(`aiCall`) must have succeeded first.
+
+**H1 (global sign-out) vs H4 (project pause) — evidence favours H1, does not
+support H4.** `image_jobs` since 07:00Z: exactly one row, mine
+(07:12:41-07:14:53, done, no error); his ~07:27Z attempt created **no** row.
+`agent_interactions` for Demo Builder in the same window: only my two rows
+(07:12:40 text, 07:14:53 image) — none for his attempt, including no row for
+a successful text call, even though the error text requires one to have
+happened. Reconciled: `recordApiCost` (`src/lib/api-cost.ts`) writes that
+ledger row client-side, fire-and-forget, unawaited — a failure there is
+silent and wouldn't block `aiCall`'s return, so its absence doesn't refute a
+successful text step; it just went unlogged. The image step's own first
+authenticated call (`generate-image` invoke / its `image_jobs` insert) is
+what actually failed, placing the token failure in the narrow window between
+the text call succeeding and the image call starting — consistent with
+Supabase's client-side proactive refresh timer firing mid-flow and hitting
+the already-revoked refresh token.
+
+Against H4: a paused project (confirmed directly — see the "unpaused"
+exchange this session) fails uniformly at the gateway with a distinct
+"Project paused" error on every request type, not a clean `SIGNED_OUT`
+transition to the login screen, and not selectively (text call ostensibly
+through, image call blocked). My own writes in this same project succeeded
+cleanly up to ~07:15-07:16Z, ~11 minutes before his attempt — no gap in the
+evidence trail suggests a pause bracketing 07:27Z specifically. `auth.sessions`
+and `auth.refresh_tokens` hold **zero rows for this user** (`941f3596…`)
+across their entire history, while both tables are well-populated for other
+users — exactly what a `scope: 'global'` sign-out produces, and not
+something a project pause would cause. `auth.audit_log_entries` has 0 rows
+total on this project (audit logging not populated here) — unreachable as a
+log source, not a data point either way.
+
+**Fixed by D17** (`useAuth.ts:139` → `signOut({ scope: 'local' })`, this
+commit).
 
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.

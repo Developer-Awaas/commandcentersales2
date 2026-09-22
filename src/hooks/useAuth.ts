@@ -136,7 +136,12 @@ export function useAuth(): AuthState {
   const signOut = useCallback(async () => {
     setError(null);
     try {
-      await supabase.auth.signOut();
+      // D17 (T-023): the SDK default is scope 'global', which revokes every
+      // refresh token for this user — including sessions on other devices.
+      // Reviewer/admin accounts are shared across concurrent sessions by
+      // design here, so a normal sign-out on one device must not drop
+      // everyone else signed in as that account.
+      await supabase.auth.signOut({ scope: 'local' });
       clearStoredOrgId();
       clearUserId();
     } catch {
