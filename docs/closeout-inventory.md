@@ -296,11 +296,19 @@ existing, not part of T-016), which overwrites any real thrown error —
 including a storage-download 401 in `downloadJobImage()` (`gemini-service.ts`)
 once the job finishes server-side (written by the edge function's
 service-role client, so unaffected by the browser's session) but the
-browser's own token has already died. **Not confirmed against `image_jobs` or
-Supabase auth logs — TEST (`yelmuykbqdyeikgbmkoq`) is paused**, blocking
-both. Fix candidate for whoever picks this up: `signOut()` everywhere in this
-app should probably default to `scope: 'local'`, since `saswat-review-admin`
-and other reviewer accounts are shared across concurrent sessions by design.
+browser's own token has already died. **CONFIRMED 2026-09-22 (project unpaused)** — `image_jobs` shows exactly one
+row since 07:00Z, mine (07:12:41-07:14:53, done); Saswat's ~07:27Z attempt
+created no row at all, so the failure was at the very first authenticated
+call, before any job could be created server-side. `auth.sessions` and
+`auth.refresh_tokens` hold **zero rows for this user** (`941f3596…`) across
+their entire history, while both tables are well-populated for other users —
+exactly what a `scope: 'global'` sign-out produces. `auth.audit_log_entries`
+has 0 rows total on this project (audit logging not populated here), so no
+timestamped revocation log line was available, but the sessions/
+refresh_tokens absence is direct positive evidence on its own. Fix candidate
+for whoever picks this up: `signOut()` everywhere in this app should
+probably default to `scope: 'local'`, since `saswat-review-admin` and other
+reviewer accounts are shared across concurrent sessions by design.
 
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
