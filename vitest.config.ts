@@ -33,6 +33,7 @@ export default defineConfig({
     // touch and isn't responsible for keeping green.
     include: [
       'src/lib/ai-service.mock.test.ts',
+      'src/lib/ai-service.extractJson.test.ts',
       'src/lib/smm-generation-error.test.ts',
       'src/lib/smm-prompts.separation.test.ts',
       'src/lib/history-service.test.ts',

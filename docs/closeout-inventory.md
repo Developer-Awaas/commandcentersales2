@@ -354,6 +354,43 @@ no-placeholder instruction; the model's own raw caption already said "at
 ZZ-INTERNAL-TEST" — no placeholder to strip this run, guard present but not
 exercised. `bracketPlaceholderSurvived=false`, `orgNameInCaption=true`.
 
+**T-025 (P1, pre-recording) CLOSED 2026-09-24.** `extractJson()`
+(`src/lib/ai-service.ts`) failed live on the SMM Creatives carousel path
+during a post-T-022 smoke test on `cc.awaas.world` (e2e account). Initial
+hypothesis (fence/trailing-prose) was wrong — reproduced live via a
+20-attempt background loop against the real `aiCall()` (real specimen
+captured on attempt 7, 8865 chars, `src/lib/__fixtures__/t025-unescaped-quote-specimen.txt`)
+and diagnosed at the byte level (raw char codes, not `JSON.stringify`
+display-escaping, which misled a first pass). True root cause: the model
+wrote a genuinely unescaped literal `"` for a nested testimonial quotation
+inside a `carouselSlides` string value — a different, harder defect class
+than fence-stripping. An earlier hand-transcribed "specimen" (retyped from a
+UI snapshot) was tested and found to parse cleanly under the old code —
+proof it wasn't byte-faithful — and was discarded rather than used as a test
+fixture.
+
+Two-part fix, both directions since neither alone is reliable: (1)
+`smm-prompts.ts` now explicitly instructs the model to use single quotes,
+never a literal `"`, for any nested quotation inside a JSON string value —
+addresses generation-time, but models don't always follow instructions; (2)
+`extractJson`'s cascade gained `repairUnescapedInnerQuotes()` — while inside
+a string, an unescaped `"` only closes it if the next non-whitespace
+character is a JSON structural character (`,`/`}`/`]`/`:`) or end of input,
+otherwise it's literal content and gets escaped in place — a parser-side
+backstop for whatever the prompt guard misses. Separately, the same pass
+also consolidated `extractJsonCandidates()` so every candidate (anchored
+fence, fence-anywhere, brace-slice) gets the full sanitize+repair retry set,
+closing a real but different latent gap (a response with both stray prose
+around a fence AND unescaped content had no candidate that got both fixes).
+
+9 new tests in `src/lib/ai-service.extractJson.test.ts` (added to
+`vitest.config.ts`): fenced, unfenced, fence-plus-leading/trailing-commentary
+(as requested), fence with no `json` tag, synthetic unescaped-inner-quote
+repair, a legitimate escaped-quote-at-string-end regression guard (proves
+the new heuristic doesn't over-fire), null/empty-input handling, and the
+real T-025 specimen parsing correctly end to end. Full gate: typecheck
+clean, 285/285 unit tests (30 files).
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.

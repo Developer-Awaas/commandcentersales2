@@ -1,0 +1,61 @@
+```json
+{
+  "concept": "Festive carousel showcasing ZZ-INTERNAL-TEST's brand values, team spirit, and office culture to build trust and community connection during the celebration season",
+
+  "captionEn": "🪔✨ This festive season, we celebrate the people, passion, and purpose behind every home we help you find. ✨🪔\n\n At ZZ-INTERNAL-TEST, we don't just sell properties — we build relationships, trust, and dreams that last a lifetime. 🏡💛\n\n Swipe through to meet the heart of our team, peek inside our workspace, and see the values that drive us every single day → →\n\n🌟 What makes ZZ-INTERNAL-TEST different?\n✅ A team that truly listens\n✅ Transparency at every step\n✅ Local expertise with a national vision\n✅ Decades of trust built on honest deals\n✅ Homes that match your life, not just your budget\n\n💬 Drop a 🪔 in the comments if you're celebrating this festive season with a new home in mind!\n\n📲 DM us or tap the link in bio to explore our latest properties and speak to our team today.\n\nFrom our family to yours — wishing you light, joy, and the perfect home this festive season. 🏠🎉\n\n— The ZZ-INTERNAL-TEST Family",
+
+  "captionOd": "🪔✨ ଏହି ଉତ୍ସବ ଋତୁରେ, ଆମେ ସେହି ମଣିଷ, ଆବେଗ ଏବଂ ଉଦ୍ଦେଶ୍ୟକୁ ଉଦଯାପନ କରୁଛୁ ଯାହା ଆପଣଙ୍କ ସ୍ୱପ୍ନର ଘର ଖୋଜିବାରେ ସାହାଯ୍ୟ କରେ। ✨🪔\n\nZZ-INTERNAL-TEST ରେ, ଆମେ କେବଳ ସମ୍ପତ୍ତି ବିକ୍ରୟ କରୁ ନାହିଁ — ଆମେ ସମ୍ପର୍କ, ବିଶ୍ୱାସ ଏବଂ ଜୀବନ ଧରି ରହୁଥିବା ସ୍ୱପ୍ନ ତିଆରି କରୁ। 🏡💛\n\nଆମ ଟିମ୍ ର ହୃଦୟ ଦେଖିବା ପାଇଁ ଏବଂ ଆମ ମୂଲ୍ୟବୋଧ ଜାଣିବା ପାଇଁ ସ୍ୱାଇପ୍ କରନ୍ତୁ → →\n\n🌟 ZZ-INTERNAL-TEST କୁ ଅଲଗା କରୁଥିବା ବିଷୟ:\n✅ ଆପଣଙ୍କ କଥା ଶୁଣୁଥିବା ଏକ ଟିମ୍\n✅ ପ୍ରତ୍ୟେକ ପଦକ୍ଷେପରେ ସ୍ୱଚ୍ଛତା\n✅ ସ୍ଥାନୀୟ ଦକ୍ଷତା ସହ ଜାତୀୟ ଦୃଷ୍ଟିଭଙ୍ଗୀ\n✅ ସଚ୍ଚୋଟ ଲେଣଦେଣ ଉପରେ ନିର୍ମିତ ବିଶ୍ୱାସ\n✅ ଆପଣଙ୍କ ଜୀବନ ସହ ମେଳ ଖାଉଥିବା ଘର\n\n💬 ଯଦି ଆପଣ ଏହି ଉତ୍ସବ ଋତୁରେ ନୂଆ ଘର ଖୋଜୁଛନ୍ତି, ତେବେ 🪔 କମେଣ୍ଟ କରନ୍ତୁ!\n\n📲 ଆଜି ଆମ ଟିମ୍ ସହ କଥା ହେବା ପାଇଁ DM କରନ୍ତୁ।\n\nଆମ ପରିବାର ତରଫରୁ ଆପଣଙ୍କ ପରିବାରକୁ — ଏହି ଉତ୍ସବ ଋତୁ ଆଲୋକ, ଆନନ୍ଦ ଏବଂ ଆଦର୍ଶ ଘର ନେଇ ଆସୁ। 🏠🎉\n\n— ZZ-INTERNAL-TEST ପରିବାର",
+
+  "hashtags": [
+    "#ZZINTERNALTESTFamily",
+    "#FestiveRealEstate",
+    "#NewHomeThisDiwali",
+    "#RealEstateIndia",
+    "#DreamHomeJourney",
+    "#TrustInRealEstate",
+    "#IndianRealEstate",
+    "#HomeBuyingIndia",
+    "#FestiveSeason2025",
+    "#PropertyIndia",
+    "#TeamCulture",
+    "#BrandValues",
+    "#RealEstateBranding",
+    "#OdishaRealEstate",
+    "#HomesWithHeart"
+  ],
+
+  "bestTime": "7:00 PM – 9:00 PM IST on the evening before or on the festive day (e.g., Diwali eve or Dhanteras evening) for maximum reach and emotional resonance",
+
+  "bestPlatform": "both",
+
+  "postType": "carousel",
+
+  "nanoPrompt": "Create a warm, festive, premium real estate brand carousel slide for 1080x1080 pixels. Visual style: editorial luxury meets festive Indian warmth — clean modern layout with rich jewel tones. Color palette: deep saffron-gold #E8A020, warm ivory-white #FAF6EF, rich burgundy #6B1E2E, soft champagne #F5DEB3, and accent midnight navy #1A2340. Design elements: subtle geometric mandala border pattern in gold along the right and bottom edges, small glowing diya (oil lamp) illustration in the lower-right corner, soft bokeh lighting effect in the background suggesting festivity without clutter. Layout: the upper-left corner must remain completely clean and empty — no text, no graphic elements, no placeholder shapes in that zone, as a logo will be placed there separately. Main text overlay centered-to-right: bold headline in a modern serif font 'Built on Trust. Driven by Values.' in ivory white, subtitle below in lighter weight 'Your Trusted Real Estate Partner' in champagne gold. Background: a very soft blurred warm interior of a luxury apartment or welcoming office with golden-hour sunlight streaming through large windows. Mood: celebratory, trustworthy, aspirational, warm family-oriented Indian festive energy. No logos, no logo outlines, no placeholder boxes anywhere in the image.",
+
+  "nanoPromptStory": "Create a warm, festive, premium real estate brand story slide for 1080x1920 pixels. Visual style: editorial luxury meets festive Indian warmth — tall portrait layout with rich jewel tones flowing top to bottom. Color palette: deep saffron-gold #E8A020, warm ivory-white #FAF6EF, rich burgundy #6B1E2E, soft champagne #F5DEB3, midnight navy #1A2340. Design elements: vertical gold geometric border lines framing the left and right edges, a row of glowing diyas illustrated along the bottom quarter of the image, floating gold particles/bokeh scattered throughout mid-frame suggesting celebration, a subtle geometric mandala watermark in the center background at very low opacity. Layout: top-left corner must remain completely clean and empty — no text, no graphic elements, no boxes — space reserved for a logo to be placed separately. Main headline in bold modern serif centered in the upper-middle third: 'This Festive Season, Find Your Forever Home' in ivory white with a subtle gold glow. Below the headline: short body text in light weight font listing three values in champagne gold. Bottom third: a warm-toned blurred lifestyle image of a happy family standing in front of a beautifully lit home entrance. A soft swipe-up CTA strip in burgundy at the very bottom with 'Explore Properties →' in white. Mood: festive, emotional, premium, warm, aspirational, community-driven. No logos, no logo outlines, no placeholder shapes anywhere.",
+
+  "carouselSlides": [
+    "Slide 1 — COVER SLIDE: Bold festive headline over a golden warm background with diya motifs. Text: '🪔 Celebrating Trust, Values & Your Dream Home' — Sub-text: 'This festive season, we celebrate with you.' Swipe prompt: 'Swipe to meet the ZZ-INTERNAL-TEST family →'",
+
+    "Slide 2 — OUR STORY: Clean ivory card layout. Icon: a small illustrated open book in gold. Headline: 'Who We Are' Body text: 'ZZ-INTERNAL-TEST was founded on one belief — that finding a home should feel like finding family. Every deal we close is built on honesty, care, and lasting relationships.'",
+
+    "Slide 3 — OUR VALUES: Four-quadrant card design. Title: 'What We Stand For 🌟' Value 1: '🤝 Trust First — Honest dealings, always.' Value 2: '💡 Transparency — No hidden surprises.' Value 3: '📍 Local Expertise — We know your market inside out.' Value 4: '🏡 Your Vision — We listen before we advise.'",
+
+    "Slide 4 — MEET THE TEAM: Warm, candid-style team collage layout (illustrated or photo-ready placeholder blocks). Headline: 'The Faces Behind Every Home 👋' Sub-text: 'Our team of dedicated advisors, analysts, and support staff work every day to make your real estate journey seamless and stress-free.'",
+
+    "Slide 5 — OUR OFFICE: Bright, modern interior mood board style slide. Headline: 'Our Home — Where Your Journey Begins 🏢' Body: 'Walk into ZZ-INTERNAL-TEST and you'll feel the difference. A space built on warmth, professionalism, and a passion for people.'",
+
+    "Slide 6 — FESTIVE MILESTONE CARD: Celebration data points in bold typography on a deep gold-burgundy background. Headline: '🪔 Grateful This Festive Season' Stats displayed visually: '500+ Happy Families Housed | 10+ Years of Trust | 100% Transparent Deals | Serving Across Odisha & Beyond'",
+
+    "Slide 7 — TESTIMONIAL SLIDE: Clean quote card in ivory with a warm amber left border accent. Headline: '💬 What Our Clients Say' Quote: '"ZZ-INTERNAL-TEST didn't just find us a flat — they found us a home. The team was honest, patient, and always available." — A Happy ZZ-INTERNAL-TEST Client' Small star rating graphic: ⭐⭐⭐⭐⭐",
+
+    "Slide 8 — FESTIVE GREETING + CTA: Full festive design — diyas, warm glow, mandala border. Big central text: '🪔 Wishing You Joy, Light & The Perfect Home This Festive Season 🪔' Sub-text: 'From the ZZ-INTERNAL-TEST Family to Yours' CTA box at bottom in burgundy: '📲 DM us | 🔗 Link in Bio | Explore Properties Today'"
+  ],
+
+  "reelScript": "N/A — Post type is carousel. If repurposed as a Reel: [0:00–0:03] Hook frame: animated diya lighting up screen, text flies in — 'This festive season, we're celebrating YOU 🪔' | [0:03–0:08] Quick cuts: team smiling in office, handshakes, property walkthroughs with upbeat festive background music | [0:08–0:15] Value cards animate in one by one — Trust, Transparency, Expertise, Your Vision | [0:15–0:22] Team group shot with text overlay: 'The ZZ-INTERNAL-TEST Family — Always Here For You' | [0:22–0:28] Festive greeting card full screen with CTA: 'DM us to start your home journey today 🏡' | [0:28–0:30] Logo hold frame with website/contact",
+
+  "engagementHook": "🪔 This festive season, we're not just celebrating properties — we're celebrating the families who trusted us with their biggest dream.",
+
+  "ctaSuggestion": "Ask followers to drop a 🪔 emoji in the comments if they're thinking of buying a home this festive season, then DM everyone who responds with a personalised property recommendation — turning engagement into qualified leads instantly."
+}
+```

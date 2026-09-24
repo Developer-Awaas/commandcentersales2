@@ -230,36 +230,90 @@ function repairTruncatedJSON(text: string): unknown | null {
   } catch { return null; }
 }
 
-function extractJson(text: string): unknown | null {
+// T-025: repair a genuinely unescaped literal double-quote used for a nested
+// quotation inside a string value (e.g. `Quote: "..." — A Happy Client`,
+// live-reproduced on the SMM carousel path). Heuristic: while inside a
+// string, an unescaped `"` only closes the string if the next non-whitespace
+// character is a JSON structural character (`,` `}` `]` `:`) or end of
+// input — otherwise it's literal content the model failed to escape, so
+// escape it and keep scanning as still-in-string.
+function repairUnescapedInnerQuotes(text: string): string {
+  let inString = false;
+  let escape = false;
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; result += ch; continue; }
+    if (ch === '\\') { escape = true; result += ch; continue; }
+    if (ch === '"') {
+      if (!inString) { inString = true; result += ch; continue; }
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      const next = text[j];
+      if (next === undefined || next === ',' || next === '}' || next === ']' || next === ':') {
+        inString = false;
+        result += ch;
+      } else {
+        result += '\\"';
+      }
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
+// T-025: candidate extraction strategies, most-specific first. The bug this
+// replaced had every strategy on its OWN, incomplete retry path — sanitizing
+// control characters only ever ran on the anchored-strip candidate, never on
+// the "fence anywhere" candidate, so a response with prose around a fence
+// AND unescaped newlines inside the JSON (both real, independent failure
+// modes) had no single candidate that ever got both fixes applied. Every
+// candidate below now gets the full retry set: raw parse, then sanitized.
+function extractJsonCandidates(text: string): string[] {
+  const candidates: string[] = [text];
+
+  // Fence anchored at the very start/end of the (trimmed) text — the plain
+  // "```json\n{...}\n```" case with nothing else around it.
+  const anchoredStripped = text.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  candidates.push(anchoredStripped);
+
+  // A fenced block ANYWHERE in the text — leading prose ("Sure, here's the
+  // JSON:"), trailing prose ("Let me know if you'd like changes."), or both,
+  // around the fence.
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fenced = fenceMatch?.[1]?.trim() ?? '';
+  if (fenced) candidates.push(fenced);
+
+  // Between the first '{' and the last '}' of each text-shaped candidate
+  // above — covers stray commentary that survives fence extraction (no
+  // fence at all, or text inside the fence besides the JSON object itself).
+  for (const c of [anchoredStripped, fenced]) {
+    const first = c.indexOf('{');
+    const last = c.lastIndexOf('}');
+    if (first !== -1 && last > first) candidates.push(c.substring(first, last + 1));
+  }
+
+  return candidates;
+}
+
+export function extractJson(text: string): unknown | null {
   if (!text) return null;
 
-  // Pass 1: raw attempts
-  try { return JSON.parse(text); } catch { /* continue */ }
-
-  let cleaned = text.trim();
-  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
-  try { return JSON.parse(cleaned); } catch { /* continue */ }
-
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    try { return JSON.parse(cleaned.substring(firstBrace, lastBrace + 1)); } catch { /* continue */ }
+  for (const candidate of extractJsonCandidates(text)) {
+    if (!candidate) continue;
+    try { return JSON.parse(candidate); } catch { /* try sanitized */ }
+    // Sanitize literal control characters in string values (e.g. unescaped
+    // newlines inside the nanobanana_prompt_main field), then retry.
+    const sanitized = sanitizeJsonControlChars(candidate);
+    try { return JSON.parse(sanitized); } catch { /* try quote repair */ }
+    // Repair a genuinely unescaped inner quote (e.g. a nested testimonial
+    // quotation), then retry.
+    try { return JSON.parse(repairUnescapedInnerQuotes(sanitized)); } catch { /* next candidate */ }
   }
 
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenceMatch) {
-    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* continue */ }
-  }
-
-  // Pass 2: sanitize literal control characters in string values (e.g. unescaped newlines
-  // inside the nanobanana_prompt_main field), then retry the same sequence.
-  const sanitized = sanitizeJsonControlChars(cleaned);
-  try { return JSON.parse(sanitized); } catch { /* continue */ }
-  if (firstBrace !== -1 && lastBrace !== -1) {
-    try { return JSON.parse(sanitizeJsonControlChars(cleaned.substring(firstBrace, lastBrace + 1))); } catch { /* continue */ }
-  }
-
-  const repaired = repairTruncatedJSON(sanitized);
+  const anchoredStripped = text.trim().replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  const repaired = repairTruncatedJSON(sanitizeJsonControlChars(anchoredStripped));
   if (repaired) return repaired;
 
   return null;

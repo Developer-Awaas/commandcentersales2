@@ -196,6 +196,8 @@ export function buildSMMCreativePrompt(data: {
   lines.push('');
   lines.push('NEVER write a bracketed placeholder or template token — no "[Brand Name]", "[Company Name]", "[insert X]", or similar. Use "' + brandName + '" (or leave it out) instead, everywhere, including inside captions, hashtags, and image prompts.');
   lines.push('');
+  lines.push('JSON string values must never contain a literal double-quote character. For a quoted phrase or nested quotation inside any string value (e.g. a testimonial), use single quotes (\' \') instead — never \\" or straight ".');
+  lines.push('');
   lines.push('Return JSON:');
   lines.push('{');
   lines.push('  "concept": "one line post concept",');
