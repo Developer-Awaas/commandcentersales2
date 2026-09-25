@@ -34,6 +34,7 @@ export default defineConfig({
     include: [
       'src/lib/ai-service.mock.test.ts',
       'src/lib/ai-service.extractJson.test.ts',
+      'src/hooks/useAuth.test.ts',
       'src/lib/smm-generation-error.test.ts',
       'src/lib/smm-prompts.separation.test.ts',
       'src/lib/history-service.test.ts',

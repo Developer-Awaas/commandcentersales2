@@ -105,7 +105,7 @@ function AppShell({
   activePage: string;
   onNavigate: (page: string) => void;
   profile: Profile | null;
-  onSignOut?: () => void;
+  onSignOut: () => void;
   activeSection: AppSection;
   onSectionChange: (section: AppSection) => void;
   wizardActive: boolean;

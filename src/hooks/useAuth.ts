@@ -47,7 +47,7 @@ export function useAuth(): AuthState {
       if (existing) {
         if (!existing.org_id) {
           setError(UNPROVISIONED_MSG);
-          await supabase.auth.signOut();
+          await supabase.auth.signOut({ scope: 'local' });
           return;
         }
         setProfile(existing as Profile);
@@ -71,7 +71,7 @@ export function useAuth(): AuthState {
 
       if (createErr || !created || !(created as Profile).org_id) {
         setError(UNPROVISIONED_MSG);
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         return;
       }
 
@@ -80,8 +80,21 @@ export function useAuth(): AuthState {
       storeUserId(authUser.id);
       if (authUser.email) setUserEmail(authUser.email);
     } catch {
-      setError(UNPROVISIONED_MSG);
-      await supabase.auth.signOut();
+      // T-026: everything that positively CONFIRMS "this account has no
+      // profile / no org" already returned above, from the two `if` checks
+      // on the query results — supabase-js resolves a failed .select()/
+      // .insert() as { data, error } without throwing (RLS denial, a bad
+      // column, 0 vs 1 row via maybeSingle). Nothing that reaches this catch
+      // can be that confirmation; it's necessarily something else the query
+      // layer didn't turn into a result at all (a rejected fetch, a timeout,
+      // an unexpected SDK exception) — transient by construction here, and
+      // not reliably distinguishable from a real one. This function also
+      // reruns on every onAuthStateChange tick (sign-in, token refresh,
+      // tab focus), and the accounts it runs for are shared/concurrent by
+      // design (D17, T-023) — so on any doubt, do NOT sign out; surface the
+      // error and leave the session intact rather than silently evicting
+      // every other concurrent session over a blip.
+      setError('Could not load your profile. Please try again.');
     }
   }, []);
 

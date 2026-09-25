@@ -36,7 +36,7 @@ interface SidebarProps {
   activePage: string;
   onNavigate: (page: string) => void;
   profile: Profile | null;
-  onSignOut?: () => void;
+  onSignOut: () => void;
   activeSection: AppSection;
   onSectionChange: (section: AppSection) => void;
   wizardActive?: boolean;
@@ -128,11 +128,7 @@ export function Sidebar({
   }
 
   async function handleSignOut() {
-    if (onSignOut) {
-      await onSignOut();
-    } else {
-      await supabase.auth.signOut();
-    }
+    await onSignOut();
   }
 
   function toggleSection(sec: AppSection) {

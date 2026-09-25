@@ -391,6 +391,51 @@ the new heuristic doesn't over-fire), null/empty-input handling, and the
 real T-025 specimen parsing correctly end to end. Full gate: typecheck
 clean, 285/285 unit tests (30 files).
 
+**T-026 (P0, pre-recording) CLOSED 2026-09-25.** Answering Saswat's question
+of which account T-016's step 12 dry run used (`saswat-review-admin@awaas.internal`,
+the Meta reviewer account — signed out afterward, but via the pre-D17 bare
+`supabase.auth.signOut()`) surfaced the same global-sign-out class in three
+more places, one materially worse than T-023: `useAuth.ts`'s
+`fetchOrCreateProfile` (lines 50, 74, 84, all bare, no scope) and
+`Sidebar.tsx:134`'s no-`onSignOut`-prop fallback (also bare).
+`fetchOrCreateProfile` reruns on every `onAuthStateChange` tick (sign-in,
+token refresh, tab focus) — a background-recurring listener with a
+destructive catch, CLAUDE.md rule #2's named highest-risk pattern — against
+accounts that are shared/concurrent by design (D17). Its line-84 catch was a
+blind `catch { signOut() }`: any transient failure (network, RLS, timeout)
+triggered a full global sign-out, not just a genuine unprovisioned-account
+case.
+
+Fix: `useAuth.ts:50,74` → `signOut({ scope: 'local' })`, no other change —
+both already sit behind a positively-confirmed state (`if (!existing.org_id)` /
+`if (createErr || !created || !org_id)`). Line 84's catch: `scope: 'local'`
+plus removed the sign-out entirely. Reasoning cited in the code comment: both
+`if` branches above already claim every case that positively confirms
+"no profile / no org" via a normal `{data, error}` return — supabase-js
+doesn't throw for RLS denial or a bad column, `.maybeSingle()` doesn't throw
+for 0 rows. Anything that still reaches the catch is therefore never that
+confirmation; per the instruction to default to not-signing-out when the
+error shapes can't be reliably distinguished, the catch now only surfaces an
+error and leaves the session intact. `Sidebar.tsx:134`'s fallback is deleted;
+`onSignOut` is now a required prop (`Sidebar.tsx`, `Layout.tsx`,
+`App.tsx`'s `AppShell`) — typecheck confirms `App.tsx:233` already always
+passes `signOut` (only reachable post-session-check, so never undefined).
+
+New `src/hooks/useAuth.test.ts` (added to `vitest.config.ts`, no prior test
+file existed for this hook): a rejected profile-lookup promise does not call
+`signOut`; a confirmed no-`org_id` profile does, with `{ scope: 'local' }`;
+a repo-wide grep-based guard test scans every `.ts`/`.tsx` under `src/` for
+`.auth.signOut(` and fails if any call site omits `scope: 'local'` or sets
+`scope: 'global'` — currently 3 call sites, all compliant (evidence below).
+Full gate: typecheck clean, 288/288 unit tests (31 files, +3 from T-026).
+
+```
+$ grep -rn "\.auth\.signOut(" src --include=*.ts --include=*.tsx
+src/hooks/useAuth.ts:50:          await supabase.auth.signOut({ scope: 'local' });
+src/hooks/useAuth.ts:74:        await supabase.auth.signOut({ scope: 'local' });
+src/hooks/useAuth.ts:157:      await supabase.auth.signOut({ scope: 'local' });
+```
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
