@@ -554,6 +554,22 @@ UI-visible — but it is real, reachable with the browser devtools or a
 one-line fetch by any authenticated org member (not just the Meta reviewer
 account). Flagged, not touched.
 
+**T-028 follow-up, same day.** Confirmed which address Meta actually holds
+before touching the second account: `docs/decisions/review-build-divergences.md:128,254`
+(Q16) — Meta was given `meta-review@awaas.world`, recorded and verified as
+"that same account, one identity everywhere"; `meta-reviewer@awaas.internal`
+was an earlier credential (created 2026-09-02) explicitly **superseded
+2026-09-07** by the Q16 decision, never sent to Meta. So it does not need
+the SMM/brand_kit keys — nothing external depends on its capabilities.
+Demoted it the same way: `update profiles set role = 'manager' where id =
+'2a70836d-3e82-4e46-a9ac-9c05586006a4';` (`meta-reviewer@awaas.internal`,
+Demo Builder). `module_access` untouched (already has no `user_management`
+key). Verified live, same method as above: `role: manager`, `hasModuleAccess
+users: false`, an update attempt against another org member's row matches
+**0 rows**. All three Demo Builder profiles are now non-admin except
+`saswat-review-admin@awaas.internal` (Saswat's own identity, untouched,
+out of scope both times).
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
