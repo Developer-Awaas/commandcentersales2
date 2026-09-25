@@ -436,6 +436,124 @@ src/hooks/useAuth.ts:74:        await supabase.auth.signOut({ scope: 'local' });
 src/hooks/useAuth.ts:157:      await supabase.auth.signOut({ scope: 'local' });
 ```
 
+**T-028 (P0, pre-recording) CLOSED on TEST 2026-09-25.** The Meta reviewer
+account could open Users and deactivate/reconfigure any other org member.
+
+**Gate, traced end to end:** `hasModuleAccess()` (`src/lib/access.ts:35`) —
+`if (profile.role === 'admin') return true;` — before it ever looks at
+`module_access`. Both surfaces route through it: the nav filter
+(`Sidebar.tsx:244,304`) and the route guard (`App.tsx:62`, `PageContent`,
+`if (!hasModuleAccess(profile, page)) return <AccessDenied />;`). So hiding
+the nav item alone would not have been sufficient — a stale `active_page`
+in `localStorage` reaches the same guard and gets the same bypass. The
+"delete" action (`UserManagement.tsx:187`, `deleteUser`) is actually a soft
+deactivate — `.from('profiles').update({ is_active: false })`, no true
+DELETE anywhere on this path — gated server-side by a real RLS policy, not
+an edge function: `Admins can update org profiles` (`UPDATE`, `qual`:
+`org_id = get_current_user_org_id() AND EXISTS (SELECT 1 FROM profiles p
+WHERE p.id = auth.uid() AND p.role = 'admin')`). This check is on the
+**actor's own row**, not the target's — so it was already correctly
+role-gated; the only thing wrong was the actor's own `role` value.
+
+**Three accounts on TEST carry `role: admin` in Demo Builder**, found via
+direct psql (`db.yelmuykbqdyeikgbmkoq.supabase.co`, `SUPABASE_DB_PASSWORD`
+from `.env.test.local` — TEST is not PROD, the read-only-role/psql
+invariant doesn't gate it):
+
+| email | id | role (before) | module_access has SMM/brand_kit | last_sign_in_at |
+|---|---|---|---|---|
+| `meta-review@awaas.world` | `0843a509…` | admin | yes (full set) | 2026-09-07 |
+| `meta-reviewer@awaas.internal` | `2a70836d…` | admin | **no** (narrower set, predates SMM rollout) | 2026-09-25 (today) |
+| `saswat-review-admin@awaas.internal` | `941f3596…` | admin | n/a — Saswat's own dev/admin identity, out of scope | 2026-09-25 (today) |
+
+**`meta-review@awaas.world` is the account this ticket fixes** — its
+`module_access` already contains every key the recording needs
+(`smm_planner, smm_calendar, smm_creatives, smm_analyzer, content_library,
+brand_kit, settings, strategy_quick, projects, campaign_wizard, …`), which
+is exactly the retained-capability list in the instruction; `role: admin`
+was the only thing granting Users, via the bypass above, and RLS on
+`profiles.UPDATE` for any other org member. **`meta-reviewer@awaas.internal`
+carries the identical `role: admin` exposure but was NOT touched** — its
+module_access has no SMM/brand_kit keys at all, so it doesn't match the
+"keep what the recording needs" list, and the instruction named one
+account, singular. Flagging it here rather than silently fixing or
+silently ignoring it — same root cause, same fix (`role → manager`), open
+pending a decision on whether it's still a live credential or dead from an
+earlier provisioning pass.
+
+**Fix — pure data change, no code, per instruction ("prefer a data change
+… add a server-side check only if the delete is currently unprotected" —
+it wasn't):**
+```sql
+update profiles set role = 'manager'
+where id = '0843a509-50c4-498e-aacb-fe3ac9a3bcb5' -- meta-review@awaas.world
+returning id, email, role, module_access, daily_ai_limit, is_active;
+```
+`module_access` and `daily_ai_limit` (30) untouched — already correct, no
+`user_management` key. Rollback: `update profiles set role = 'admin' where
+id = '0843a509-50c4-498e-aacb-fe3ac9a3bcb5';`. The self-escalation trigger
+(`trg_prevent_self_privilege_escalation`) only fires when `NEW.id =
+auth.uid()`; a direct psql connection carries no `auth.uid()` claim, so it
+did not block this write.
+
+**Evidence — real code path, both accounts, live on TEST** (`_t028-verify.ts`,
+temp, deleted after; imported the real `hasModuleAccess` from `src/lib/access.ts`
+and signed in via `supabase.auth.signInWithPassword`, never restated):
+
+```
+=== meta-review@awaas.world ===
+role: manager
+hasModuleAccess users: false
+hasModuleAccess projects: true
+hasModuleAccess brand-kit: true
+hasModuleAccess smm-creatives: true
+hasModuleAccess strategy: true
+hasModuleAccess settings: true
+attempted update of ANOTHER profile -> error: null | rows affected: 0
+=== saswat-review-admin@awaas.internal ===
+role: admin
+hasModuleAccess users: true
+admin update of ANOTHER profile -> error: null | rows affected: 1
+```
+The refusal is RLS's normal shape for `UPDATE` under PostgREST: no thrown
+error, the `USING` clause simply excludes the row, so the write matches
+**0 rows** — confirmed against a real target row
+(`meta-reviewer@awaas.internal`'s), value set to its own current `is_active`
+(a genuine no-op regardless of whether the write had gone through).
+`saswat-review-admin` (untouched, still `role: admin`) performed the same
+shape of write against `meta-review@awaas.world`'s row and it matched
+**1 row** — the legitimate admin path is intact. Every page the recording
+needs (projects, Brand Kit, SMM Creatives, strategy generation, Settings)
+reads `true` for the demoted account; the publish dialog has no separate
+module key — it's reached from inside SMM Creatives, already covered by
+`smm-creatives: true`.
+
+**Item 4 (outstanding, now answered):** the Meta reviewer's account is
+`meta-review@awaas.world` (`0843a509-50c4-498e-aacb-fe3ac9a3bcb5`) —
+provisioned on TEST in Demo Builder, full SMM module access. `auth.sessions`:
+29 historical rows, all pre-dating today (`max(created_at) = 2026-09-07`,
+`max(updated_at)` the same — no token refresh since), none revoked in
+`auth.refresh_tokens`. Stale but live-capable, not actively used since the
+original Meta submission test.
+
+**Separate finding, NOT fixed (per instruction):** the `profiles` `SELECT`
+RLS policy (`Org members can view org profiles`, `qual: org_id =
+get_current_user_org_id()`) carries **no role restriction at all** — any
+authenticated member of an org, admin or not, can `select('full_name,
+email, role, module_access', …)` every other member's row directly via the
+Supabase client, independent of any UI. Checked every other `.from('profiles')`
+call site in `src/` (`AIChatbot.tsx`, `UsageSection.tsx`, `useAgentSession.ts`,
+`ai-service.ts`, `AanyaMemory.tsx`, `AiSessions.tsx`, `BrandKit.tsx`,
+`SettingsPage.tsx`) — all scope `.eq('id', getUserId())`, self only; no page
+besides the now-gated `UserManagement.tsx` renders another member's name.
+Grepped `full_name`/`created_by`/`assigned_to` across `src/` — the only
+render of `full_name` (`Sidebar.tsx:202,336`) is the signed-in user's own
+profile; every `created_by` site is a write (`getUserId()` at insert time),
+never a read of someone else's. So today's exposure is API-only, not
+UI-visible — but it is real, reachable with the browser devtools or a
+one-line fetch by any authenticated org member (not just the Meta reviewer
+account). Flagged, not touched.
+
 ## Decisions
 D1a key panel on submissionId + clear result · D2a formatHashtag/normalize single owner; D2b DB trigger backstop in Ph2 migration · D3a mirror PROD cron on TEST · D4a fixed 6-chip intent taxonomy + Haiku-classified comment · D5a thresholds as R4 above · D6a rated/regenerated creatives exempt from 20-cap, ceiling 100/project, prune oldest unrated · D7a in-repo ports/adapters, extraction on second consumer · D8a threaded into phases · D15a **P1-CM-16**: the Playwright job targets the branch's GitHub Environment — `review-build`=TEST, `main`=PROD; `ws1-6-isolation` stays PROD.
 **Storage-cost FYI to Rahul:** D6a raises worst-case per-project storage 5×.
