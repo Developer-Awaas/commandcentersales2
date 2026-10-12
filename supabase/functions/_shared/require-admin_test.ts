@@ -5,7 +5,7 @@
  * Run: deno test _shared/require-admin_test.ts   (from supabase/functions)
  */
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
-import { isOrgAdmin } from './require-admin.ts'
+import { canManagePublishing, isOrgAdmin } from './require-admin.ts'
 
 /** Minimal stand-in for the service-role client's chained builder. */
 function clientReturning(data: unknown) {
@@ -38,4 +38,24 @@ Deno.test('role matching is exact, not a prefix or case fold', async () => {
   for (const role of ['Admin', 'ADMIN', 'administrator', 'admin ', 'superadmin']) {
     assertEquals(await isOrgAdmin(clientReturning({ role }), 'u1'), false, `"${role}" must not pass`)
   }
+})
+
+Deno.test('canManagePublishing: admin passes', async () => {
+  assertEquals(await canManagePublishing(clientReturning({ role: 'admin' }), 'u1'), true)
+})
+
+Deno.test('canManagePublishing: manager passes', async () => {
+  assertEquals(await canManagePublishing(clientReturning({ role: 'manager' }), 'u1'), true)
+})
+
+Deno.test('canManagePublishing: viewer does not', async () => {
+  assertEquals(await canManagePublishing(clientReturning({ role: 'viewer' }), 'u1'), false)
+})
+
+Deno.test('canManagePublishing: beta_tester does not', async () => {
+  assertEquals(await canManagePublishing(clientReturning({ role: 'beta_tester' }), 'u1'), false)
+})
+
+Deno.test('canManagePublishing: a missing profile row does not pass', async () => {
+  assertEquals(await canManagePublishing(clientReturning(null), 'u1'), false)
 })

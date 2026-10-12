@@ -26,3 +26,18 @@ export async function isOrgAdmin(supabase: AnyClient, userId: string): Promise<b
   const { data } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle()
   return (data as { role?: string } | null)?.role === 'admin'
 }
+
+/**
+ * "Can this caller see (not change) this org's publishing configuration?"
+ *
+ * Broader than isOrgAdmin on purpose: viewing the reachable-Pages list and a
+ * Page's read-only info (meta-publish-targets' `list`/`page_info` actions) is
+ * not an org-administration act, so admin and manager both pass. Actually
+ * reconfiguring the publish target (`set`) is administration and stays
+ * behind isOrgAdmin — checked separately where that action is handled.
+ */
+export async function canManagePublishing(supabase: AnyClient, userId: string): Promise<boolean> {
+  const { data } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle()
+  const role = (data as { role?: string } | null)?.role
+  return role === 'admin' || role === 'manager'
+}

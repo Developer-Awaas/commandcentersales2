@@ -128,9 +128,15 @@ export function SettingsPage() {
   const [allowlistConfigured, setAllowlistConfigured] = useState(true);
   const [hiddenPageCount, setHiddenPageCount] = useState(0);
   // Presentation only. meta-publish-targets checks profiles.role itself and
-  // 403s regardless (index.ts:70) — this just stops showing a non-admin a
-  // control that can only fail. Same shape as settings/UsageSection.tsx.
+  // 403s regardless — this just stops showing a control that can only fail.
+  // Same shape as settings/UsageSection.tsx.
   const [isAdmin, setIsAdmin] = useState(false);
+  // Broader than isAdmin: manager OR admin. Gates the read-only Publishing
+  // card (Choose a Page list + PageInfoCard) — meta-publish-targets' `list`/
+  // `page_info` actions accept this same pair (canManagePublishing). The
+  // mutating "FB only"/"FB+IG" buttons inside that card stay behind isAdmin,
+  // since `set` is still admin-only server-side.
+  const [canManagePublishing, setCanManagePublishing] = useState(false);
 
   useEffect(() => {
     loadOrg();
@@ -138,7 +144,9 @@ export function SettingsPage() {
     loadMetaIntegration();
     (async () => {
       const { data } = await supabase.from('profiles').select('role').eq('id', getUserId()).maybeSingle();
-      setIsAdmin((data as { role?: string } | null)?.role === 'admin');
+      const role = (data as { role?: string } | null)?.role;
+      setIsAdmin(role === 'admin');
+      setCanManagePublishing(role === 'admin' || role === 'manager');
     })();
   }, []);
 
@@ -789,12 +797,15 @@ Cancel = keep the permanent System User connection.`,
                   different consequences, and a single "Meta settings" blob is
                   how the second one gets made without noticing.
 
-                  Admin-only, and only in the render: meta-publish-targets
-                  checks profiles.role for BOTH actions and 403s a non-admin
-                  before it reaches the action switch (index.ts:70-73), so the
-                  server stays the authority. Showing a member a picker whose
-                  every button 403s is the bug this hides, not the check. */}
-              {isAdmin && (
+                  Manager-or-admin, and only in the render: meta-publish-targets
+                  checks profiles.role itself and 403s below that pair for
+                  `list`/`page_info`, so the server stays the authority.
+                  Showing a viewer a picker whose every button 403s is the bug
+                  this hides, not the check. The mutating buttons inside this
+                  card (FB only / FB+IG) are additionally gated on isAdmin —
+                  `set` stays admin-only, so a manager sees the list and the
+                  Page info but cannot reassign the publish target. */}
+              {canManagePublishing && (
               <div className="flex flex-col gap-3 mb-4 p-3.5 rounded-xl bg-surface-sunken border border-border">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-text-primary">
@@ -855,6 +866,7 @@ Cancel = keep the permanent System User connection.`,
                             {opt.page_id}{opt.ig_username ? ` · @${opt.ig_username}` : ' · no linked Instagram'}
                           </span>
                         </div>
+                        {isAdmin ? (
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             onClick={() => choosePublishTarget(opt, false)}
@@ -873,6 +885,10 @@ Cancel = keep the permanent System User connection.`,
                             </button>
                           )}
                         </div>
+                        ) : (
+                          // Manager can see the list, not reassign it — `set` is admin-only server-side.
+                          <span className="text-[10px] text-text-disabled shrink-0">View only</span>
+                        )}
                       </div>
                     ))}
                     {hiddenPageCount > 0 && (

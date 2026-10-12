@@ -26,16 +26,19 @@
  * because a picker is a convenience, not a control. Typing an arbitrary id
  * into the request body gets you nothing.
  *
- * ADMIN ONLY. org_integrations is admin-gated at the RLS layer (bug #42), but
- * this function holds the service-role key and bypasses RLS entirely, so the
- * role check has to be made here explicitly — a service-role function that
- * "inherits" an RLS guarantee inherits nothing.
+ * ROLE-GATED, NOT UNIFORMLY. org_integrations is admin-gated at the RLS
+ * layer (bug #42), but this function holds the service-role key and bypasses
+ * RLS entirely, so the role check has to be made here explicitly — a
+ * service-role function that "inherits" an RLS guarantee inherits nothing.
+ * `list`/`page_info` (read-only) accept admin OR manager (canManagePublishing);
+ * `set` (writes org_integrations) stays admin-only (isOrgAdmin), checked again
+ * at that action specifically.
  */
 import '../_shared/review-build-guard.ts' // review-build ONLY — DO NOT MERGE
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import type { Database } from '../_shared/database.types.ts'
 import { resolveCallerIdentity } from '../_shared/canva-oauth.ts'
-import { isOrgAdmin } from '../_shared/require-admin.ts'
+import { canManagePublishing, isOrgAdmin } from '../_shared/require-admin.ts'
 import { graphErrorMessage, graphGet, parseAllowlist } from '../_shared/meta-publish.ts'
 
 function corsHeaders(): Record<string, string> {
@@ -75,10 +78,15 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // Explicit admin check — see the header. This client bypasses RLS, so
+  // Explicit role check — see the header. This client bypasses RLS, so
   // org_integrations' admin-only policies do not apply to it.
-  if (!(await isOrgAdmin(supabase, userId))) {
-    return json({ error: 'Only an organisation admin can change publishing targets.' }, 403)
+  //
+  // `list` and `page_info` are read-only visibility into this org's own
+  // publishing config — manager or admin. `set`, which actually changes
+  // where the org publishes, stays admin-only and is checked again below,
+  // at the point it runs, rather than loosening this gate for everyone.
+  if (!(await canManagePublishing(supabase, userId))) {
+    return json({ error: 'Only an organisation admin or manager can view publishing targets.' }, 403)
   }
 
   const { data: integration } = await supabase
@@ -190,6 +198,12 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === 'set') {
+    // Admin-only, re-checked here specifically: the gate above only proves
+    // manager-or-admin, and this is the one action that writes org_integrations.
+    if (!(await isOrgAdmin(supabase, userId))) {
+      return json({ error: 'Only an organisation admin can change publishing targets.' }, 403)
+    }
+
     const chosen = options.find((o) => o.page_id === body.page_id)
     if (!chosen) {
       return json({ error: 'That Page is not reachable with this organisation\'s Meta token.' }, 400)
