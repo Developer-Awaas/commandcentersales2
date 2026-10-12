@@ -813,7 +813,16 @@ Cancel = keep the permanent System User connection.`,
                   </span>
                   <button
                     onClick={loadPublishOptions}
-                    disabled={publishListLoading || !metaAppIdRow}
+                    // Deliberately NOT gated on metaAppIdRow: that comes from a
+                    // direct client select on org_integrations, which is
+                    // admin-only at the RLS layer (bug #42) — a manager's read
+                    // always returns zero rows, so this button would stay
+                    // permanently disabled for the same role this card now
+                    // exists to serve. meta-publish-targets' `list` action
+                    // re-verifies the connection server-side (service role)
+                    // and returns a clear message via publishMsg if there is
+                    // none — that's the real check, not this button's state.
+                    disabled={publishListLoading}
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-text-tertiary text-[11px] hover:text-text-primary hover:border-brand-border transition-all disabled:opacity-40"
                   >
                     {publishListLoading ? <Spinner size="sm" /> : <RefreshCw size={11} />}
