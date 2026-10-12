@@ -142,6 +142,7 @@ export function SettingsPage() {
     loadOrg();
     loadCompetitors();
     loadMetaIntegration();
+    loadPublishStatus();
     (async () => {
       const { data } = await supabase.from('profiles').select('role').eq('id', getUserId()).maybeSingle();
       const role = (data as { role?: string } | null)?.role;
@@ -154,7 +155,7 @@ export function SettingsPage() {
     setMetaLoading(true);
     const { data } = await supabase
       .from('org_integrations')
-      .select('id,meta_ad_account_id,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at,publish_page_id,publish_page_name,publish_ig_user_id,publish_ig_username')
+      .select('id,meta_ad_account_id,last_sync_at,meta_app_id,meta_granted_scopes,token_expires_at,meta_verified_at')
       .eq('org_id', getOrgId())
       .eq('provider', 'meta')
       .maybeSingle();
@@ -165,16 +166,26 @@ export function SettingsPage() {
       setMetaScopes((data as { meta_granted_scopes?: string[] | null }).meta_granted_scopes ?? null);
       setMetaTokenExp((data as { token_expires_at?: string | null }).token_expires_at ?? null);
       setMetaVerifiedAt((data as { meta_verified_at?: string | null }).meta_verified_at ?? null);
-      const pub = data as {
-        publish_page_id?: string | null; publish_page_name?: string | null;
-        publish_ig_user_id?: string | null; publish_ig_username?: string | null;
-      };
-      setPublishPageId(pub.publish_page_id ?? null);
-      setPublishPageName(pub.publish_page_name ?? null);
-      setPublishIgUserId(pub.publish_ig_user_id ?? null);
-      setPublishIgUsername(pub.publish_ig_username ?? null);
     }
     setMetaLoading(false);
+  }
+
+  // Publish targets, read the same way fetchPublishTargets() (publish-targets.ts)
+  // reads them for the Post button: via meta_connection_status(), a SECURITY
+  // DEFINER RPC. NOT the direct org_integrations select above — that table is
+  // admin-only at the RLS layer (bug #42), so a manager's read of it always
+  // returns zero rows, and publishPageId/PageInfoCard would silently never
+  // render for the same role the Publishing card now exists to serve.
+  async function loadPublishStatus() {
+    const { data } = await supabase.rpc('meta_connection_status');
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      publish_page_id?: string | null; publish_page_name?: string | null;
+      publish_ig_user_id?: string | null; publish_ig_username?: string | null;
+    } | undefined;
+    setPublishPageId(row?.publish_page_id ?? null);
+    setPublishPageName(row?.publish_page_name ?? null);
+    setPublishIgUserId(row?.publish_ig_user_id ?? null);
+    setPublishIgUsername(row?.publish_ig_username ?? null);
   }
 
   // RB-MO STEP 4 — the paste path no longer writes org_integrations directly.
