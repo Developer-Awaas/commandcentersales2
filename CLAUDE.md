@@ -162,6 +162,7 @@ this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
 | T-026 | CLOSED | client | `dce53fb`; every `signOut` local, none on an unconfirmed error; repo-wide guard test |
 | T-028 | CLOSED (TEST) | db | `3fa793f` `f3883f3`; both Meta reviewer profiles demoted `admin` → `manager` (data fix) |
 | T-029 | CLOSED (TEST) | meta/client | `f62dc18` `370f90e` `b131454`; manager views Publishing card read-only, verified live 2026-10-13. Frozen-surface sign-off unrecorded |
+| T-030 | CLOSED (TEST) | client/meta | `bf1662d`; no AccessDenied flash on sign-in (`authView`); PageInfoCard retries a non-function non-2xx once. B root cause unconfirmed (no logs) |
 | PROD | PAUSED | infra | PROD Supabase removed 2026-10-13 until the PROD move; `ws1-6-isolation` red by design |
 | R-A | OPEN | meta | Meta app review in flight; reviewer account `meta-review@awaas.world` |
 | Q16 | CLOSED | meta | seeded-demo journey, one identity everywhere |

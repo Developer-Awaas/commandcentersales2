@@ -761,3 +761,25 @@ sign-off is not recorded in the repo.
 **PROD removed.** Supabase `mpvdpdxzqnidwyihyhbn` was deliberately removed
 on 2026-10-13 until the PROD move. `ws1-6-isolation` stays red (no HTTP
 response) until then. That's expected, not a regression.
+
+## Session state 2026-10-14
+
+**T-030 (R-A, pre-recording) CLOSED on TEST/live 2026-10-14.** `bf1662d`,
+`meta-publish-targets` v16 on TEST, `cc.awaas.world` stamp `bf1662d`.
+- **A, "Access Restricted" flash on sign-in.** `SIGNED_IN` set `session` while
+  `profile` was still loading and `loading` was already false, so
+  `hasModuleAccess(null)` rendered AccessDenied. `authView()` (`src/lib/access.ts`)
+  now shows the spinner in that window, or the profile error (instead of
+  spinning forever) when the load failed. Live: login → full-screen spinner
+  (340 ms, `GET profiles` 200) → Dashboard; no AccessDenied frame.
+- **B, PageInfoCard bare "non-2xx".** Never reproduced: 11/11 direct calls and
+  5/5 live first loads returned 200. The Meta token is healthy (SYSTEM_USER, no
+  expiry, `pages_read_engagement` granted). The generic text can only come
+  from in front of the function, because every function answer is JSON
+  `{ error }`. Hardening: `readFunctionError()` separates the two and surfaces
+  the gateway `message`; PageInfoCard retries once on the non-function kind;
+  `meta-publish-targets` turns a graphGet timeout or throw into a JSON 502.
+  Root cause still unknown without the function logs. Frozen-surface edit
+  approved by Saswat.
+- `.env.meta-review.local`'s `META_REVIEW_WORLD_PASSWORD` is stale. The live
+  password works; the account is confirmed, not banned, `role: manager`, active.
