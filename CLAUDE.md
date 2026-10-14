@@ -152,6 +152,17 @@ this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
 | T-007a/b | DONE (unpushed) | client | `3ba1a17` SMM uses org brand kit; `3939677` no unattached-logo claims. prompt-eval pending (golden refs absent) |
 | T-007c/d | OPEN | client | logo compositing + `''` fallback (Ph3); brand_kit key mismatch, fonts, Aarav brand context (Ph3, T5-1) |
 | T-012 | FIXED-UNDEPLOYED | prompts/edge | `2c5faf1`; cut raised to `MAX_PROMPT_CHARS` 32k + `prioritizeConstraints()` puts SECTION 7–9 first. Edge not deployed to TEST yet |
+| T-013 | CLOSED (standing) | deploy | `cc.awaas.world` promote unreliable, recurred 2026-09-22; every push needs a stamp check (Deploy rule) |
+| T-014 | CLOSED | ci | `dc20a30`; e2e selector matched on copy, not identity |
+| T-016 | CLOSED (TEST) | client | `50f9437`; SMM persists `tool_outputs` on generate. Retention-cap risk flagged, not fixed |
+| T-016a/b | DEFERRED | client/db | SMM "Edit in Canva" (unassigned); `tool_outputs.status` has no `'draft'` (Ph3) |
+| T-022 | CLOSED | client | `d46f771`; real brand name resolved, template tokens forbidden |
+| T-023 | CLOSED | client | `18a4f91` (D17); `signOut({ scope: 'local' })` |
+| T-025 | CLOSED | client | `a16bc7e`; `extractJson()` repairs unescaped inner quotes |
+| T-026 | CLOSED | client | `dce53fb`; every `signOut` local, none on an unconfirmed error; repo-wide guard test |
+| T-028 | CLOSED (TEST) | db | `3fa793f` `f3883f3`; both Meta reviewer profiles demoted `admin` → `manager` (data fix) |
+| T-029 | CLOSED (TEST) | meta/client | `f62dc18` `370f90e` `b131454`; manager views Publishing card read-only, verified live 2026-10-13. Frozen-surface sign-off unrecorded |
+| PROD | PAUSED | infra | PROD Supabase removed 2026-10-13 until the PROD move; `ws1-6-isolation` red by design |
 | R-A | OPEN | meta | Meta app review in flight; reviewer account `meta-review@awaas.world` |
 | Q16 | CLOSED | meta | seeded-demo journey, one identity everywhere |
 

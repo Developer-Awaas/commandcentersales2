@@ -741,3 +741,23 @@ not a broken pipeline — Saswat re-promoted in the Vercel dashboard.
 **Still open**: T-006b, T-007c/d, T-009, T-011. H1 golden reference images
 (`scripts/eval-refs/`) remain absent — blocks T-007c and T5-6.
 
+
+## Session state 2026-10-13
+
+**T-029 (R-A) CLOSED on TEST/live 2026-10-13.** The Meta reviewer
+(`meta-review@awaas.world`, `role: manager` since T-028) could not show
+`pages_show_list` / `pages_read_engagement`: the Publishing card was admin-only.
+`f62dc18` added `canManagePublishing()` (`_shared/require-admin.ts`, tested);
+`meta-publish-targets` `list` / `page_info` accept admin or manager, `set` stays
+admin-only; the card shows "View only" to managers. `370f90e` and `b131454`
+removed two client reads of `org_integrations` that RLS limits to admins
+(the "Choose a Page" button, PageInfoCard), and `PageInfoCard` now reads
+through `meta_connection_status()`. No migration. Verified live 2026-10-13 on
+`cc.awaas.world` (bundle stamp `b131454`) signed in as the reviewer: card,
+Page list and "View only" render, no console errors, nothing changed.
+These commits touch the frozen SettingsPage publishing section; explicit
+sign-off is not recorded in the repo.
+
+**PROD removed.** Supabase `mpvdpdxzqnidwyihyhbn` was deliberately removed
+on 2026-10-13 until the PROD move. `ws1-6-isolation` stays red (no HTTP
+response) until then. That's expected, not a regression.
