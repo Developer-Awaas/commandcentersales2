@@ -54,6 +54,19 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders() })
 }
 
+// graphGet carries an AbortSignal.timeout and lets the abort (or any network
+// failure) throw. Uncaught, that became a plain-text 500 the client could only
+// show as "Edge Function returned a non-2xx status code". Caught here, it is a
+// JSON 502 that says what actually happened.
+async function graphGetOrError(path: string, params: Record<string, string>): Promise<Awaited<ReturnType<typeof graphGet>> | Response> {
+  try {
+    return await graphGet(path, params)
+  } catch (e) {
+    const timedOut = e instanceof DOMException && e.name === 'TimeoutError'
+    return json({ error: timedOut ? 'Meta did not respond in time. Try again.' : 'Could not reach Meta. Try again.' }, 502)
+  }
+}
+
 interface PageOption {
   page_id: string
   page_name: string
@@ -113,11 +126,12 @@ Deno.serve(async (req) => {
   // function — deliberately NOT a PageOption field, so the compiler's
   // excess-property check on the literal below makes leaking it into a
   // response a build error rather than a code-review question.
-  const res = await graphGet('/me/accounts', {
+  const res = await graphGetOrError('/me/accounts', {
     access_token: conn.meta_access_token,
     fields: 'id,name,access_token,instagram_business_account{id,username}',
     limit: '50',
   })
+  if (res instanceof Response) return res
   if (res.status !== 200 || !res.body.data) {
     return json({ error: `Could not list Pages: ${graphErrorMessage(res.body)}` }, 502)
   }
@@ -171,10 +185,11 @@ Deno.serve(async (req) => {
       return json({ error: 'Meta returned no Page access token for that Page, so its details cannot be read.' }, 502)
     }
 
-    const info = await graphGet(`/${pageId}`, {
+    const info = await graphGetOrError(`/${pageId}`, {
       access_token: pageToken,
       fields: 'name,fan_count,followers_count,instagram_business_account{username}',
     })
+    if (info instanceof Response) return info
     if (info.status !== 200 || info.body.error) {
       return json({ error: `Could not read Page details: ${graphErrorMessage(info.body)}` }, 502)
     }

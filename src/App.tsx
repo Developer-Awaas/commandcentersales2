@@ -39,7 +39,7 @@ import { CanvaReturn } from './pages/CanvaReturn';
 import { CanvaEditorReturn } from './pages/CanvaEditorReturn';
 import { BuildStamp } from './components/BuildStamp';
 import type { Profile } from './lib/supabase';
-import { hasModuleAccess } from './lib/access';
+import { hasModuleAccess, authView } from './lib/access';
 import { LEADGEN_V2_ENABLED } from './lib/feature-flags';
 
 function AccessDenied() {
@@ -153,7 +153,7 @@ const SECTION_DEFAULT_PAGE: Record<AppSection, string> = {
 };
 
 export default function App() {
-  const { session, profile, loading, signOut } = useAuth();
+  const { session, profile, loading, error, signOut } = useAuth();
   const [wizardActive, setWizardActive] = useState(false);
   const [generatingPage, setGeneratingPage] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState<number | null>(null);
@@ -203,7 +203,9 @@ export default function App() {
     }
   }
 
-  if (loading) {
+  const view = authView({ loading, hasSession: !!session, hasProfile: !!profile, error });
+
+  if (view === 'spinner') {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <Spinner size="lg" />
@@ -211,7 +213,18 @@ export default function App() {
     );
   }
 
-  if (!session) {
+  // Profile load failed with the session left intact (T-026: never sign out
+  // on an unconfirmed error) — say so instead of spinning or denying access.
+  if (view === 'profile-error') {
+    return (
+      <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-3 text-center px-6">
+        <p className="text-sm text-text-secondary max-w-xs">{error}</p>
+        <button onClick={() => window.location.reload()} className="text-sm text-text-primary underline">Try again</button>
+      </div>
+    );
+  }
+
+  if (view === 'login') {
     return (
       <ToastProvider>
         <LoginPage />

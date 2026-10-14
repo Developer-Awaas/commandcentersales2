@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Instagram, Users, RefreshCw, AlertCircle } from 'lucide-react';
-import { supabase, extractFunctionErrorMessage } from '../../lib/supabase';
+import { supabase, readFunctionError } from '../../lib/supabase';
 import { Spinner } from '../ui/Spinner';
 
 export interface PageInfo {
@@ -45,13 +45,25 @@ export function PageInfoCard({ pageId }: PageInfoCardProps) {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: fnErr } = await supabase.functions.invoke('meta-publish-targets', {
+      const invoke = () => supabase.functions.invoke('meta-publish-targets', {
         body: { action: 'page_info', page_id: id },
       });
+      let { data, error: fnErr } = await invoke();
+      let failure = fnErr ? await readFunctionError(fnErr, 'Could not load Page details') : null;
+      // One retry when the failure did NOT come from the function's own JSON —
+      // a gateway/platform/uncaught-throw blip, which is what showed on camera
+      // as the bare "non-2xx" on first load. The function's own answers
+      // ("not allowlisted", "no connection") are deliberate; retrying them
+      // only delays the same message.
+      if (failure && !failure.fromFunction) {
+        await new Promise((r) => setTimeout(r, 800));
+        ({ data, error: fnErr } = await invoke());
+        failure = fnErr ? await readFunctionError(fnErr, 'Could not load Page details') : null;
+      }
       const res = (data ?? {}) as Partial<PageInfo> & { ok?: boolean; error?: string };
-      if (fnErr || !res.ok) {
+      if (failure || !res.ok) {
         setInfo(null);
-        setError(res.error ?? (await extractFunctionErrorMessage(fnErr, 'Could not load Page details')));
+        setError(res.error ?? failure?.message ?? 'Could not load Page details');
         return;
       }
       setInfo(res as PageInfo);

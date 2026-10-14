@@ -40,3 +40,16 @@ export function hasModuleAccess(profile: Profile | null, pageId: string): boolea
   if (ma && typeof ma === 'object') return (ma as Record<string, unknown>)[key] === true;
   return false;
 }
+
+/**
+ * What the app shell renders for a given auth state. A fresh sign-in sets the
+ * session before the profile query resolves, while `loading` (which only
+ * covers the initial getSession) is already false — rendering the app in that
+ * window ran hasModuleAccess(null) and flashed "Access Restricted".
+ */
+export function authView(s: { loading: boolean; hasSession: boolean; hasProfile: boolean; error: string | null }): 'spinner' | 'login' | 'profile-error' | 'app' {
+  if (s.loading) return 'spinner';
+  if (!s.hasSession) return 'login';
+  if (s.hasProfile) return 'app';
+  return s.error ? 'profile-error' : 'spinner';
+}

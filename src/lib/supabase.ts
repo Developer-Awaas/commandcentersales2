@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { viteEnv } from './env';
+import { readFunctionError } from './function-error';
+export { readFunctionError };
 
 const supabaseUrl = viteEnv.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = viteEnv.VITE_SUPABASE_ANON_KEY as string;
@@ -15,16 +17,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // on the client. Use this wherever a functions.invoke() error needs to be
 // shown to a user.
 export async function extractFunctionErrorMessage(error: unknown, fallback = 'Request failed'): Promise<string> {
-  const context = (error as { context?: unknown } | null)?.context;
-  if (context && typeof (context as Response).json === 'function') {
-    try {
-      const body = await (context as Response).json();
-      if (body && typeof body === 'object' && 'error' in body && typeof (body as { error: unknown }).error === 'string') {
-        return (body as { error: string }).error;
-      }
-    } catch { /* not JSON or already consumed — fall through */ }
-  }
-  return error instanceof Error ? error.message : fallback;
+  return (await readFunctionError(error, fallback)).message;
 }
 
 export interface Profile {
