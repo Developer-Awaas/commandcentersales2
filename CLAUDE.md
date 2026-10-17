@@ -122,7 +122,7 @@ this table. Their working detail lives in `docs/decisions/phase2-schema-gate.md`
 | P1-CM-05 | CLOSED | ci | `typecheck.yml:203`; `e2e/` holds 4 specs |
 | P1-CM-06 | OPEN | edge | `retrieveMemory` (`_shared/agent-memory.ts:119`) has zero callers |
 | P1-CM-07 | CLOSED | ci | `gh api .../branches/main/protection` 2026-09-10: 4 required checks (build, edge-typecheck, edge-unit-tests, client-unit-tests), `enforce_admins: true`, `strict: false`. `playwright-e2e` and `ws1-6-isolation` are advisory, by design |
-| S1-E2E | OPEN | ci | `e2e/history-journey.spec.ts:64` red on review-build since its first-ever CI run (34485282542). Untouched by that push; wizard save throws, `saved` never flips. Hypothesis: e2e targets PROD, and `tool_outputs.platform` (migration `20260814120000`) may never have been applied there. Advisory job, not blocking |
+| S1-E2E | FIXED-UNVERIFIED | ci | Old hypothesis (`tool_outputs.platform`) ruled out: by run 38864732859 the save succeeds, then the `ReviewPopup` modal blocks `Exit Wizard` (`history-journey.spec.ts:70`). Spec now clicks Skip; needs a green CI run. Advisory job, not blocking |
 | P1-CM-08 | DEFERRED | prompts | RB-P0 Rung-2 mask design documented, not built |
 | P1-CM-09 | OPEN | prompts | Kolosus clean-template ghost-text measurement never run |
 | P1-CM-10 | OPEN | prompts | Grand Mark visual A/B never run; default is `gpt-image-2`, `_shared/image-provider.ts:225` |

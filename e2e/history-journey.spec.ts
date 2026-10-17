@@ -63,6 +63,11 @@ test('generate strategy -> save -> History -> journey -> complete campaign -> di
   await saveStrategyButton.click();
   await expect(page.getByRole('button', { name: /strategy saved/i })).toBeVisible();
 
+  // A successful save always opens ReviewPopup (P2.13 Part D), a modal
+  // overlay that intercepts every click until dismissed.
+  await page.getByRole('button', { name: 'Skip', exact: true }).click();
+  await expect(page.getByText('How was this strategy?')).toBeHidden();
+
   // Exit the wizard — in wizard mode the sidebar shows a reduced nav, so
   // History/Campaigns aren't reachable until we leave. The campaign +
   // tool_output persist across the abandon (separate tables from
